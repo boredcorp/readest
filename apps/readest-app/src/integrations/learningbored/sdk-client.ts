@@ -8,10 +8,16 @@ import type {
   LearningBoredBoardFigure,
   LearningBoredBoardOutlineItem,
   LearningBoredBoardResult,
+  LearningBoredBatchReviewGradeResult,
   LearningBoredClient,
   LearningBoredClientOptions,
+  LearningBoredDueReviewItem,
   LearningBoredFigureRegenerationSnapshot,
+  LearningBoredReviewAnswer,
+  LearningBoredReviewNextResult,
+  LearningBoredReviewStats,
   LearningBoredSourceSpan,
+  LearningBoredSubmitReviewGradeResult,
 } from './client';
 
 export type LearningBoredSdkPort = Pick<
@@ -24,6 +30,11 @@ export type LearningBoredSdkPort = Pick<
   | 'rerenderBoard'
   | 'requestFigureRegeneration'
   | 'getFigureRegeneration'
+  | 'getNextReviewItems'
+  | 'revealReviewItem'
+  | 'submitReviewGrade'
+  | 'submitReviewGradeBatch'
+  | 'getReviewStats'
   | 'submitFeedback'
 >;
 
@@ -182,6 +193,7 @@ function mapFigures(board: SdkBoard, rendered: SdkRenderedBoard): LearningBoredB
 function mapBoard(board: SdkBoard, rendered: SdkRenderedBoard): LearningBoredBoardResult {
   return {
     id: board.id,
+    documentId: board.documentId,
     kind: rendered.effectiveKind,
     title: board.title,
     svg: rendered.svg,
@@ -192,6 +204,102 @@ function mapBoard(board: SdkBoard, rendered: SdkRenderedBoard): LearningBoredBoa
       kind: item.kind,
       question: item.stem,
     })),
+  };
+}
+
+function mapDueReviewItem(
+  item: Awaited<ReturnType<LearningBoredSdkPort['getNextReviewItems']>>['items'][number],
+): LearningBoredDueReviewItem {
+  return {
+    recallItem: {
+      id: item.recallItem.id,
+      kind: item.recallItem.kind,
+      stem: item.recallItem.stem,
+      documentId: item.recallItem.documentId,
+      conceptIds: [...item.recallItem.conceptIds],
+      ...('options' in item.recallItem
+        ? { options: item.recallItem.options.map((option) => ({ ...option })) }
+        : {}),
+    },
+    reviewState: { ...item.reviewState },
+    intervalPreviews: {
+      again: { ...item.intervalPreviews.again },
+      hard: { ...item.intervalPreviews.hard },
+      good: { ...item.intervalPreviews.good },
+      easy: { ...item.intervalPreviews.easy },
+    },
+    source: { ...item.source },
+  };
+}
+
+function mapReviewAnswer(
+  answer: Awaited<ReturnType<LearningBoredSdkPort['revealReviewItem']>>['answer'],
+): LearningBoredReviewAnswer {
+  return {
+    answer: answer.answer,
+    explanation: answer.explanation,
+    optionRationales: answer.optionRationales.map((option) => ({ ...option })),
+    ...(answer.rubric === undefined ? {} : { rubric: [...answer.rubric] }),
+    anchor: {
+      ...answer.anchor,
+      location: { ...answer.anchor.location },
+      sourceSpan: { ...answer.anchor.sourceSpan },
+    },
+  };
+}
+
+function mapGradeResult(
+  result: Awaited<ReturnType<LearningBoredSdkPort['submitReviewGrade']>>,
+): LearningBoredSubmitReviewGradeResult {
+  return {
+    clientRequestId: result.clientRequestId,
+    recallItemId: result.recallItemId,
+    grade: result.grade,
+    answer: mapReviewAnswer(result.answer),
+    reviewState: { ...result.reviewState },
+    schedulerVersion: result.schedulerVersion,
+  };
+}
+
+function mapBatchGradeResult(
+  result: Awaited<ReturnType<LearningBoredSdkPort['submitReviewGradeBatch']>>['results'][number],
+): LearningBoredBatchReviewGradeResult {
+  if (result.status === 'rejected') {
+    return {
+      status: 'rejected',
+      inputIndex: result.inputIndex,
+      clientRequestId: result.clientRequestId,
+      recallItemId: result.recallItemId,
+      grade: result.grade,
+      clampedReviewedAt: result.clampedReviewedAt,
+      wasClamped: result.wasClamped,
+      error: {
+        code: result.error.code,
+        message: result.error.message,
+        ...(result.error.details === undefined ? {} : { details: { ...result.error.details } }),
+      },
+    };
+  }
+
+  return {
+    ...mapGradeResult(result),
+    status: 'applied',
+    inputIndex: result.inputIndex,
+    clampedReviewedAt: result.clampedReviewedAt,
+    wasClamped: result.wasClamped,
+  };
+}
+
+function mapReviewStats(
+  stats: Awaited<ReturnType<LearningBoredSdkPort['getReviewStats']>>,
+): LearningBoredReviewStats {
+  return {
+    daily: stats.daily.map((day) => ({ ...day })),
+    intervalBuckets: stats.intervalBuckets.map((bucket) => ({ ...bucket })),
+    totalReviews: stats.totalReviews,
+    retentionRate: stats.retentionRate,
+    lapseRate: stats.lapseRate,
+    currentStreak: stats.currentStreak,
   };
 }
 
@@ -285,6 +393,42 @@ export function createLearningBoredSdkClient(
       const sdk = createSdk(options, requestOptions?.signal);
       const created = await withAbort(() => sdk.retryStudyGeneration(generationId), requestOptions);
       return { id: created.id, status: created.status };
+    },
+
+    async getNextReviewItems(input = {}, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const review = await withAbort(() => sdk.getNextReviewItems(input), requestOptions);
+      return {
+        items: review.items.map(mapDueReviewItem),
+        queue: { ...review.queue },
+      } satisfies LearningBoredReviewNextResult;
+    },
+
+    async revealReviewItem(recallItemId, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const revealed = await withAbort(() => sdk.revealReviewItem(recallItemId), requestOptions);
+      return {
+        recallItemId: revealed.recallItemId,
+        answer: mapReviewAnswer(revealed.answer),
+      };
+    },
+
+    async submitReviewGrade(input, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const result = await withAbort(() => sdk.submitReviewGrade(input), requestOptions);
+      return mapGradeResult(result);
+    },
+
+    async submitReviewGradeBatch(grades, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const result = await withAbort(() => sdk.submitReviewGradeBatch(grades), requestOptions);
+      return { results: result.results.map(mapBatchGradeResult) };
+    },
+
+    async getReviewStats(input = {}, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const stats = await withAbort(() => sdk.getReviewStats(input), requestOptions);
+      return mapReviewStats(stats);
     },
 
     async requestFigureRegeneration(boardId, nodeId, input, requestOptions) {

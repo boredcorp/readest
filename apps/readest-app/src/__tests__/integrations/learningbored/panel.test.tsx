@@ -56,6 +56,7 @@ function createSession(
 function createBoard(overrides: Partial<LearningBoredBoardResult> = {}): LearningBoredBoardResult {
   return {
     id: 'board-1',
+    documentId: 'document-1',
     kind: 'process_flow',
     title: 'How the fictional signal moves',
     svg: null,
@@ -138,6 +139,31 @@ function createClient(overrides: Partial<LearningBoredClient> = {}): LearningBor
     })),
     cancelGeneration: vi.fn(async () => ({ ...queued, status: 'cancelled' as const })),
     retryGeneration: vi.fn(async () => queued),
+    getNextReviewItems: vi.fn(async () => ({
+      items: [],
+      queue: {
+        dueNow: 0,
+        dueToday: 0,
+        newAvailable: 0,
+        reviewedToday: 0,
+        dailyTarget: 20,
+      },
+    })),
+    revealReviewItem: vi.fn(async () => {
+      throw new Error('No review fixture configured.');
+    }),
+    submitReviewGrade: vi.fn(async () => {
+      throw new Error('No review fixture configured.');
+    }),
+    submitReviewGradeBatch: vi.fn(async () => ({ results: [] })),
+    getReviewStats: vi.fn(async () => ({
+      daily: [],
+      intervalBuckets: [],
+      totalReviews: 0,
+      retentionRate: 0,
+      lapseRate: 0,
+      currentStreak: 0,
+    })),
     submitFeedback: vi.fn(async () => undefined),
     ...overrides,
   };
@@ -147,6 +173,7 @@ function renderPanel(input?: {
   session?: LearningBoredReaderSession;
   client?: LearningBoredClient;
   onSessionPatch?: LearningBoredCapturePanelProps['onSessionPatch'];
+  onStartReview?: NonNullable<LearningBoredCapturePanelProps['onStartReview']>;
   onSourceSpanEnter?: NonNullable<LearningBoredCapturePanelProps['onSourceSpanEnter']>;
   onSourceSpanLeave?: NonNullable<LearningBoredCapturePanelProps['onSourceSpanLeave']>;
 }) {
@@ -167,6 +194,7 @@ function renderPanel(input?: {
     client,
     onClose: vi.fn(),
     onClear: vi.fn(),
+    onStartReview: input?.onStartReview,
     onSessionPatch,
     onSourceSpanEnter,
     onSourceSpanLeave,
@@ -359,6 +387,27 @@ describe('LearningBored reader result panel', () => {
     ).toBe('data:image/png;base64,AA==');
     expect(screen.queryByRole('img', { name: 'An unsupported embedded vector.' })).toBeNull();
     expect(screen.getByText('An unsupported embedded vector.', { exact: false })).toBeTruthy();
+  });
+
+  it('launches a document-scoped review from a completed Board recall preview', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const onStartReview = vi.fn<NonNullable<LearningBoredCapturePanelProps['onStartReview']>>();
+    renderPanel({
+      onStartReview,
+      client: createClient({
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Start review' }));
+    expect(onStartReview).toHaveBeenCalledWith('document-1');
   });
 
   it('keeps relationships, groups, undefined markers, and failed figure labels in the outline', async () => {

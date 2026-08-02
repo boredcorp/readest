@@ -120,6 +120,7 @@ export interface LearningBoredRecallQuestionPreview {
 
 export interface LearningBoredBoardResult {
   id: string;
+  documentId: string;
   kind: LearningBoredBoardKind;
   title: string;
   /** Sanitized again at the reader boundary before being inserted into the DOM. */
@@ -156,6 +157,8 @@ export type LearningBoredFeedbackCategory =
   | 'not_in_passage'
   | 'scaffold_wrong'
   | 'figure_misleading'
+  | 'ambiguous_question'
+  | 'bad_distractor'
   | 'wrong_board_kind'
   | 'unclear_layout'
   | 'passage_still_unclear';
@@ -163,11 +166,206 @@ export type LearningBoredFeedbackCategory =
 export interface LearningBoredFeedbackInput {
   generationId?: string;
   boardId?: string;
+  recallItemId?: string;
   figureId?: string;
   nodeId?: string;
   category: LearningBoredFeedbackCategory;
   comment?: string;
+  suppressItem?: boolean;
 }
+
+export const LEARNINGBORED_REVIEW_GRADES = ['again', 'hard', 'good', 'easy'] as const;
+
+export type LearningBoredReviewGrade = (typeof LEARNINGBORED_REVIEW_GRADES)[number];
+export type LearningBoredReviewStateClass = 'new' | 'learning' | 'review' | 'relearning';
+export type LearningBoredRecallItemKind =
+  | 'applied_scenario'
+  | 'multiple_choice'
+  | 'cloze'
+  | 'short_answer'
+  | 'term_definition'
+  | 'ordering';
+
+export interface LearningBoredReviewOption {
+  id: string;
+  text: string;
+}
+
+export interface LearningBoredDueRecallItem {
+  id: string;
+  kind: LearningBoredRecallItemKind;
+  stem: string;
+  documentId: string;
+  conceptIds: string[];
+  /** Safe choices only. Correctness and rationales arrive exclusively from reveal. */
+  options?: LearningBoredReviewOption[];
+}
+
+export interface LearningBoredDueReviewState {
+  state: LearningBoredReviewStateClass;
+  dueAt: string | null;
+  reps: number;
+  lapses: number;
+  overdueDays: number;
+}
+
+export interface LearningBoredReviewIntervalPreview {
+  intervalSeconds: number;
+  intervalDays: number;
+  dueAt: string;
+}
+
+export type LearningBoredReviewIntervalPreviews = Record<
+  LearningBoredReviewGrade,
+  LearningBoredReviewIntervalPreview
+>;
+
+export interface LearningBoredReviewSourceMetadata {
+  documentTitle: string;
+  chapter: string | null;
+  pageLabel: string | null;
+  passageId: string;
+}
+
+export interface LearningBoredDueReviewItem {
+  recallItem: LearningBoredDueRecallItem;
+  reviewState: LearningBoredDueReviewState;
+  intervalPreviews: LearningBoredReviewIntervalPreviews;
+  source: LearningBoredReviewSourceMetadata;
+}
+
+export interface LearningBoredReviewQueueSummary {
+  dueNow: number;
+  dueToday: number;
+  newAvailable: number;
+  reviewedToday: number;
+  dailyTarget: number;
+}
+
+export interface LearningBoredReviewNextInput {
+  limit?: number;
+  documentId?: string;
+}
+
+export interface LearningBoredReviewNextResult {
+  items: LearningBoredDueReviewItem[];
+  queue: LearningBoredReviewQueueSummary;
+}
+
+export interface LearningBoredReviewOptionRationale extends LearningBoredReviewOption {
+  isCorrect: boolean;
+  rationale: string;
+}
+
+export interface LearningBoredReviewAnswerAnchor {
+  documentId: string;
+  title: string;
+  readerBookId: string | null;
+  passageId: string;
+  chapter: string | null;
+  pageLabel: string | null;
+  location: LearningBoredCapturedPassage['location'];
+  sourceSpan: LearningBoredSourceSpan;
+  sourceText: string;
+  selectedText: string;
+}
+
+export interface LearningBoredReviewAnswer {
+  answer: string;
+  explanation: string;
+  optionRationales: LearningBoredReviewOptionRationale[];
+  rubric?: string[];
+  anchor: LearningBoredReviewAnswerAnchor;
+}
+
+export interface LearningBoredRevealReviewResult {
+  recallItemId: string;
+  answer: LearningBoredReviewAnswer;
+}
+
+export interface LearningBoredReviewOccurrence {
+  state: LearningBoredReviewStateClass;
+  dueAt: string | null;
+  reps: number;
+  lapses: number;
+}
+
+export interface LearningBoredSubmitReviewGradeInput {
+  clientRequestId: string;
+  recallItemId: string;
+  reviewOccurrence: LearningBoredReviewOccurrence;
+  grade: LearningBoredReviewGrade;
+  elapsedMs?: number;
+  answeredOptionId?: string;
+}
+
+export interface LearningBoredPersistedReviewState {
+  state: LearningBoredReviewStateClass;
+  stability: number;
+  difficulty: number;
+  reps: number;
+  lapses: number;
+  lastReviewedAt: string | null;
+  dueAt: string;
+  intervalSeconds: number;
+  intervalDays: number;
+}
+
+export interface LearningBoredSubmitReviewGradeResult {
+  clientRequestId: string;
+  recallItemId: string;
+  grade: LearningBoredReviewGrade;
+  answer: LearningBoredReviewAnswer;
+  reviewState: LearningBoredPersistedReviewState;
+  schedulerVersion: string;
+}
+
+export interface LearningBoredBatchReviewGradeInput extends LearningBoredSubmitReviewGradeInput {
+  reviewedAt: string;
+}
+
+export interface LearningBoredBatchReviewGradeAppliedResult extends LearningBoredSubmitReviewGradeResult {
+  status: 'applied';
+  inputIndex: number;
+  clampedReviewedAt: string;
+  wasClamped: boolean;
+}
+
+export interface LearningBoredBatchReviewGradeRejectedResult {
+  status: 'rejected';
+  inputIndex: number;
+  clientRequestId: string;
+  recallItemId: string;
+  grade: LearningBoredReviewGrade;
+  clampedReviewedAt: string;
+  wasClamped: boolean;
+  error: {
+    code: 'not_found' | 'invalid_request';
+    message: string;
+    details?: Record<string, unknown>;
+  };
+}
+
+export type LearningBoredBatchReviewGradeResult =
+  | LearningBoredBatchReviewGradeAppliedResult
+  | LearningBoredBatchReviewGradeRejectedResult;
+
+export interface LearningBoredReviewStats {
+  daily: Array<{ date: string; reviews: number }>;
+  intervalBuckets: Array<{
+    label: string;
+    minimumDays: number;
+    maximumDays: number | null;
+    reviews: number;
+    retentionRate: number;
+  }>;
+  totalReviews: number;
+  retentionRate: number;
+  lapseRate: number;
+  currentStreak: number;
+}
+
+export type LearningBoredReviewStatsWindow = '7d' | '30d' | '90d' | 'all';
 
 export interface LearningBoredClientOptions {
   signal?: AbortSignal;
@@ -216,6 +414,26 @@ export interface LearningBoredClient {
     generationId: string,
     options?: LearningBoredClientOptions,
   ): Promise<LearningBoredGenerationSnapshot>;
+  getNextReviewItems(
+    input?: LearningBoredReviewNextInput,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredReviewNextResult>;
+  revealReviewItem(
+    recallItemId: string,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredRevealReviewResult>;
+  submitReviewGrade(
+    input: LearningBoredSubmitReviewGradeInput,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredSubmitReviewGradeResult>;
+  submitReviewGradeBatch(
+    grades: LearningBoredBatchReviewGradeInput[],
+    options?: LearningBoredClientOptions,
+  ): Promise<{ results: LearningBoredBatchReviewGradeResult[] }>;
+  getReviewStats(
+    input?: { window?: LearningBoredReviewStatsWindow },
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredReviewStats>;
   submitFeedback(
     input: LearningBoredFeedbackInput,
     options?: LearningBoredClientOptions,

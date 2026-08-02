@@ -341,4 +341,245 @@ describe('LearningBored SDK Reader adapter', () => {
       labels: [expect.objectContaining({ text: 'Rotor' })],
     });
   });
+
+  it('maps the SDK review boundary without exposing answers in the due queue', async () => {
+    const due = {
+      items: [
+        {
+          recallItem: {
+            id: 'recall_123',
+            kind: 'multiple_choice' as const,
+            stem: 'Which fictional component moves?',
+            documentId: 'document_123',
+            conceptIds: ['concept_rotor'],
+            options: [
+              { id: 'choice-1', text: 'The outer ring.' },
+              { id: 'choice-2', text: 'The inner rotor.' },
+            ],
+          },
+          reviewState: {
+            state: 'new' as const,
+            dueAt: null,
+            reps: 0,
+            lapses: 0,
+            overdueDays: 0,
+          },
+          intervalPreviews: {
+            again: {
+              intervalSeconds: 60,
+              intervalDays: 0,
+              dueAt: '2026-08-02T12:01:00.000Z',
+            },
+            hard: {
+              intervalSeconds: 600,
+              intervalDays: 0,
+              dueAt: '2026-08-02T12:10:00.000Z',
+            },
+            good: {
+              intervalSeconds: 86_400,
+              intervalDays: 1,
+              dueAt: '2026-08-03T12:00:00.000Z',
+            },
+            easy: {
+              intervalSeconds: 345_600,
+              intervalDays: 4,
+              dueAt: '2026-08-06T12:00:00.000Z',
+            },
+          },
+          source: {
+            documentTitle: 'Fictional systems lesson',
+            chapter: 'Rotor basics',
+            pageLabel: 'p. 3',
+            passageId: 'passage_123',
+          },
+        },
+      ],
+      queue: {
+        dueNow: 0,
+        dueToday: 0,
+        newAvailable: 1,
+        reviewedToday: 0,
+        dailyTarget: 20,
+      },
+    };
+    const selectedText = 'The inner rotor turns while the fictional outer ring remains still.';
+    const answer = {
+      answer: 'The inner rotor turns.',
+      explanation: 'The source contrasts the inner and outer components.',
+      optionRationales: [
+        {
+          id: 'choice-1',
+          text: 'The outer ring.',
+          isCorrect: false,
+          rationale: 'It remains still.',
+        },
+        {
+          id: 'choice-2',
+          text: 'The inner rotor.',
+          isCorrect: true,
+          rationale: 'It turns.',
+        },
+      ],
+      rubric: ['Names the inner rotor.'],
+      anchor: {
+        documentId: 'document_123',
+        title: 'Fictional systems lesson',
+        readerBookId: 'book-1',
+        passageId: 'passage_123',
+        chapter: 'Rotor basics',
+        pageLabel: 'p. 3',
+        location: {
+          version: 1 as const,
+          kind: 'cfi' as const,
+          bookId: 'book-1',
+          cfi: 'epubcfi(/6/2!/4/2/1:0)',
+          pageIndex: 2,
+          pageLabel: 'p. 3',
+        },
+        sourceSpan: { sourceStart: 0, sourceEnd: selectedText.length },
+        sourceText: selectedText,
+        selectedText,
+      },
+    };
+    const gradeResult = {
+      clientRequestId: '00000000-0000-4000-8000-000000000006',
+      recallItemId: 'recall_123',
+      grade: 'good' as const,
+      answer,
+      reviewState: {
+        state: 'learning' as const,
+        stability: 1.4,
+        difficulty: 5.1,
+        reps: 1,
+        lapses: 0,
+        lastReviewedAt: '2026-08-02T12:00:00.000Z',
+        dueAt: '2026-08-03T12:00:00.000Z',
+        intervalSeconds: 86_400,
+        intervalDays: 1,
+      },
+      schedulerVersion: '1.0.0',
+    };
+    const getNextReviewItems = vi.fn(async () => due);
+    const revealReviewItem = vi.fn(async () => ({ recallItemId: 'recall_123', answer }));
+    const submitReviewGrade = vi.fn(async () => gradeResult);
+    const submitReviewGradeBatch = vi.fn(async () => ({
+      results: [
+        {
+          ...gradeResult,
+          status: 'applied' as const,
+          inputIndex: 0,
+          clampedReviewedAt: '2026-08-02T12:00:00.000Z',
+          wasClamped: false,
+        },
+        {
+          status: 'rejected' as const,
+          inputIndex: 1,
+          clientRequestId: '00000000-0000-4000-8000-000000000007',
+          recallItemId: 'recall_missing',
+          grade: 'hard' as const,
+          clampedReviewedAt: '2026-08-02T12:01:00.000Z',
+          wasClamped: true,
+          error: {
+            code: 'not_found' as const,
+            message: 'The recall item was not found.',
+            details: { recallItemId: 'recall_missing' },
+          },
+        },
+      ],
+    }));
+    const getReviewStats = vi.fn(async () => ({
+      daily: [{ date: '2026-08-02', reviews: 1 }],
+      intervalBuckets: [
+        {
+          label: '1–6 days',
+          minimumDays: 1,
+          maximumDays: 6,
+          reviews: 1,
+          retentionRate: 1,
+        },
+      ],
+      totalReviews: 1,
+      retentionRate: 1,
+      lapseRate: 0,
+      currentStreak: 1,
+    }));
+    const submitFeedback = vi.fn(async () => undefined);
+    const sdk = {
+      getNextReviewItems,
+      revealReviewItem,
+      submitReviewGrade,
+      submitReviewGradeBatch,
+      getReviewStats,
+      submitFeedback,
+    } as unknown as LearningBoredSdkPort;
+    const client = createLearningBoredSdkClient({ sdkClient: sdk });
+
+    const next = await client.getNextReviewItems({ documentId: 'document_123', limit: 5 });
+    expect(next).toEqual(due);
+    expect(JSON.stringify(next)).not.toMatch(/answer|rationale|isCorrect/u);
+
+    const revealed = await client.revealReviewItem('recall_123');
+    expect(revealed.answer).toEqual(answer);
+    const graded = await client.submitReviewGrade({
+      clientRequestId: gradeResult.clientRequestId,
+      recallItemId: 'recall_123',
+      reviewOccurrence: { state: 'new', dueAt: null, reps: 0, lapses: 0 },
+      grade: 'good',
+    });
+    expect(graded).toEqual(gradeResult);
+    const batch = await client.submitReviewGradeBatch([
+      {
+        clientRequestId: gradeResult.clientRequestId,
+        recallItemId: 'recall_123',
+        reviewOccurrence: { state: 'new', dueAt: null, reps: 0, lapses: 0 },
+        grade: 'good',
+        reviewedAt: '2026-08-02T12:00:00.000Z',
+      },
+      {
+        clientRequestId: '00000000-0000-4000-8000-000000000007',
+        recallItemId: 'recall_missing',
+        reviewOccurrence: { state: 'new', dueAt: null, reps: 0, lapses: 0 },
+        grade: 'hard',
+        reviewedAt: '2026-08-02T12:01:00.000Z',
+      },
+    ]);
+    expect(batch.results).toEqual([
+      {
+        ...gradeResult,
+        status: 'applied',
+        inputIndex: 0,
+        clampedReviewedAt: '2026-08-02T12:00:00.000Z',
+        wasClamped: false,
+      },
+      {
+        status: 'rejected',
+        inputIndex: 1,
+        clientRequestId: '00000000-0000-4000-8000-000000000007',
+        recallItemId: 'recall_missing',
+        grade: 'hard',
+        clampedReviewedAt: '2026-08-02T12:01:00.000Z',
+        wasClamped: true,
+        error: {
+          code: 'not_found',
+          message: 'The recall item was not found.',
+          details: { recallItemId: 'recall_missing' },
+        },
+      },
+    ]);
+    expect(await client.getReviewStats({ window: '7d' })).toMatchObject({
+      totalReviews: 1,
+      currentStreak: 1,
+    });
+
+    await client.submitFeedback({
+      recallItemId: 'recall_123',
+      category: 'ambiguous_question',
+      suppressItem: true,
+    });
+    expect(submitFeedback).toHaveBeenCalledWith({
+      recallItemId: 'recall_123',
+      category: 'ambiguous_question',
+      suppressItem: true,
+    });
+  });
 });

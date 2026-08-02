@@ -12,6 +12,7 @@ import { getLearningBoredBookId } from './book';
 import { subscribeToLearningBoredCaptures } from './bridge';
 import type { LearningBoredClient, LearningBoredReaderDocument } from './client';
 import LearningBoredCapturePanel from './LearningBoredCapturePanel';
+import LearningBoredReviewPanel from './LearningBoredReviewPanel';
 import { resolveLearningBoredCfiLocation } from './location';
 import {
   clearLearningBoredReaderSession,
@@ -52,6 +53,7 @@ const LearningBoredPanelHost: React.FC<LearningBoredPanelHostProps> = ({
   const { getView } = useReaderStore();
   const activeBookData = sideBarBookKey ? getBookData(sideBarBookKey) : null;
   const [active, setActive] = useState<ActiveLearningBoredPanel | null>(null);
+  const [reviewScope, setReviewScope] = useState<{ documentId: string } | null>(null);
 
   useEffect(() => {
     return subscribeToLearningBoredCaptures(({ bookKey, passage }) => {
@@ -195,6 +197,16 @@ const LearningBoredPanelHost: React.FC<LearningBoredPanelHostProps> = ({
     highlighter?.clear();
   }, [highlighter]);
 
+  if (reviewScope && client) {
+    return (
+      <LearningBoredReviewPanel
+        client={client}
+        documentId={reviewScope.documentId}
+        onClose={() => setReviewScope(null)}
+      />
+    );
+  }
+
   if (!active?.session.passage) return null;
 
   if (!active.session.panelOpen) {
@@ -220,6 +232,7 @@ const LearningBoredPanelHost: React.FC<LearningBoredPanelHostProps> = ({
       client={client}
       onClose={() => setPanelOpen(false)}
       onClear={clearPanel}
+      onStartReview={(documentId) => setReviewScope({ documentId })}
       onSessionPatch={patchSession}
       onSourceSpanEnter={highlighter?.show}
       onSourceSpanLeave={highlighter?.clear}

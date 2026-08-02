@@ -144,6 +144,7 @@ export interface LearningBoredCapturePanelProps {
   client: LearningBoredClient | null;
   onClose: () => void;
   onClear: () => void;
+  onStartReview?: (documentId: string) => void;
   onSessionPatch: (
     patch: Partial<
       Pick<LearningBoredReaderSession, 'generationId' | 'boardId' | 'showScaffold' | 'kind'>
@@ -411,6 +412,7 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
   client,
   onClose,
   onClear,
+  onStartReview,
   onSessionPatch,
   onSourceSpanEnter,
   onSourceSpanLeave,
@@ -1236,17 +1238,35 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
                 {_('These questions will be ready for review. Answers are not shown here.')}
               </p>
               {machine.board.recallQuestions.length > 0 ? (
-                <ol className='mt-3 space-y-2'>
-                  {machine.board.recallQuestions.map((item, index) => (
-                    <li
-                      key={item.id}
-                      className='bg-base-100 border-base-300 rounded-lg border p-3 text-sm'
+                <>
+                  <ol className='mt-3 space-y-2'>
+                    {machine.board.recallQuestions.map((item, index) => (
+                      <li
+                        key={item.id}
+                        className='bg-base-100 border-base-300 rounded-lg border p-3 text-sm'
+                      >
+                        <span className='text-base-content/60 me-2 font-semibold'>
+                          {index + 1}.
+                        </span>
+                        {item.question}
+                      </li>
+                    ))}
+                  </ol>
+                  {onStartReview && (
+                    <button
+                      type='button'
+                      className='btn btn-primary mt-3 min-h-12 w-full'
+                      disabled={!client}
+                      onClick={() => {
+                        const boardDocumentId = machine.board?.documentId;
+                        if (boardDocumentId) onStartReview(boardDocumentId);
+                      }}
                     >
-                      <span className='text-base-content/60 me-2 font-semibold'>{index + 1}.</span>
-                      {item.question}
-                    </li>
-                  ))}
-                </ol>
+                      <BookOpenText className='size-4' />
+                      {_('Start review')}
+                    </button>
+                  )}
+                </>
               ) : (
                 <p className='text-base-content/60 mt-3 text-sm'>
                   {_('No recall questions were created.')}
