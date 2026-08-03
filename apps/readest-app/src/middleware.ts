@@ -17,34 +17,44 @@ const corsOptions = {
 };
 
 export function middleware(request: NextRequest) {
-  const origin = request.headers.get('origin') ?? '';
-  const isAllowedOrigin = allowedOrigins.includes(origin);
+  const isApi = request.nextUrl.pathname.startsWith('/api/');
 
-  if (request.method === 'OPTIONS') {
-    const preflightHeaders = new Headers({
-      ...corsOptions,
-      ...(isAllowedOrigin && { 'Access-Control-Allow-Origin': origin }),
+  if (isApi) {
+    const origin = request.headers.get('origin') ?? '';
+    const isAllowedOrigin = allowedOrigins.includes(origin);
+
+    if (request.method === 'OPTIONS') {
+      const preflightHeaders = new Headers({
+        ...corsOptions,
+        ...(isAllowedOrigin && { 'Access-Control-Allow-Origin': origin }),
+      });
+
+      return new NextResponse(null, {
+        status: 200,
+        headers: preflightHeaders,
+      });
+    }
+
+    const response = NextResponse.next();
+
+    if (isAllowedOrigin) {
+      response.headers.set('Access-Control-Allow-Origin', origin);
+    }
+
+    Object.entries(corsOptions).forEach(([key, value]) => {
+      response.headers.set(key, value);
     });
 
-    return new NextResponse(null, {
-      status: 200,
-      headers: preflightHeaders,
-    });
+    return response;
   }
 
+  // Turso's WASM worker pool requires a cross-origin-isolated document.
   const response = NextResponse.next();
-
-  if (isAllowedOrigin) {
-    response.headers.set('Access-Control-Allow-Origin', origin);
-  }
-
-  Object.entries(corsOptions).forEach(([key, value]) => {
-    response.headers.set(key, value);
-  });
-
+  response.headers.set('Cross-Origin-Opener-Policy', 'same-origin');
+  response.headers.set('Cross-Origin-Embedder-Policy', 'require-corp');
   return response;
 }
 
 export const config = {
-  matcher: ['/api/:path*', '/api/stripe/:path*', '/api/metadata/:path*'],
+  matcher: ['/((?!_next/static|_next/image|favicon.ico|sw.js|manifest.json).*)'],
 };

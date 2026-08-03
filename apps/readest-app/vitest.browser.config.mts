@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import tsconfigPaths from 'vite-tsconfig-paths';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
@@ -33,9 +34,9 @@ export default defineConfig({
     ],
     exclude: [
       '@pdfjs/pdf.min.mjs',
-      '@tursodatabase/database-wasm',
-      '@tursodatabase/database-wasm-common',
-      '@tursodatabase/database-common',
+      '@readest/turso-database-wasm',
+      '@readest/turso-database-wasm-common',
+      '@readest/turso-database-common',
     ],
   },
   server: {
@@ -52,6 +53,7 @@ export default defineConfig({
     browser: {
       enabled: true,
       headless: true,
+      screenshotFailures: false,
       provider: playwright({
         contextOptions: {
           viewport: { width: 1920, height: 1080 },
@@ -66,10 +68,10 @@ export default defineConfig({
             threshold: 0.1,
             allowedMismatchedPixelRatio: 0.02,
           },
-          // Strip platform from the path so one baseline works on macOS and Linux.
-          // The path is relative to the project root (not the test file).
-          resolveScreenshotPath: ({ arg, browserName, ext, testFileDirectory, testFileName }) =>
-            `${testFileDirectory}/__screenshots__/${testFileName}/${arg}-${browserName}${ext}`,
+          // Strip platform from the path so one baseline works across hosts.
+          // Vitest requires an absolute path when it writes updated baselines.
+          resolveScreenshotPath: ({ arg, browserName, ext, root, testFileDirectory, testFileName }) =>
+            resolve(root, testFileDirectory, '__screenshots__', testFileName, `${arg}-${browserName}${ext}`),
         },
       },
     },

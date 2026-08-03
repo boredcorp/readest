@@ -29,11 +29,14 @@ const nextConfig = {
   assetPrefix: '',
   reactStrictMode: true,
   serverExternalPackages: ['isows'],
-  webpack: (config) => {
+  webpack: (config, { isServer }) => {
     config.resolve.alias = {
       ...config.resolve.alias,
       nunjucks: 'nunjucks/browser/nunjucks.js',
-      ...(appPlatform !== 'web' ? { '@tursodatabase/database-wasm': false } : {}),
+      ...(appPlatform !== 'web' ? { '@readest/turso-database-wasm/webpack': false } : {}),
+      ...(isServer && appPlatform === 'web'
+        ? { '@readest/turso-database-wasm/webpack': false }
+        : {}),
     };
     return config;
   },
@@ -41,7 +44,9 @@ const nextConfig = {
     root: storyBoredRoot,
     resolveAlias: {
       nunjucks: 'nunjucks/browser/nunjucks.js',
-      ...(appPlatform !== 'web' ? { '@tursodatabase/database-wasm': './src/utils/stub.ts' } : {}),
+      ...(appPlatform !== 'web'
+        ? { '@readest/turso-database-wasm/webpack': './src/utils/stub.ts' }
+        : {}),
     },
   },
   transpilePackages: [
