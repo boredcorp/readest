@@ -3,22 +3,35 @@
   "private": true,
   "repository": "readest/readest",
   "scripts": {
-    "test": "pnpm --filter @readest/readest-app test",
-    "lint": "pnpm --filter @readest/readest-app lint",
-    "tauri": "pnpm --filter @readest/readest-app tauri",
-    "dev-web": "pnpm --filter @readest/readest-app dev-web",
+    "test": "corepack pnpm --filter @readest/readest-app test:run",
+    "test:browser": "corepack pnpm --filter @readest/readest-app test:browser",
+    "lint": "corepack pnpm --filter @readest/readest-app lint",
+    "tauri": "corepack pnpm --filter @readest/readest-app tauri",
+    "dev-web": "corepack pnpm --filter @readest/readest-app dev-web",
+    "dev-web:local": "corepack pnpm --filter @readest/readest-app dev-web:local",
+    "start-web:local": "corepack pnpm --filter @readest/readest-app start-web:local",
+    "build:web": "corepack pnpm --filter @readest/readest-app build-web",
+    "check:built-web": "corepack pnpm --filter @readest/readest-app check:all",
+    "setup:vendors": "corepack pnpm --filter @readest/readest-app setup-vendors",
     "prepare": "husky",
-    "fmt:check": "pnpm --filter @readest/readest-app fmt:check",
-    "clippy:check": "pnpm --filter @readest/readest-app clippy:check",
+    "fmt:check": "corepack pnpm --filter @readest/readest-app fmt:check",
+    "clippy:check": "corepack pnpm --filter @readest/readest-app clippy:check",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,css,json,md,html,yml}\"",
     "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,css,json,md,html,yml}\"",
-    "deps:check": "pnpm outdated -r",
-    "deps:audit": "pnpm audit"
+    "deps:check": "corepack pnpm outdated -r",
+    "deps:audit": "corepack pnpm audit"
   },
   "packageManager": "pnpm@11.11.0",
   "engines": {
     "node": ">=24.0.0 <25",
     "pnpm": ">=11.11.0 <12"
+  },
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.18.0",
+      "onFail": "error"
+    }
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.3",
