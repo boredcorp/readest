@@ -29,21 +29,66 @@ vi.mock('@/store/readerStore', () => ({
 }));
 
 vi.mock('@/integrations/learningbored/LearningBoredCapturePanel', () => ({
-  default: ({ onStartReview }: { onStartReview?: (documentId: string) => void }) => (
+  default: ({
+    onStartReview,
+    onOpenProgress,
+  }: {
+    onStartReview?: (documentId: string) => void;
+    onOpenProgress?: (documentId: string) => void;
+  }) => (
     <aside aria-label='LearningBored Board panel'>
       <button type='button' onClick={() => onStartReview?.('document-fictional')}>
         Start review
+      </button>
+      <button type='button' onClick={() => onOpenProgress?.('document-fictional')}>
+        Progress
       </button>
     </aside>
   ),
 }));
 
 vi.mock('@/integrations/learningbored/LearningBoredReviewPanel', () => ({
-  default: ({ documentId, onClose }: { documentId?: string; onClose: () => void }) => (
+  default: ({
+    documentId,
+    conceptId,
+    onClose,
+    onOpenProgress,
+  }: {
+    documentId?: string;
+    conceptId?: string;
+    onClose: () => void;
+    onOpenProgress?: (documentId: string) => void;
+  }) => (
     <aside aria-label='LearningBored review panel'>
       <span>{documentId}</span>
+      <span>{conceptId}</span>
       <button type='button' onClick={onClose}>
         Close review
+      </button>
+      <button type='button' onClick={() => documentId && onOpenProgress?.(documentId)}>
+        View progress
+      </button>
+    </aside>
+  ),
+}));
+
+vi.mock('@/integrations/learningbored/LearningBoredProgressPanel', () => ({
+  default: ({
+    documentId,
+    onClose,
+    onStartReview,
+  }: {
+    documentId: string;
+    onClose: () => void;
+    onStartReview: (documentId: string, conceptId: string) => void;
+  }) => (
+    <aside aria-label='LearningBored progress panel'>
+      <span>{documentId}</span>
+      <button type='button' onClick={onClose}>
+        Close progress
+      </button>
+      <button type='button' onClick={() => onStartReview(documentId, 'concept-fictional')}>
+        Review weak concept
       </button>
     </aside>
   ),
@@ -98,5 +143,27 @@ describe('LearningBored review host', () => {
 
     expect(screen.getByRole('complementary', { name: 'LearningBored review panel' })).toBeTruthy();
     expect(screen.queryByRole('complementary', { name: 'LearningBored Board panel' })).toBeNull();
+  });
+
+  it('opens progress from a completed Board and starts concept-scoped review', () => {
+    const client = {} as LearningBoredClient;
+    render(<LearningBoredPanelHost client={client} />);
+
+    act(() => {
+      publishLearningBoredCapture({ bookKey: 'book-key', passage: passage() });
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Progress' }));
+    expect(
+      screen.getByRole('complementary', { name: 'LearningBored progress panel' }),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review weak concept' }));
+    expect(screen.getByRole('complementary', { name: 'LearningBored review panel' })).toBeTruthy();
+    expect(screen.getByText('concept-fictional')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View progress' }));
+    expect(
+      screen.getByRole('complementary', { name: 'LearningBored progress panel' }),
+    ).toBeTruthy();
   });
 });

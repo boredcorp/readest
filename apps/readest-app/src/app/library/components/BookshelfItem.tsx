@@ -18,6 +18,8 @@ import { FILE_REVEAL_LABELS, FILE_REVEAL_PLATFORMS } from '@/utils/os';
 import { Book, BooksGroup, ReadingStatus } from '@/types/book';
 import { md5Fingerprint } from '@/utils/md5';
 import BookItem from './BookItem';
+import type { LearningBoredDocumentSummary } from '@/integrations/learningbored/client';
+import { getLearningBoredLibraryStatusLabels } from '@/integrations/learningbored/LearningBoredLibraryStatus';
 import GroupItem from './GroupItem';
 
 export const generateBookshelfItems = (
@@ -88,6 +90,7 @@ interface BookshelfItemProps {
   isSelectMode: boolean;
   itemSelected: boolean;
   transferProgress: number | null;
+  learningBoredDocument?: LearningBoredDocumentSummary;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   toggleSelection: (hash: string) => void;
   handleGroupBooks: () => void;
@@ -110,6 +113,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   isSelectMode,
   itemSelected,
   transferProgress,
+  learningBoredDocument,
   setLoading,
   toggleSelection,
   handleGroupBooks,
@@ -125,6 +129,14 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   const { envConfig, appService } = useEnv();
   const { settings } = useSettingsStore();
   const { updateBook } = useLibraryStore();
+  const learningBoredStatus =
+    'format' in item ? getLearningBoredLibraryStatusLabels(learningBoredDocument ?? null, _) : null;
+  const accessibleName =
+    'format' in item && learningBoredStatus
+      ? `${item.title}. ${learningBoredStatus.accessibleLabel}`
+      : 'format' in item
+        ? item.title
+        : item.name;
 
   const showBookDetailsModal = useCallback(async (book: Book) => {
     handleShowDetailsBook(book);
@@ -400,7 +412,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
         )}
         role='button'
         tabIndex={0}
-        aria-label={'format' in item ? item.title : item.name}
+        aria-label={accessibleName}
         style={{
           transition: 'transform 0.2s',
         }}
@@ -416,6 +428,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
               isSelectMode={isSelectMode}
               bookSelected={itemSelected}
               transferProgress={transferProgress}
+              learningBoredDocument={learningBoredDocument}
               handleBookUpload={handleBookUpload}
               handleBookDownload={handleBookDownload}
               showBookDetailsModal={showBookDetailsModal}

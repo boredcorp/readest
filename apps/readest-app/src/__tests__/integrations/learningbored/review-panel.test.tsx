@@ -130,6 +130,35 @@ function createClient(
 ): LearningBoredClient {
   const answer = revealedAnswer();
   return {
+    listDocuments: vi.fn(async () => ({ documents: [] })),
+    getDocument: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
+    getDocumentMastery: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
+    getDocumentReadiness: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
+    listBlueprints: vi.fn(async () => ({ blueprints: [] })),
+    createBlueprint: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
+    patchBlueprint: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
+    attachBlueprint: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
+    setManualConceptMapping: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
+    getBoardComprehension: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
+    submitBoardComprehension: vi.fn(async () => {
+      throw new Error('Not used by review tests.');
+    }),
     createGeneration: vi.fn(async () => {
       throw new Error('Not used by review tests.');
     }),
@@ -222,13 +251,14 @@ describe('LearningBored review panel', () => {
       <LearningBoredReviewPanel
         client={client}
         documentId='document-fictional'
+        conceptId='concept-fictional'
         onClose={vi.fn()}
       />,
     );
 
     expect(await screen.findByText('1 question is due now.')).toBeTruthy();
     expect(client.getNextReviewItems).toHaveBeenCalledWith(
-      { limit: 20, documentId: 'document-fictional' },
+      { limit: 20, documentId: 'document-fictional', conceptId: 'concept-fictional' },
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
     );
     expect(screen.queryByText('The inner fictional rotor moves.')).toBeNull();
@@ -303,6 +333,29 @@ describe('LearningBored review panel', () => {
         grade,
       }),
     );
+  });
+
+  it('offers document progress when a scoped review completes', async () => {
+    const item = dueItem('recall-one', 'Which fictional component moves?');
+    const client = createClient([item]);
+    const onOpenProgress = vi.fn();
+    render(
+      <LearningBoredReviewPanel
+        client={client}
+        documentId='document-fictional'
+        onClose={vi.fn()}
+        onOpenProgress={onOpenProgress}
+      />,
+    );
+
+    await beginReview();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    await screen.findByText('The inner fictional rotor moves.');
+    await waitForGradesReady();
+    fireEvent.click(screen.getByRole('button', { name: 'Good, next review 2 days' }));
+
+    fireEvent.click(await screen.findByRole('button', { name: 'View progress' }));
+    expect(onOpenProgress).toHaveBeenCalledWith('document-fictional');
   });
 
   it('holds one request ID through an uncertain grade retry, then advances to the next item', async () => {

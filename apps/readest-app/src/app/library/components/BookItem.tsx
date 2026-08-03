@@ -18,6 +18,8 @@ import { navigateToLogin } from '@/utils/nav';
 import { formatAuthors, formatDescription } from '@/utils/book';
 import ReadingProgress from './ReadingProgress';
 import BookCover from '@/components/BookCover';
+import type { LearningBoredDocumentSummary } from '@/integrations/learningbored/client';
+import LearningBoredLibraryStatus from '@/integrations/learningbored/LearningBoredLibraryStatus';
 
 interface BookItemProps {
   book: Book;
@@ -26,6 +28,7 @@ interface BookItemProps {
   isSelectMode: boolean;
   bookSelected: boolean;
   transferProgress: number | null;
+  learningBoredDocument?: LearningBoredDocumentSummary;
   handleBookUpload: (book: Book) => void;
   handleBookDownload: (book: Book, options?: { redownload?: boolean; queued?: boolean }) => void;
   showBookDetailsModal: (book: Book) => void;
@@ -38,6 +41,7 @@ const BookItem: React.FC<BookItemProps> = ({
   isSelectMode,
   bookSelected,
   transferProgress,
+  learningBoredDocument,
   handleBookUpload,
   handleBookDownload,
   showBookDetailsModal,
@@ -117,6 +121,7 @@ const BookItem: React.FC<BookItemProps> = ({
             {formatDescription(book.metadata?.description)}
           </h4>
         )}
+        <LearningBoredLibraryStatus document={learningBoredDocument ?? null} />
         <div
           className={clsx(
             'flex items-center',

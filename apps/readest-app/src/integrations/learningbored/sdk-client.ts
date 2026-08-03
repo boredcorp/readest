@@ -8,11 +8,16 @@ import type {
   LearningBoredBoardFigure,
   LearningBoredBoardOutlineItem,
   LearningBoredBoardResult,
+  LearningBoredBlueprint,
   LearningBoredBatchReviewGradeResult,
   LearningBoredClient,
   LearningBoredClientOptions,
+  LearningBoredDocumentSummary,
   LearningBoredDueReviewItem,
   LearningBoredFigureRegenerationSnapshot,
+  LearningBoredManualConceptMappingResult,
+  LearningBoredMasteryResult,
+  LearningBoredReadinessResult,
   LearningBoredReviewAnswer,
   LearningBoredReviewNextResult,
   LearningBoredReviewStats,
@@ -22,6 +27,17 @@ import type {
 
 export type LearningBoredSdkPort = Pick<
   SdkLearningBoredClient,
+  | 'listDocuments'
+  | 'getDocument'
+  | 'getDocumentMastery'
+  | 'getDocumentReadiness'
+  | 'listBlueprints'
+  | 'createBlueprint'
+  | 'patchBlueprint'
+  | 'attachBlueprint'
+  | 'setManualConceptMapping'
+  | 'getBoardComprehension'
+  | 'submitBoardComprehension'
   | 'createStudyGeneration'
   | 'getStudyGeneration'
   | 'cancelStudyGeneration'
@@ -303,6 +319,58 @@ function mapReviewStats(
   };
 }
 
+function mapDocument(
+  document: Awaited<ReturnType<LearningBoredSdkPort['getDocument']>>,
+): LearningBoredDocumentSummary {
+  return { ...document };
+}
+
+function mapMastery(
+  mastery: Awaited<ReturnType<LearningBoredSdkPort['getDocumentMastery']>>,
+): LearningBoredMasteryResult {
+  return {
+    ...mastery,
+    concepts: mastery.concepts.map((concept) => ({
+      ...concept,
+      boardIds: [...concept.boardIds],
+      dueItemIds: [...concept.dueItemIds],
+    })),
+    summary: { ...mastery.summary },
+  };
+}
+
+function mapReadiness(
+  readiness: Awaited<ReturnType<LearningBoredSdkPort['getDocumentReadiness']>>,
+): LearningBoredReadinessResult {
+  return {
+    ...readiness,
+    objectives: readiness.objectives.map((objective) => ({
+      ...objective,
+      weakestConceptIds: [...objective.weakestConceptIds],
+    })),
+    conceptMappings: readiness.conceptMappings.map((concept) => ({
+      ...concept,
+      mappings: concept.mappings.map((mapping) => ({ ...mapping })),
+    })),
+  };
+}
+
+function mapBlueprint(blueprint: LearningBoredBlueprint): LearningBoredBlueprint {
+  return {
+    ...blueprint,
+    objectives: blueprint.objectives.map((objective) => ({ ...objective })),
+  };
+}
+
+function mapManualConceptMapping(
+  mapping: Awaited<ReturnType<LearningBoredSdkPort['setManualConceptMapping']>>,
+): LearningBoredManualConceptMappingResult {
+  return {
+    ...mapping,
+    mappings: mapping.mappings.map((objective) => ({ ...objective })),
+  };
+}
+
 function createSdk(
   options: CreateLearningBoredSdkClientOptions,
   signal?: AbortSignal,
@@ -347,6 +415,75 @@ export function createLearningBoredSdkClient(
   };
 
   return {
+    async listDocuments(requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const result = await withAbort(() => sdk.listDocuments(), requestOptions);
+      return { documents: result.documents.map(mapDocument) };
+    },
+
+    async getDocument(documentId, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const document = await withAbort(() => sdk.getDocument(documentId), requestOptions);
+      return mapDocument(document);
+    },
+
+    async getDocumentMastery(documentId, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const mastery = await withAbort(() => sdk.getDocumentMastery(documentId), requestOptions);
+      return mapMastery(mastery);
+    },
+
+    async getDocumentReadiness(documentId, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const readiness = await withAbort(() => sdk.getDocumentReadiness(documentId), requestOptions);
+      return mapReadiness(readiness);
+    },
+
+    async listBlueprints(requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const result = await withAbort(() => sdk.listBlueprints(), requestOptions);
+      return { blueprints: result.blueprints.map(mapBlueprint) };
+    },
+
+    async createBlueprint(input, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const blueprint = await withAbort(() => sdk.createBlueprint(input), requestOptions);
+      return mapBlueprint(blueprint);
+    },
+
+    async patchBlueprint(blueprintId, input, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const blueprint = await withAbort(
+        () => sdk.patchBlueprint(blueprintId, input),
+        requestOptions,
+      );
+      return mapBlueprint(blueprint);
+    },
+
+    async attachBlueprint(documentId, input, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      return withAbort(() => sdk.attachBlueprint(documentId, input), requestOptions);
+    },
+
+    async setManualConceptMapping(documentId, conceptId, input, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const mapping = await withAbort(
+        () => sdk.setManualConceptMapping(documentId, conceptId, input),
+        requestOptions,
+      );
+      return mapManualConceptMapping(mapping);
+    },
+
+    async getBoardComprehension(boardId, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      return withAbort(() => sdk.getBoardComprehension(boardId), requestOptions);
+    },
+
+    async submitBoardComprehension(boardId, input, requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      return withAbort(() => sdk.submitBoardComprehension(boardId, input), requestOptions);
+    },
+
     async createGeneration(input, requestOptions) {
       const sdk = createSdk(options, requestOptions?.signal);
       const created = await withAbort(() => sdk.createStudyGeneration(input), requestOptions);

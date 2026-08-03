@@ -1,3 +1,26 @@
+import type {
+  AttachBlueprintRequest,
+  AttachBlueprintResponse,
+  BlueprintListResponse,
+  BlueprintResponse,
+  BoardComprehensionOutcome,
+  BoardComprehensionResponse,
+  ConceptMastery,
+  ConceptObjectiveMapping,
+  CreateBlueprintRequest,
+  DocumentConceptMapping,
+  DocumentListResponse,
+  DocumentMasteryResponse,
+  DocumentReadinessResponse,
+  DocumentResponse,
+  ManualConceptMappingRequest,
+  ManualConceptMappingResponse,
+  MasteryTier,
+  ObjectiveReadiness,
+  PatchBlueprintRequest,
+  SubmitBoardComprehensionRequest,
+} from '@learningbored/sdk';
+
 import type { LearningBoredCapturedPassage } from './types';
 
 export const LEARNINGBORED_BOARD_KINDS = [
@@ -44,6 +67,23 @@ export interface LearningBoredReaderDocument {
   author?: string;
   format: string;
 }
+
+export type LearningBoredDocumentSummary = DocumentResponse;
+export type LearningBoredDocumentList = DocumentListResponse;
+export type LearningBoredMasteryTier = MasteryTier;
+export type LearningBoredConceptMastery = ConceptMastery;
+export type LearningBoredMasteryResult = DocumentMasteryResponse;
+export type LearningBoredObjectiveInput = NonNullable<PatchBlueprintRequest['objectives']>[number];
+export type LearningBoredObjective = BlueprintResponse['objectives'][number];
+export type LearningBoredBlueprint = BlueprintResponse;
+export type LearningBoredBlueprintList = BlueprintListResponse;
+export type LearningBoredObjectiveReadiness = ObjectiveReadiness;
+export type LearningBoredReadinessResult = DocumentReadinessResponse;
+export type LearningBoredManualConceptMapping = ConceptObjectiveMapping;
+export type LearningBoredManualConceptMappingResult = ManualConceptMappingResponse;
+export type LearningBoredDocumentConceptMapping = DocumentConceptMapping;
+export type LearningBoredComprehensionOutcome = BoardComprehensionOutcome;
+export type LearningBoredBoardComprehension = BoardComprehensionResponse;
 
 export interface LearningBoredBoardOutlineItem {
   id: string;
@@ -160,8 +200,7 @@ export type LearningBoredFeedbackCategory =
   | 'ambiguous_question'
   | 'bad_distractor'
   | 'wrong_board_kind'
-  | 'unclear_layout'
-  | 'passage_still_unclear';
+  | 'unclear_layout';
 
 export interface LearningBoredFeedbackInput {
   generationId?: string;
@@ -245,6 +284,7 @@ export interface LearningBoredReviewQueueSummary {
 export interface LearningBoredReviewNextInput {
   limit?: number;
   documentId?: string;
+  conceptId?: string;
 }
 
 export interface LearningBoredReviewNextResult {
@@ -378,6 +418,49 @@ export interface LearningBoredClientOptions {
  * implementation backed by the versioned SDK once that package is available.
  */
 export interface LearningBoredClient {
+  listDocuments(options?: LearningBoredClientOptions): Promise<LearningBoredDocumentList>;
+  getDocument(
+    documentId: string,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredDocumentSummary>;
+  getDocumentMastery(
+    documentId: string,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredMasteryResult>;
+  getDocumentReadiness(
+    documentId: string,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredReadinessResult>;
+  listBlueprints(options?: LearningBoredClientOptions): Promise<LearningBoredBlueprintList>;
+  createBlueprint(
+    input: CreateBlueprintRequest,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredBlueprint>;
+  patchBlueprint(
+    blueprintId: string,
+    input: PatchBlueprintRequest,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredBlueprint>;
+  attachBlueprint(
+    documentId: string,
+    input: AttachBlueprintRequest,
+    options?: LearningBoredClientOptions,
+  ): Promise<AttachBlueprintResponse>;
+  setManualConceptMapping(
+    documentId: string,
+    conceptId: string,
+    input: ManualConceptMappingRequest,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredManualConceptMappingResult>;
+  getBoardComprehension(
+    boardId: string,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredBoardComprehension>;
+  submitBoardComprehension(
+    boardId: string,
+    input: SubmitBoardComprehensionRequest,
+    options?: LearningBoredClientOptions,
+  ): Promise<LearningBoredBoardComprehension>;
   createGeneration(
     input: LearningBoredCreateGenerationInput,
     options?: LearningBoredClientOptions,

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BookOpenText, Check, Flag, RefreshCw, X } from 'lucide-react';
+import { BarChart3, BookOpenText, Check, Flag, RefreshCw, X } from 'lucide-react';
 
 import { useTranslation } from '@/hooks/useTranslation';
 import {
@@ -36,7 +36,9 @@ type GradeSubmissionMode = 'initial' | 'reconcile';
 export interface LearningBoredReviewPanelProps {
   client: LearningBoredClient;
   documentId?: string;
+  conceptId?: string;
   onClose: () => void;
+  onOpenProgress?: (documentId: string) => void;
 }
 
 function formatInterval(seconds: number, days: number): string {
@@ -77,7 +79,9 @@ function isDefinitiveGradeFailure(error: unknown): boolean {
 const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
   client,
   documentId,
+  conceptId,
   onClose,
+  onOpenProgress,
 }) => {
   const _ = useTranslation();
   const [items, setItems] = useState<LearningBoredDueReviewItem[]>([]);
@@ -138,7 +142,11 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
       if (!options.preserveError) setError(null);
       try {
         const result = await client.getNextReviewItems(
-          { limit: 20, ...(documentId ? { documentId } : {}) },
+          {
+            limit: 20,
+            ...(documentId ? { documentId } : {}),
+            ...(conceptId ? { conceptId } : {}),
+          },
           { signal },
         );
         setItems(result.items);
@@ -161,7 +169,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [client, documentId],
+    [client, conceptId, documentId],
   );
 
   useEffect(() => {
@@ -807,9 +815,21 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
               {_(`Continue review — ${remainingCount} remaining`)}
             </button>
           ) : (
-            <button type='button' className='btn mt-6 min-h-11' onClick={onClose}>
-              {_('Return to reading')}
-            </button>
+            <div className='mt-6 flex flex-wrap justify-center gap-2'>
+              {documentId && onOpenProgress ? (
+                <button
+                  type='button'
+                  className='btn btn-primary min-h-11'
+                  onClick={() => onOpenProgress(documentId)}
+                >
+                  <BarChart3 className='size-4' />
+                  {_('View progress')}
+                </button>
+              ) : null}
+              <button type='button' className='btn min-h-11' onClick={onClose}>
+                {_('Return to reading')}
+              </button>
+            </div>
           )}
         </section>
       ) : (

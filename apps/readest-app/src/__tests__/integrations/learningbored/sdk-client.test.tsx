@@ -582,4 +582,132 @@ describe('LearningBored SDK Reader adapter', () => {
       suppressItem: true,
     });
   });
+
+  it('maps the Milestone 7 progress and comprehension SDK boundary', async () => {
+    const document = {
+      id: 'document_123',
+      title: 'Fictional systems lesson',
+      author: null,
+      format: 'EPUB',
+      sourceType: 'upload' as const,
+      readerBookId: 'book-1',
+      pageCount: null,
+      blueprintId: 'blueprint_123',
+      boardCount: 1,
+      recallItemCount: 2,
+      dueCount: 1,
+      lastOpenedAt: null,
+      createdAt: '2026-08-03T10:00:00.000Z',
+      updatedAt: '2026-08-03T10:00:00.000Z',
+    };
+    const mastery = {
+      documentId: document.id,
+      concepts: [
+        {
+          conceptId: 'concept_123',
+          name: 'Fictional signal',
+          score: null,
+          tier: 'new' as const,
+          itemCount: 2,
+          dueCount: 1,
+          lastReviewedAt: null,
+          boardIds: ['board_123'],
+          dueItemIds: ['recall_123'],
+        },
+      ],
+      summary: { new: 1, learning: 0, retained: 0, lapsed: 0 },
+      computedAt: '2026-08-03T10:00:00.000Z',
+      derivationVersion: '1.0.0' as const,
+    };
+    const readiness = {
+      documentId: document.id,
+      blueprintId: 'blueprint_123',
+      overall: null,
+      objectives: [
+        {
+          objectiveId: 'objective_123',
+          code: '1.0',
+          title: 'Signals',
+          weighting: 1,
+          readiness: null,
+          status: 'not_started' as const,
+          conceptCount: 1,
+          startedConceptCount: 0,
+          weakestConceptIds: ['concept_123'],
+        },
+      ],
+      conceptMappings: [],
+      computedAt: '2026-08-03T10:00:00.000Z',
+      derivationVersion: '1.0.0' as const,
+    };
+    const comprehension = {
+      boardId: 'board_123',
+      passageId: 'passage_123',
+      status: 'unanswered' as const,
+      outcome: null,
+      feedbackId: null,
+      respondedAt: null,
+    };
+    const sdk = {
+      listDocuments: vi.fn(async () => ({ documents: [document] })),
+      getDocument: vi.fn(async () => document),
+      getDocumentMastery: vi.fn(async () => mastery),
+      getDocumentReadiness: vi.fn(async () => readiness),
+      listBlueprints: vi.fn(async () => ({ blueprints: [] })),
+      createBlueprint: vi.fn(async () => {
+        throw new Error('Not used.');
+      }),
+      patchBlueprint: vi.fn(async () => {
+        throw new Error('Not used.');
+      }),
+      attachBlueprint: vi.fn(async () => ({
+        documentId: document.id,
+        blueprintId: 'blueprint_123',
+        mappedConceptCount: 1,
+        unmappedConceptCount: 0,
+      })),
+      setManualConceptMapping: vi.fn(async () => ({
+        documentId: document.id,
+        conceptId: 'concept_123',
+        mappings: [
+          {
+            objectiveId: 'objective_123',
+            confidence: 1,
+            isManual: true,
+            mappingVersion: null,
+          },
+        ],
+      })),
+      getBoardComprehension: vi.fn(async () => comprehension),
+      submitBoardComprehension: vi.fn(async () => ({
+        ...comprehension,
+        status: 'answered' as const,
+        outcome: 'breakthrough' as const,
+        feedbackId: 'feedback_123',
+        respondedAt: '2026-08-03T10:01:00.000Z',
+      })),
+    } as unknown as LearningBoredSdkPort;
+    const client = createLearningBoredSdkClient({ sdkClient: sdk });
+
+    expect(await client.listDocuments()).toEqual({ documents: [document] });
+    expect(await client.getDocument(document.id)).toEqual(document);
+    expect(await client.getDocumentMastery(document.id)).toEqual(mastery);
+    expect(await client.getDocumentReadiness(document.id)).toEqual(readiness);
+    expect(await client.getBoardComprehension('board_123')).toEqual(comprehension);
+    await client.attachBlueprint(document.id, { blueprintId: 'blueprint_123' });
+    await client.setManualConceptMapping(document.id, 'concept_123', {
+      objectiveIds: ['objective_123'],
+    });
+    await client.submitBoardComprehension('board_123', { outcome: 'breakthrough' });
+
+    expect(sdk.attachBlueprint).toHaveBeenCalledWith(document.id, {
+      blueprintId: 'blueprint_123',
+    });
+    expect(sdk.setManualConceptMapping).toHaveBeenCalledWith(document.id, 'concept_123', {
+      objectiveIds: ['objective_123'],
+    });
+    expect(sdk.submitBoardComprehension).toHaveBeenCalledWith('board_123', {
+      outcome: 'breakthrough',
+    });
+  });
 });

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { LayoutDashboard } from 'lucide-react';
 
 import { useBookDataStore } from '@/store/bookDataStore';
@@ -11,7 +11,9 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { getLearningBoredBookId } from './book';
 import { subscribeToLearningBoredCaptures } from './bridge';
 import type { LearningBoredClient, LearningBoredReaderDocument } from './client';
+import { useLearningBoredClient } from './LearningBoredClientContext';
 import LearningBoredCapturePanel from './LearningBoredCapturePanel';
+import LearningBoredProgressPanel from './LearningBoredProgressPanel';
 import LearningBoredReviewPanel from './LearningBoredReviewPanel';
 import { resolveLearningBoredCfiLocation } from './location';
 import {
@@ -22,15 +24,15 @@ import {
 } from './session';
 import { createLearningBoredTemporaryHighlightCallbacks } from './source-span';
 
-const LearningBoredClientContext = createContext<LearningBoredClient | null>(null);
-
-export const LearningBoredClientProvider = LearningBoredClientContext.Provider;
-
 interface ActiveLearningBoredPanel {
   bookKey: string;
   session: LearningBoredReaderSession;
   revision: number;
 }
+
+type LearningBoredPanelView =
+  | { kind: 'review'; documentId: string; conceptId?: string }
+  | { kind: 'progress'; documentId: string };
 
 export interface LearningBoredPanelHostProps {
   /** Overrides the context in tests and in shallow application adapters. */
@@ -46,14 +48,14 @@ const LearningBoredPanelHost: React.FC<LearningBoredPanelHostProps> = ({
   client: clientOverride,
 }) => {
   const _ = useTranslation();
-  const contextClient = useContext(LearningBoredClientContext);
+  const contextClient = useLearningBoredClient();
   const client = clientOverride === undefined ? contextClient : clientOverride;
   const { sideBarBookKey } = useSidebarStore();
   const { getBookData } = useBookDataStore();
   const { getView } = useReaderStore();
   const activeBookData = sideBarBookKey ? getBookData(sideBarBookKey) : null;
   const [active, setActive] = useState<ActiveLearningBoredPanel | null>(null);
-  const [reviewScope, setReviewScope] = useState<{ documentId: string } | null>(null);
+  const [panelView, setPanelView] = useState<LearningBoredPanelView | null>(null);
 
   useEffect(() => {
     return subscribeToLearningBoredCaptures(({ bookKey, passage }) => {
@@ -197,12 +199,27 @@ const LearningBoredPanelHost: React.FC<LearningBoredPanelHostProps> = ({
     highlighter?.clear();
   }, [highlighter]);
 
-  if (reviewScope && client) {
+  if (panelView?.kind === 'review' && client) {
     return (
       <LearningBoredReviewPanel
         client={client}
-        documentId={reviewScope.documentId}
-        onClose={() => setReviewScope(null)}
+        documentId={panelView.documentId}
+        {...(panelView.conceptId ? { conceptId: panelView.conceptId } : {})}
+        onClose={() => setPanelView(null)}
+        onOpenProgress={(documentId) => setPanelView({ kind: 'progress', documentId })}
+      />
+    );
+  }
+
+  if (panelView?.kind === 'progress' && client) {
+    return (
+      <LearningBoredProgressPanel
+        client={client}
+        documentId={panelView.documentId}
+        onClose={() => setPanelView(null)}
+        onStartReview={(documentId, conceptId) =>
+          setPanelView({ kind: 'review', documentId, conceptId })
+        }
       />
     );
   }
@@ -232,7 +249,8 @@ const LearningBoredPanelHost: React.FC<LearningBoredPanelHostProps> = ({
       client={client}
       onClose={() => setPanelOpen(false)}
       onClear={clearPanel}
-      onStartReview={(documentId) => setReviewScope({ documentId })}
+      onStartReview={(documentId) => setPanelView({ kind: 'review', documentId })}
+      onOpenProgress={(documentId) => setPanelView({ kind: 'progress', documentId })}
       onSessionPatch={patchSession}
       onSourceSpanEnter={highlighter?.show}
       onSourceSpanLeave={highlighter?.clear}

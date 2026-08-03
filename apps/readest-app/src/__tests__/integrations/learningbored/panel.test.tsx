@@ -111,6 +111,45 @@ function createClient(overrides: Partial<LearningBoredClient> = {}): LearningBor
   };
 
   return {
+    listDocuments: vi.fn(async () => ({ documents: [] })),
+    getDocument: vi.fn(async () => {
+      throw new Error('No document fixture configured.');
+    }),
+    getDocumentMastery: vi.fn(async () => {
+      throw new Error('No mastery fixture configured.');
+    }),
+    getDocumentReadiness: vi.fn(async () => {
+      throw new Error('No readiness fixture configured.');
+    }),
+    listBlueprints: vi.fn(async () => ({ blueprints: [] })),
+    createBlueprint: vi.fn(async () => {
+      throw new Error('No blueprint fixture configured.');
+    }),
+    patchBlueprint: vi.fn(async () => {
+      throw new Error('No blueprint fixture configured.');
+    }),
+    attachBlueprint: vi.fn(async () => {
+      throw new Error('No blueprint fixture configured.');
+    }),
+    setManualConceptMapping: vi.fn(async () => {
+      throw new Error('No mapping fixture configured.');
+    }),
+    getBoardComprehension: vi.fn(async (boardId) => ({
+      boardId,
+      passageId: 'passage-1',
+      status: 'unanswered' as const,
+      outcome: null,
+      feedbackId: null,
+      respondedAt: null,
+    })),
+    submitBoardComprehension: vi.fn(async (boardId, input) => ({
+      boardId,
+      passageId: 'passage-1',
+      status: 'answered' as const,
+      outcome: input.outcome,
+      feedbackId: 'feedback-1',
+      respondedAt: '2026-08-03T12:00:00.000Z',
+    })),
     createGeneration: vi.fn(async () => queued),
     getGeneration: vi.fn(async () => queued),
     getBoard: vi.fn(async () => board),
@@ -252,6 +291,44 @@ describe('LearningBored reader result panel', () => {
     expect(screen.getAllByText('Reading the passage')).toHaveLength(2);
     expect(rendered.container.querySelector('.animate-spin')).toBeNull();
     expect(onSessionPatch).toHaveBeenCalledWith({ generationId: 'generation-new' });
+  });
+
+  it('keeps an in-flight generation alive when the source-highlight callback changes', async () => {
+    let resolveGeneration!: (snapshot: LearningBoredGenerationSnapshot) => void;
+    let requestSignal: AbortSignal | undefined;
+    const createGeneration = vi.fn<LearningBoredClient['createGeneration']>((_input, options) => {
+      requestSignal = options?.signal;
+      return new Promise((resolve) => {
+        resolveGeneration = resolve;
+      });
+    });
+    const firstSourceSpanLeave = vi.fn();
+    const nextSourceSpanLeave = vi.fn();
+    const rendered = renderPanel({
+      session: createSession({ generationId: null, boardId: null }),
+      client: createClient({ createGeneration }),
+      onSourceSpanLeave: firstSourceSpanLeave,
+    });
+
+    await waitFor(() => expect(createGeneration).toHaveBeenCalledTimes(1));
+    expect(requestSignal?.aborted).toBe(false);
+
+    rendered.rerender(
+      <LearningBoredCapturePanel {...rendered.props} onSourceSpanLeave={nextSourceSpanLeave} />,
+    );
+
+    expect(firstSourceSpanLeave).toHaveBeenCalledTimes(1);
+    expect(requestSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      resolveGeneration({
+        id: 'generation-new',
+        status: 'extracting',
+        boardId: null,
+      });
+      await Promise.resolve();
+    });
+    expect(screen.getAllByText('Reading the passage')).toHaveLength(2);
   });
 
   it('polls every two seconds through illustrating and renders the completed result', async () => {
@@ -640,7 +717,7 @@ describe('LearningBored reader result panel', () => {
     ).toBe('data:image/png;base64,AA==');
   });
 
-  it('confirms refund on failure, retries, cancels active work, and sends feedback', async () => {
+  it('confirms refund on failure, retries, cancels active work, and records comprehension', async () => {
     vi.useFakeTimers();
     const failedClient = createClient({
       getGeneration: vi.fn(async () => ({
@@ -673,7 +750,14 @@ describe('LearningBored reader result panel', () => {
 
     cleanup();
     const board = createBoard();
-    const submitFeedback = vi.fn(async () => undefined);
+    const submitBoardComprehension = vi.fn(async (boardId: string) => ({
+      boardId,
+      passageId: 'passage-1',
+      status: 'answered' as const,
+      outcome: 'still_unclear' as const,
+      feedbackId: 'feedback-1',
+      respondedAt: '2026-08-03T12:00:00.000Z',
+    }));
     const completedClient = createClient({
       getGeneration: vi.fn(async () => ({
         id: 'generation-1',
@@ -681,19 +765,24 @@ describe('LearningBored reader result panel', () => {
         boardId: board.id,
         board,
       })),
-      submitFeedback,
+      submitBoardComprehension,
     });
     renderPanel({ client: completedClient });
     await advancePoll();
     await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Still unclear' }));
       await Promise.resolve();
     });
-    expect(submitFeedback).toHaveBeenCalledWith({
-      generationId: 'generation-1',
-      boardId: 'board-1',
-      category: 'passage_still_unclear',
+    fireEvent.click(screen.getByRole('button', { name: 'I still don’t get it' }));
+    await act(async () => {
+      await Promise.resolve();
     });
-    expect(screen.getByText('Thanks — your feedback was recorded.')).toBeTruthy();
+    expect(submitBoardComprehension).toHaveBeenCalledWith(
+      'board-1',
+      {
+        outcome: 'still_unclear',
+      },
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(screen.getByText(/Try a different Board kind/u)).toBeTruthy();
   });
 });

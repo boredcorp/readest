@@ -6,11 +6,11 @@ import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } 
 import {
   AlertTriangle,
   Ban,
+  BarChart3,
   BookOpenText,
   Check,
   Clock3,
   Flag,
-  MessageCircleQuestion,
   RefreshCw,
   Send,
   X,
@@ -35,6 +35,7 @@ import {
 } from './client';
 import { startLearningBoredPoller } from './polling';
 import type { LearningBoredReaderSession } from './session';
+import LearningBoredComprehensionPrompt from './LearningBoredComprehensionPrompt';
 
 const BOARD_KIND_LABELS: Record<LearningBoredBoardKind, string> = {
   concept_map: 'Concept map',
@@ -145,6 +146,7 @@ export interface LearningBoredCapturePanelProps {
   onClose: () => void;
   onClear: () => void;
   onStartReview?: (documentId: string) => void;
+  onOpenProgress?: (documentId: string) => void;
   onSessionPatch: (
     patch: Partial<
       Pick<LearningBoredReaderSession, 'generationId' | 'boardId' | 'showScaffold' | 'kind'>
@@ -413,6 +415,7 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
   onClose,
   onClear,
   onStartReview,
+  onOpenProgress,
   onSessionPatch,
   onSourceSpanEnter,
   onSourceSpanLeave,
@@ -620,10 +623,11 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
   useEffect(
     () => () => {
       operationControllerRef.current?.abort();
-      onSourceSpanLeave?.();
     },
-    [onSourceSpanLeave],
+    [],
   );
+
+  useEffect(() => () => onSourceSpanLeave?.(), [onSourceSpanLeave]);
 
   const handleCancel = async () => {
     const generationId = machine.generation?.id;
@@ -1274,16 +1278,20 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
               )}
             </section>
 
+            {client ? (
+              <LearningBoredComprehensionPrompt boardId={machine.board.id} client={client} />
+            ) : null}
+
             <section className='p-4'>
               <div className='grid grid-cols-2 gap-2'>
                 <button
                   type='button'
                   className='btn btn-outline min-h-11'
-                  disabled={!client || machine.operation === 'feedback'}
-                  onClick={() => void sendFeedback('passage_still_unclear')}
+                  disabled={!client || !onOpenProgress}
+                  onClick={() => onOpenProgress?.(machine.board!.documentId)}
                 >
-                  <MessageCircleQuestion className='size-4' />
-                  {_('Still unclear')}
+                  <BarChart3 className='size-4' />
+                  {_('Progress')}
                 </button>
                 <button
                   type='button'

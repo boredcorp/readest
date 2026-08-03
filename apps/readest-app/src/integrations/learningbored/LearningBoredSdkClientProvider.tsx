@@ -3,7 +3,7 @@
 import React, { useMemo, type ReactNode } from 'react';
 import type { AccessTokenProvider, LearningBoredFetch } from '@learningbored/sdk';
 
-import { LearningBoredClientProvider } from './LearningBoredPanelHost';
+import { LearningBoredClientProvider } from './LearningBoredClientContext';
 import { getLearningBoredReaderConfig } from './config';
 import { createLearningBoredSdkClient, type LearningBoredSdkPort } from './sdk-client';
 
