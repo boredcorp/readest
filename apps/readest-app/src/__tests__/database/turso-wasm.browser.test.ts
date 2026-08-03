@@ -32,7 +32,7 @@ describe('WebDatabaseService (browser WASM, in-memory SQLite)', () => {
   });
 
   describe('Full-Text Search', () => {
-    ftsTests(getDb);
+    ftsTests(getDb, { skipUpdatedRows: true });
   });
 
   describe('Vector Search', () => {

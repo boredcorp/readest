@@ -15,7 +15,11 @@ import { DatabaseService } from '@/types/database';
  *
  * Reference: https://turso.tech/blog/beyond-fts5
  */
-export function ftsTests(getDb: () => DatabaseService) {
+type FtsTestOptions = {
+  skipUpdatedRows?: boolean;
+};
+
+export function ftsTests(getDb: () => DatabaseService, options: FtsTestOptions = {}) {
   let ftsProbed = false;
   let ftsSupported = false;
 
@@ -298,10 +302,7 @@ export function ftsTests(getDb: () => DatabaseService) {
     expect(all).toHaveLength(1);
   });
 
-  // FIXME: Tantivy 0.25 -> 0.26 has a WASM-only FTS update regression: the
-  // pre-update document remains visible to fts_match(). Keep this explicit and
-  // re-enable the assertion when the upstream Turso fork fixes that path.
-  it.skip('FTS index reflects updated rows', async () => {
+  const updatedRowsTest = async () => {
     const db = getDb();
     await db.execute('CREATE TABLE notes (id INTEGER PRIMARY KEY, text TEXT)');
     await db.execute('CREATE INDEX idx_notes_fts ON notes USING fts (text)');
@@ -318,7 +319,16 @@ export function ftsTests(getDb: () => DatabaseService) {
       "SELECT id FROM notes WHERE fts_match(text, 'dogs')",
     );
     expect(dogRows).toHaveLength(1);
-  });
+  };
+
+  if (options.skipUpdatedRows) {
+    // FIXME: Tantivy 0.25 -> 0.26 has a WASM-only FTS update regression: the
+    // pre-update document remains visible to fts_match(). Re-enable this when
+    // the upstream Turso fork fixes that path.
+    it.skip('FTS index reflects updated rows', updatedRowsTest);
+  } else {
+    ftsIt('FTS index reflects updated rows', updatedRowsTest);
+  }
 
   // ---------------------------------------------------------------------------
   // OPTIMIZE INDEX
