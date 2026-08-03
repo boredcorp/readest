@@ -7,34 +7,39 @@ import { vectorTests } from './suites/vector-tests';
 import { migrationTests } from './suites/migration-tests';
 
 /**
- * Browser-based integration tests for WebDatabaseService using @tursodatabase/database-wasm.
+ * Browser-based integration tests for WebDatabaseService using @readest/turso-database-wasm.
  * These run in real headless Chromium via @vitest/browser + Playwright, providing
  * Web Workers, SharedArrayBuffer, and OPFS support required by the WASM module.
  */
 describe('WebDatabaseService (browser WASM, in-memory SQLite)', () => {
-  let db: DatabaseService;
+  let db: DatabaseService | undefined;
+  const getDb = (): DatabaseService => {
+    if (!db) throw new Error('WebDatabaseService was not initialized');
+    return db;
+  };
 
   beforeEach(async () => {
     db = await WebDatabaseService.open(':memory:', { experimental: ['index_method'] });
   });
 
   afterEach(async () => {
-    await db.close();
+    await db?.close();
+    db = undefined;
   });
 
   describe('Base Operations', () => {
-    baseTests(() => db);
+    baseTests(getDb);
   });
 
   describe('Full-Text Search', () => {
-    ftsTests(() => db);
+    ftsTests(getDb);
   });
 
   describe('Vector Search', () => {
-    vectorTests(() => db);
+    vectorTests(getDb);
   });
 
   describe('Migrations', () => {
-    migrationTests(() => db);
+    migrationTests(getDb);
   });
 });

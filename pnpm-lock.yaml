@@ -92,17 +92,17 @@ importers:
         specifier: ^0.3.1
         version: 0.3.1
       '@emnapi/core':
-        specifier: ^1.11.2
-        version: 1.11.2
+        specifier: 1.8.1
+        version: 1.8.1
       '@emnapi/runtime':
-        specifier: ^1.11.2
-        version: 1.11.2
+        specifier: 1.8.1
+        version: 1.8.1
       '@fabianlars/tauri-plugin-oauth':
         specifier: ^2.1.0
         version: 2.1.0
       '@napi-rs/wasm-runtime':
-        specifier: ^1.1.6
-        version: 1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)
+        specifier: 1.1.4
+        version: 1.1.4(@emnapi/core@1.8.1)(@emnapi/runtime@1.8.1)
       '@opennextjs/cloudflare':
         specifier: ^1.20.1
         version: 1.20.1(next@16.2.10(@babel/core@7.29.7(supports-color@8.1.1))(@opentelemetry/api@1.9.1)(@playwright/test@1.58.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(supports-color@8.1.1)(wrangler@4.110.0)
@@ -136,6 +136,15 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.12
         version: 1.2.12(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      '@readest/turso-database-common':
+        specifier: 0.7.0-pre.3-readest.0
+        version: 0.7.0-pre.3-readest.0
+      '@readest/turso-database-wasm':
+        specifier: 0.7.0-pre.3-readest.0
+        version: 0.7.0-pre.3-readest.0
+      '@readest/turso-database-wasm-common':
+        specifier: 0.7.0-pre.3-readest.0
+        version: 0.7.0-pre.3-readest.0
       '@serwist/next':
         specifier: ^9.5.11
         version: 9.5.11(@typescript/typescript6@6.0.2)(next@16.2.10(@babel/core@7.29.7(supports-color@8.1.1))(@opentelemetry/api@1.9.1)(@playwright/test@1.58.1)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react@19.2.7)(webpack@5.104.1)
@@ -199,12 +208,6 @@ importers:
       '@tauri-apps/plugin-websocket':
         specifier: ~2.4.2
         version: 2.4.2
-      '@tursodatabase/database-common':
-        specifier: ^0.6.1
-        version: 0.6.1
-      '@tursodatabase/database-wasm':
-        specifier: ^0.6.1
-        version: 0.6.1
       '@tybys/wasm-util':
         specifier: ^0.10.3
         version: 0.10.3
@@ -448,7 +451,7 @@ importers:
         version: 0.5.27(react-dom@19.2.7(react@19.2.7))(react-server-dom-webpack@19.2.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(webpack@5.104.1))(react@19.2.7)(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))
       '@vitest/browser-playwright':
         specifier: ^4.1.10
-        version: 4.1.10(playwright@1.61.1)(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)
+        version: 4.1.10(playwright@1.58.2)(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)
       '@vitest/browser-webdriverio':
         specifier: ^4.1.10
         version: 4.1.10(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)(webdriverio@9.29.1)
@@ -501,8 +504,8 @@ importers:
         specifier: ^4.0.2
         version: 4.0.2(supports-color@8.1.1)
       playwright:
-        specifier: ^1.61.1
-        version: 1.61.1
+        specifier: 1.58.2
+        version: 1.58.2
       postcss:
         specifier: 8.5.16
         version: 8.5.16
@@ -1212,23 +1215,14 @@ packages:
     peerDependencies:
       '@noble/ciphers': ^1.0.0
 
-  '@emnapi/core@1.11.2':
-    resolution: {integrity: sha512-TC8MkTuZUtcTSiFeuC0ksCh9QIJ5+F21MvZ4Wn4ORfYaFJ/0dsiudv5tVkejgwZlwQ39jL9WWDe2lz8x0WglOA==}
-
   '@emnapi/core@1.8.1':
     resolution: {integrity: sha512-AvT9QFpxK0Zd8J0jopedNm+w/2fIzvtPKPjqyw9jwvBaReTTqPBk9Hixaz7KbjimP+QNz605/XnjFcDAL2pqBg==}
-
-  '@emnapi/runtime@1.11.2':
-    resolution: {integrity: sha512-kyOl3X0DuTiT1h2ft8r2fYO8JYtU9a9Xis/zBSiGArNaagCOWx90N1k2wxp18czFDH+OgcWGb5ZP/XMt3dcyPA==}
 
   '@emnapi/runtime@1.8.1':
     resolution: {integrity: sha512-mehfKSMWjjNol8659Z8KxEMrdSJDDot5SXMq00dM8BN4o+CLNXQ0xH2V7EchNHV4RmbZLmmPdEaXZc5H2FXmDg==}
 
   '@emnapi/wasi-threads@1.1.0':
     resolution: {integrity: sha512-WI0DdZ8xFSbgMjR1sFsKABJ/C5OnRrjT06JXbZKexJGrDuPTzZdDYfFlsgcCXCyf+suG5QU2e/y1Wo2V/OapLQ==}
-
-  '@emnapi/wasi-threads@1.2.2':
-    resolution: {integrity: sha512-c95qOXkHdydNKhscBTebqEC1CVAZpyqOfVfBzQ1qgzyl3gfeldUjIggDbIZgDKsHLgnsM+igH7TJ/eAasaVuMA==}
 
   '@esbuild/aix-ppc64@0.25.4':
     resolution: {integrity: sha512-1VCICWypeQKhVbE9oW/sJaAmjLxhVqacdkvPLEjwlttjfwENRSClS8EjBz0KzRyFSCPDIkuXW34Je/vk7zdB7Q==}
@@ -2051,8 +2045,8 @@ packages:
   '@napi-rs/wasm-runtime@1.0.7':
     resolution: {integrity: sha512-SeDnOO0Tk7Okiq6DbXmmBODgOAb9dp9gjlphokTUxmt8U3liIP1ZsozBahH69j/RJv+Rfs6IwUKHTgQYJ/HBAw==}
 
-  '@napi-rs/wasm-runtime@1.1.6':
-    resolution: {integrity: sha512-ZLv/JdUfkvOy9eCnnBaGfiO+XimbjebAeO+MRQqD/B+FR1tnRN0tpKSJHRbE8sFfS6aqsXZ67TQjfwfsxULVbg==}
+  '@napi-rs/wasm-runtime@1.1.4':
+    resolution: {integrity: sha512-3NQNNgA1YSlJb/kMH1ildASP9HW7/7kYnRI2szWJaofaS1hWmbGI4H+d3+22aGzXXN9IJ+n+GiFVcGipJP18ow==}
     peerDependencies:
       '@emnapi/core': ^1.7.1
       '@emnapi/runtime': ^1.7.1
@@ -2896,6 +2890,15 @@ packages:
   '@radix-ui/rect@1.1.2':
     resolution: {integrity: sha512-xnXE7wG13PI+cxieVssYXlQJuYVRhH9NBoxt3KNwzghDIA69GMm7d4wXRouHIYjE+KvS6U/MsMO73NdS2MH9ZA==}
 
+  '@readest/turso-database-common@0.7.0-pre.3-readest.0':
+    resolution: {integrity: sha512-EEfV9QV/vSTAve1fLk81v4KwoT58zezUd0AaPAuYNUDmHfYgqDQB8mgAGuR8XpwnPFFENLZUJnfsFCyco7M6Ig==}
+
+  '@readest/turso-database-wasm-common@0.7.0-pre.3-readest.0':
+    resolution: {integrity: sha512-bC7T/CXkiduBULYHdwsjp+H63uzwzDi5WRdhoFpQ/YdJF+M2Yl2n0b3tbjHwe7eeA54BdBs9zwL9CPzlBBz4Vg==}
+
+  '@readest/turso-database-wasm@0.7.0-pre.3-readest.0':
+    resolution: {integrity: sha512-k3M5RjOBhUuk12B7F3LptzbQHsmtWmm6s1ZGb+Kf1hXF8369BD0QUQZDtEme2+9lr6jpxbqL3nLuNcu5/NK5zQ==}
+
   '@resvg/resvg-wasm@2.4.0':
     resolution: {integrity: sha512-C7c51Nn4yTxXFKvgh2txJFNweaVcfUPQxwEUFw4aWsCmfiBDJsTSwviIF8EcwjQ6k8bPyMWCl1vw4BdxE569Cg==}
     engines: {node: '>= 10'}
@@ -3524,12 +3527,6 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
-
-  '@tursodatabase/database-wasm-common@0.6.1':
-    resolution: {integrity: sha512-lZdZ7b8YSF0RKN0U1ZTtPNaf9zR6k+8tGpN3eWN8vtCXWIPVEw4ydhZodSuFK+EkoPekVHcW/yAYHvGu2KQLug==}
-
-  '@tursodatabase/database-wasm@0.6.1':
-    resolution: {integrity: sha512-T1e/DZmbpcUYATPlY7cp/Ca7bYmzjYkoA37kolFEvZtrkTyw7fTKB9FoHJs46BjBATq+DTPuZwpvIZS9VQLy+g==}
 
   '@tursodatabase/database-win32-x64-msvc@0.6.1':
     resolution: {integrity: sha512-3CASiW3BbeNT4qryxPKKZECGxaAtfUeM/Bjx1NWIxShCLLtRpnaEUt7WLOT2hz+sqU322H6fmMuaN9sYrcwBxw==}
@@ -7045,8 +7042,8 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  playwright-core@1.61.1:
-    resolution: {integrity: sha512-h7Qlt6m4REp25qvIdvbDtVmD4LqVXfpRxhORv9L0jzETM05p4fuPJ3dKyuSXQxDSbXnmS79HAgi9589lGSpLkg==}
+  playwright-core@1.58.2:
+    resolution: {integrity: sha512-yZkEtftgwS8CsfYo7nm0KE8jsvm6i/PTgVtB8DL726wNf6H2IMsDuxCpJj59KDaxCtSnrWan2AeDqM7JBaultg==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -7055,8 +7052,8 @@ packages:
     engines: {node: '>=18'}
     hasBin: true
 
-  playwright@1.61.1:
-    resolution: {integrity: sha512-DWnY5o3YbLWK4GovuAVwpqL+1VwGNdUGrRr++8j8PtQQzvAVZUIMjKQ90fY689sEJZJBbZVw1rXaOKSTitkzPQ==}
+  playwright@1.58.2:
+    resolution: {integrity: sha512-vA30H8Nvkq/cPBnNw4Q8TWz1EJyqgpuinBcHET0YVJVFldr8JDNiU9LaWAE1KqSkRYazuaBhTpB5ZzShOezQ6A==}
     engines: {node: '>=18'}
     hasBin: true
 
@@ -9797,18 +9794,9 @@ snapshots:
     dependencies:
       '@noble/ciphers': 1.3.0
 
-  '@emnapi/core@1.11.2':
-    dependencies:
-      '@emnapi/wasi-threads': 1.2.2
-      tslib: 2.8.1
-
   '@emnapi/core@1.8.1':
     dependencies:
       '@emnapi/wasi-threads': 1.1.0
-      tslib: 2.8.1
-
-  '@emnapi/runtime@1.11.2':
-    dependencies:
       tslib: 2.8.1
 
   '@emnapi/runtime@1.8.1':
@@ -9816,10 +9804,6 @@ snapshots:
       tslib: 2.8.1
 
   '@emnapi/wasi-threads@1.1.0':
-    dependencies:
-      tslib: 2.8.1
-
-  '@emnapi/wasi-threads@1.2.2':
     dependencies:
       tslib: 2.8.1
 
@@ -10151,7 +10135,7 @@ snapshots:
 
   '@img/sharp-wasm32@0.34.5':
     dependencies:
-      '@emnapi/runtime': 1.11.2
+      '@emnapi/runtime': 1.8.1
     optional: true
 
   '@img/sharp-win32-arm64@0.34.5':
@@ -10398,14 +10382,14 @@ snapshots:
 
   '@napi-rs/wasm-runtime@1.0.7':
     dependencies:
-      '@emnapi/core': 1.11.2
-      '@emnapi/runtime': 1.11.2
+      '@emnapi/core': 1.8.1
+      '@emnapi/runtime': 1.8.1
       '@tybys/wasm-util': 0.10.3
 
-  '@napi-rs/wasm-runtime@1.1.6(@emnapi/core@1.11.2)(@emnapi/runtime@1.11.2)':
+  '@napi-rs/wasm-runtime@1.1.4(@emnapi/core@1.8.1)(@emnapi/runtime@1.8.1)':
     dependencies:
-      '@emnapi/core': 1.11.2
-      '@emnapi/runtime': 1.11.2
+      '@emnapi/core': 1.8.1
+      '@emnapi/runtime': 1.8.1
       '@tybys/wasm-util': 0.10.3
 
   '@next/bundle-analyzer@16.2.10':
@@ -11311,6 +11295,20 @@ snapshots:
 
   '@radix-ui/rect@1.1.2': {}
 
+  '@readest/turso-database-common@0.7.0-pre.3-readest.0': {}
+
+  '@readest/turso-database-wasm-common@0.7.0-pre.3-readest.0':
+    dependencies:
+      '@emnapi/core': 1.8.1
+      '@emnapi/runtime': 1.8.1
+      '@napi-rs/wasm-runtime': 1.0.7
+      '@readest/turso-database-common': 0.7.0-pre.3-readest.0
+
+  '@readest/turso-database-wasm@0.7.0-pre.3-readest.0':
+    dependencies:
+      '@readest/turso-database-common': 0.7.0-pre.3-readest.0
+      '@readest/turso-database-wasm-common': 0.7.0-pre.3-readest.0
+
   '@resvg/resvg-wasm@2.4.0': {}
 
   '@rolldown/pluginutils@1.0.0-rc.3': {}
@@ -11890,17 +11888,6 @@ snapshots:
   '@tursodatabase/database-linux-x64-gnu@0.6.1':
     optional: true
 
-  '@tursodatabase/database-wasm-common@0.6.1':
-    dependencies:
-      '@emnapi/core': 1.8.1
-      '@emnapi/runtime': 1.8.1
-      '@napi-rs/wasm-runtime': 1.0.7
-
-  '@tursodatabase/database-wasm@0.6.1':
-    dependencies:
-      '@tursodatabase/database-common': 0.6.1
-      '@tursodatabase/database-wasm-common': 0.6.1
-
   '@tursodatabase/database-win32-x64-msvc@0.6.1':
     optional: true
 
@@ -12321,11 +12308,11 @@ snapshots:
     optionalDependencies:
       react-server-dom-webpack: 19.2.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(webpack@5.104.1)
 
-  '@vitest/browser-playwright@4.1.10(playwright@1.61.1)(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)':
+  '@vitest/browser-playwright@4.1.10(playwright@1.58.2)(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)':
     dependencies:
       '@vitest/browser': 4.1.10(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)
       '@vitest/mocker': 4.1.10(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))
-      playwright: 1.61.1
+      playwright: 1.58.2
       tinyrainbow: 3.1.0
       vitest: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@24.13.3)(@vitest/browser-playwright@4.1.10)(@vitest/browser-webdriverio@4.1.10)(@vitest/coverage-v8@4.1.10)(jsdom@29.1.1(@noble/hashes@1.8.0))(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))
     transitivePeerDependencies:
@@ -15921,7 +15908,7 @@ snapshots:
   playwright-core@1.58.1:
     optional: true
 
-  playwright-core@1.61.1: {}
+  playwright-core@1.58.2: {}
 
   playwright@1.58.1:
     dependencies:
@@ -15930,9 +15917,9 @@ snapshots:
       fsevents: 2.3.2
     optional: true
 
-  playwright@1.61.1:
+  playwright@1.58.2:
     dependencies:
-      playwright-core: 1.61.1
+      playwright-core: 1.58.2
     optionalDependencies:
       fsevents: 2.3.2
 
@@ -17523,7 +17510,7 @@ snapshots:
     optionalDependencies:
       '@opentelemetry/api': 1.9.1
       '@types/node': 24.13.3
-      '@vitest/browser-playwright': 4.1.10(playwright@1.61.1)(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)
+      '@vitest/browser-playwright': 4.1.10(playwright@1.58.2)(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)
       '@vitest/browser-webdriverio': 4.1.10(vite@7.3.6(@types/node@24.13.3)(jiti@1.21.7)(lightningcss@1.32.0)(terser@5.49.0)(tsx@4.23.0)(yaml@2.9.0))(vitest@4.1.10)(webdriverio@9.29.1)
       '@vitest/coverage-v8': 4.1.10(@vitest/browser@4.1.10)(vitest@4.1.10)
       jsdom: 29.1.1(@noble/hashes@1.8.0)

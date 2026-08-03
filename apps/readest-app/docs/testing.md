@@ -28,7 +28,7 @@ pnpm test:browser
 - **Config:** `vitest.browser.config.mts`
 - **Pattern:** `src/**/*.browser.test.ts`
 - **Browser:** Chromium (headless, via `@vitest/browser-playwright`)
-- **Use for:** WASM modules (e.g. `@tursodatabase/database-wasm`), Web Worker integration, browser-specific storage APIs.
+- **Use for:** WASM modules (e.g. `@readest/turso-database-wasm`), Web Worker integration, browser-specific storage APIs.
 
 ## Tauri Integration Tests (`pnpm test:tauri`)
 
