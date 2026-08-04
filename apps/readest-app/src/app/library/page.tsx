@@ -42,6 +42,7 @@ import {
   cacheStoryBoredMarketplaceBook,
   syncStoryBoredMarketplaceLibrary,
 } from '@/integrations/storybored/marketplace';
+import { getReaderLoginDecision } from '@/integrations/storybored/session-readiness';
 import {
   tauriHandleClose,
   tauriHandleSetAlwaysOnTop,
@@ -89,7 +90,7 @@ function getMarketplaceUrl(): string {
 const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchParams | null }) => {
   const router = useAppRouter();
   const { envConfig, appService } = useEnv();
-  const { token, user } = useAuth();
+  const { isReady: isAuthReady, token, user } = useAuth();
   const {
     library: libraryBooks,
     updateBook,
@@ -121,6 +122,19 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   } | null>(null);
   const [pendingNavigationBookIds, setPendingNavigationBookIds] = useState<string[] | null>(null);
   const isInitiating = useRef(false);
+  const currentAuthTokenRef = useRef(token);
+  const marketplaceCacheControllersRef = useRef(new Set<AbortController>());
+  currentAuthTokenRef.current = token;
+
+  useEffect(() => {
+    const controllers = marketplaceCacheControllersRef.current;
+    return () => {
+      for (const controller of controllers) {
+        controller.abort();
+      }
+      controllers.clear();
+    };
+  }, [token]);
 
   const iconSize = useResponsiveSize(18);
   const viewSettings = settings.globalViewSettings;
@@ -389,20 +403,6 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     if (isInitiating.current) return;
     isInitiating.current = true;
 
-    const initLogin = async () => {
-      const appService = await envConfig.getAppService();
-      const settings = await appService.loadSettings();
-      if (token && user) {
-        if (!settings.keepLogin) {
-          settings.keepLogin = true;
-          setSettings(settings);
-          saveSettings(envConfig, settings);
-        }
-      } else if (settings.keepLogin) {
-        router.push('/auth');
-      }
-    };
-
     const loadingTimeout = setTimeout(() => setLoading(true), 500);
     const initLibrary = async () => {
       const appService = await envConfig.getAppService();
@@ -410,12 +410,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       setSettings(settings);
 
       // Reuse the library from the store when we return from the reader
-      let library = libraryBooks.length > 0 ? libraryBooks : await appService.loadLibraryBooks();
-      try {
-        library = await syncStoryBoredMarketplaceLibrary({ envConfig, token, library });
-      } catch (error) {
-        console.warn('Failed to sync StoryBored marketplace library:', error);
-      }
+      const library = libraryBooks.length > 0 ? libraryBooks : await appService.loadLibraryBooks();
       let opened = false;
       if (checkOpenWithBooks) {
         opened = await handleOpenWithBooks(appService, library);
@@ -440,8 +435,6 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       }
       return false;
     };
-
-    initLogin();
     initLibrary();
     return () => {
       setCheckOpenWithBooks(false);
@@ -451,6 +444,66 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     // searchParams is used to tigger parsing OPEN_WITH_FILES
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!isAuthReady) return;
+
+    let cancelled = false;
+    const reconcileLogin = async () => {
+      const appService = await envConfig.getAppService();
+      const persistedSettings = await appService.loadSettings();
+      if (cancelled) return;
+
+      const decision = getReaderLoginDecision({
+        isAuthReady,
+        hasToken: Boolean(token),
+        hasUser: Boolean(user),
+        keepLogin: persistedSettings.keepLogin,
+      });
+      if (decision === 'enable-keep-login') {
+        persistedSettings.keepLogin = true;
+        setSettings(persistedSettings);
+        saveSettings(envConfig, persistedSettings);
+      } else if (decision === 'redirect-to-auth') {
+        router.push('/auth');
+      }
+    };
+
+    void reconcileLogin();
+    return () => {
+      cancelled = true;
+    };
+  }, [envConfig, isAuthReady, router, saveSettings, setSettings, token, user]);
+
+  useEffect(() => {
+    if (!isAuthReady || !token || !libraryLoaded) return;
+
+    const controller = new AbortController();
+    const syncMarketplaceLibrary = async () => {
+      const currentLibrary = useLibraryStore.getState().library;
+      try {
+        const syncedLibrary = await syncStoryBoredMarketplaceLibrary({
+          envConfig,
+          token,
+          library: currentLibrary,
+          getCurrentLibrary: () => useLibraryStore.getState().library,
+          signal: controller.signal,
+        });
+        if (!controller.signal.aborted && syncedLibrary !== currentLibrary) {
+          setLibrary(syncedLibrary);
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.warn('Failed to sync StoryBored marketplace library:', error);
+        }
+      }
+    };
+
+    void syncMarketplaceLibrary();
+    return () => {
+      controller.abort();
+    };
+  }, [envConfig, isAuthReady, libraryLoaded, setLibrary, token]);
 
   useEffect(() => {
     const group = searchParams?.get('group') || '';
@@ -597,13 +650,31 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     async (book: Book, downloadOptions: { redownload?: boolean; queued?: boolean } = {}) => {
       const { redownload = false, queued = false } = downloadOptions;
       if (redownload || !queued) {
+        let marketplaceCacheController: AbortController | undefined;
         try {
           if (book.marketplace?.libraryItemId) {
-            const cachedBook = await cacheStoryBoredMarketplaceBook({ envConfig, token, book });
+            marketplaceCacheController = new AbortController();
+            marketplaceCacheControllersRef.current.add(marketplaceCacheController);
+            const cachedBook = await cacheStoryBoredMarketplaceBook({
+              envConfig,
+              token,
+              book,
+              signal: marketplaceCacheController.signal,
+              isCurrentSession: () => Boolean(token) && currentAuthTokenRef.current === token,
+            });
+            if (
+              marketplaceCacheController.signal.aborted ||
+              currentAuthTokenRef.current !== token
+            ) {
+              return false;
+            }
             await updateBook(envConfig, cachedBook);
           } else {
             await appService?.downloadBook(book, false, redownload);
             await updateBook(envConfig, book);
+          }
+          if (marketplaceCacheController && currentAuthTokenRef.current !== token) {
+            return false;
           }
           eventDispatcher.dispatch('toast', {
             type: 'info',
@@ -614,6 +685,9 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           });
           return true;
         } catch {
+          if (marketplaceCacheController?.signal.aborted || currentAuthTokenRef.current !== token) {
+            return false;
+          }
           eventDispatcher.dispatch('toast', {
             message: _('Failed to download book: {{title}}', {
               title: book.title,
@@ -621,6 +695,10 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
             type: 'error',
           });
           return false;
+        } finally {
+          if (marketplaceCacheController) {
+            marketplaceCacheControllersRef.current.delete(marketplaceCacheController);
+          }
         }
       }
 

@@ -17,6 +17,18 @@ const SUPPORTED_MARKETPLACE_FORMATS = new Set<BookFormat>([
   'MD',
 ]);
 
+let marketplaceSyncVersion = 0;
+let marketplacePersistenceQueue: Promise<void> = Promise.resolve();
+
+function enqueueMarketplacePersistence<T>(persist: () => Promise<T>): Promise<T> {
+  const result = marketplacePersistenceQueue.then(persist, persist);
+  marketplacePersistenceQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
 function toBookFormat(format: string): BookFormat {
   const normalized = format.toUpperCase() as BookFormat;
   return SUPPORTED_MARKETPLACE_FORMATS.has(normalized) ? normalized : 'EPUB';
@@ -54,17 +66,37 @@ function toMarketplaceBook(item: StoryBoredOwnedLibrary['libraryItems'][number])
   };
 }
 
+function assertCurrentMarketplaceCache(input: {
+  token?: string | null;
+  signal?: AbortSignal;
+  isCurrentSession?: () => boolean;
+}): asserts input is {
+  token: string;
+  signal?: AbortSignal;
+  isCurrentSession?: () => boolean;
+} {
+  if (!input.token || input.signal?.aborted || input.isCurrentSession?.() === false) {
+    throw new Error('StoryBored marketplace cache was cancelled.');
+  }
+}
+
 export async function syncStoryBoredMarketplaceLibrary(input: {
   envConfig: EnvConfigType;
   token?: string | null;
   library: Book[];
+  getCurrentLibrary?: () => Book[];
+  signal?: AbortSignal;
 }): Promise<Book[]> {
-  if (!isStoryBoredReaderEnabled()) {
+  const syncVersion = ++marketplaceSyncVersion;
+  const isCurrentSync = () => marketplaceSyncVersion === syncVersion && !input.signal?.aborted;
+
+  if (!isStoryBoredReaderEnabled() || !input.token || !isCurrentSync()) {
     return input.library;
   }
 
-  const client = createStoryBoredReaderClient(input.token ? { accessToken: input.token } : {});
+  const client = createStoryBoredReaderClient({ accessToken: input.token });
   const owned = await client.listOwnedLibrary();
+  if (!isCurrentSync()) return input.library;
 
   const nextLibrary = [...input.library];
   const activeLibraryItemIds = new Set(owned.libraryItems.map((item) => item.libraryItemId));
@@ -121,48 +153,70 @@ export async function syncStoryBoredMarketplaceLibrary(input: {
     changed = true;
   }
 
-  if (!changed) {
+  if (!changed || !isCurrentSync()) {
     return input.library;
   }
 
   const appService = await input.envConfig.getAppService();
-  await appService.saveLibraryBooks(nextLibrary);
-  return nextLibrary;
+  if (!isCurrentSync()) return input.library;
+
+  const persisted = await enqueueMarketplacePersistence(async () => {
+    if (!isCurrentSync()) return false;
+
+    await appService.saveLibraryBooks(nextLibrary);
+    if (isCurrentSync()) return true;
+
+    const currentLibrary = input.getCurrentLibrary?.() ?? input.library;
+    await appService.saveLibraryBooks(currentLibrary);
+    return false;
+  });
+
+  return persisted ? nextLibrary : input.library;
 }
 
 export async function cacheStoryBoredMarketplaceBook(input: {
   envConfig: EnvConfigType;
   token?: string | null;
   book: Book;
+  signal?: AbortSignal;
+  isCurrentSession?: () => boolean;
 }): Promise<Book> {
   const marketplace = input.book.marketplace;
   if (!marketplace?.libraryItemId) {
     return input.book;
   }
 
+  assertCurrentMarketplaceCache(input);
   const { libraryItemId } = marketplace;
-  const client = createStoryBoredReaderClient(input.token ? { accessToken: input.token } : {});
+  const client = createStoryBoredReaderClient({ accessToken: input.token });
   const content = await client.getOwnedLibraryContent(libraryItemId);
-  const response = await fetch(content.contentUrl);
+  assertCurrentMarketplaceCache(input);
+  const response = await fetch(content.contentUrl, input.signal ? { signal: input.signal } : {});
+  assertCurrentMarketplaceCache(input);
 
   if (!response.ok) {
     throw new Error(`Marketplace content download failed with status ${response.status}`);
   }
 
   const appService = await input.envConfig.getAppService();
-  if (!(await appService.exists(input.book.hash, 'Books'))) {
+  assertCurrentMarketplaceCache(input);
+  const bookDirectoryExists = await appService.exists(input.book.hash, 'Books');
+  assertCurrentMarketplaceCache(input);
+  if (!bookDirectoryExists) {
+    assertCurrentMarketplaceCache(input);
     await appService.createDir(input.book.hash, 'Books', true);
+    assertCurrentMarketplaceCache(input);
   }
-  await appService.writeFile(
-    getLocalBookFilename(input.book),
-    'Books',
-    await response.arrayBuffer(),
-  );
+  const contentBuffer = await response.arrayBuffer();
+  assertCurrentMarketplaceCache(input);
+  await appService.writeFile(getLocalBookFilename(input.book), 'Books', contentBuffer);
+  assertCurrentMarketplaceCache(input);
   await appService.saveBookConfig(input.book, {
     ...INIT_BOOK_CONFIG,
     bookHash: input.book.hash,
     updatedAt: Date.now(),
   });
+  assertCurrentMarketplaceCache(input);
 
   return {
     ...input.book,

@@ -12,7 +12,9 @@ export const useUserActions = () => {
   const { logout } = useAuth();
 
   const handleLogout = () => {
-    logout();
+    void logout().catch((error) => {
+      console.error('Failed to revoke the local Supabase session:', error);
+    });
     saveSysSettings(envConfig, 'keepLogin', false);
     navigateToLibrary(router);
   };

@@ -5,6 +5,7 @@ import path from 'node:path';
 const isDev = process.env['NODE_ENV'] === 'development';
 const appPlatform = process.env['NEXT_PUBLIC_APP_PLATFORM'];
 const storyBoredRoot = path.resolve(process.cwd(), '../../..');
+const readerDevOriginHost = process.env['STORYBORED_READER_DEV_ORIGIN_HOST'];
 
 if (isDev) {
   const { initOpenNextCloudflareForDev } = await import('@opennextjs/cloudflare');
@@ -15,6 +16,7 @@ const exportOutput = appPlatform !== 'web' && !isDev;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  allowedDevOrigins: isDev && readerDevOriginHost ? [readerDevOriginHost] : undefined,
   // Ensure Next.js uses SSG instead of SSR
   // https://nextjs.org/docs/pages/building-your-application/deploying/static-exports
   output: exportOutput ? 'export' : undefined,

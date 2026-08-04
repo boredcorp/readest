@@ -3,13 +3,11 @@ import type { User, AuthError } from '@supabase/supabase-js';
 
 // Mock supabase before importing the module under test
 const mockSetSession = vi.fn();
-const mockGetUser = vi.fn();
 
 vi.mock('@/utils/supabase', () => ({
   supabase: {
     auth: {
       setSession: (...args: unknown[]) => mockSetSession(...args),
-      getUser: () => mockGetUser(),
     },
   },
 }));
@@ -28,11 +26,22 @@ describe('handleAuthCallback', () => {
     created_at: '2024-01-01T00:00:00Z',
   } as User;
 
+  const successfulSession = (accessToken: string, user: User = fakeUser) => ({
+    data: {
+      session: {
+        access_token: accessToken,
+        refresh_token: 'current-refresh-token',
+        user,
+      },
+      user,
+    },
+    error: null,
+  });
+
   beforeEach(() => {
     mockLogin = vi.fn<(accessToken: string, user: User) => void>();
     mockNavigate = vi.fn<(path: string) => void>();
     mockSetSession.mockReset();
-    mockGetUser.mockReset();
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -127,8 +136,7 @@ describe('handleAuthCallback', () => {
   });
 
   it('should login and navigate to next URL on successful auth', async () => {
-    mockSetSession.mockResolvedValue({ error: null });
-    mockGetUser.mockResolvedValue({ data: { user: fakeUser } });
+    mockSetSession.mockResolvedValue(successfulSession('good-token'));
 
     handleAuthCallback({
       accessToken: 'good-token',
@@ -146,8 +154,7 @@ describe('handleAuthCallback', () => {
   });
 
   it('should default next to "/" when not specified', async () => {
-    mockSetSession.mockResolvedValue({ error: null });
-    mockGetUser.mockResolvedValue({ data: { user: fakeUser } });
+    mockSetSession.mockResolvedValue(successfulSession('token'));
 
     handleAuthCallback({
       accessToken: 'token',
@@ -162,8 +169,7 @@ describe('handleAuthCallback', () => {
   });
 
   it('should navigate to /auth/recovery when type is "recovery"', async () => {
-    mockSetSession.mockResolvedValue({ error: null });
-    mockGetUser.mockResolvedValue({ data: { user: fakeUser } });
+    mockSetSession.mockResolvedValue(successfulSession('token'));
 
     handleAuthCallback({
       accessToken: 'token',
@@ -183,9 +189,8 @@ describe('handleAuthCallback', () => {
     expect(mockNavigate).not.toHaveBeenCalledWith('/some-page');
   });
 
-  it('should navigate to /auth/error when getUser returns null user', async () => {
-    mockSetSession.mockResolvedValue({ error: null });
-    mockGetUser.mockResolvedValue({ data: { user: null } });
+  it('should navigate to /auth/error when setSession returns no session', async () => {
+    mockSetSession.mockResolvedValue({ data: { session: null, user: null }, error: null });
 
     handleAuthCallback({
       accessToken: 'token',
@@ -201,9 +206,18 @@ describe('handleAuthCallback', () => {
     expect(mockLogin).not.toHaveBeenCalled();
   });
 
-  it('should not call login when user is undefined from getUser', async () => {
-    mockSetSession.mockResolvedValue({ error: null });
-    mockGetUser.mockResolvedValue({ data: { user: undefined } });
+  it('should not call login when the returned session has no user', async () => {
+    mockSetSession.mockResolvedValue({
+      data: {
+        session: {
+          access_token: 'token',
+          refresh_token: 'refresh',
+          user: null,
+        },
+        user: null,
+      },
+      error: null,
+    });
 
     handleAuthCallback({
       accessToken: 'token',
@@ -220,8 +234,7 @@ describe('handleAuthCallback', () => {
   });
 
   it('should pass the correct session parameters to setSession', async () => {
-    mockSetSession.mockResolvedValue({ error: null });
-    mockGetUser.mockResolvedValue({ data: { user: fakeUser } });
+    mockSetSession.mockResolvedValue(successfulSession('my-access-token'));
 
     handleAuthCallback({
       accessToken: 'my-access-token',
@@ -236,5 +249,21 @@ describe('handleAuthCallback', () => {
         refresh_token: 'my-refresh-token',
       });
     });
+  });
+
+  it('uses a token rotated by setSession instead of restoring the callback token', async () => {
+    mockSetSession.mockResolvedValue(successfulSession('rotated-access-token'));
+
+    handleAuthCallback({
+      accessToken: 'expired-callback-token',
+      refreshToken: 'callback-refresh-token',
+      login: mockLogin,
+      navigate: mockNavigate,
+    });
+
+    await vi.waitFor(() => {
+      expect(mockLogin).toHaveBeenCalledWith('rotated-access-token', fakeUser);
+    });
+    expect(mockLogin).not.toHaveBeenCalledWith('expired-callback-token', fakeUser);
   });
 });

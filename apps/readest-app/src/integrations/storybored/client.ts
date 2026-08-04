@@ -29,19 +29,22 @@ interface StoryBoredReaderClientOptions {
 }
 
 export class StoryBoredReaderClient {
+  readonly #accessToken?: string;
   readonly #baseUrl: string;
   readonly #sdk: StoryBoredClient;
 
   constructor(options: StoryBoredReaderClientOptions = {}) {
+    this.#accessToken = options.accessToken?.trim() || undefined;
     this.#baseUrl = getStoryBoredApiBaseUrl();
     this.#sdk = new StoryBoredClient({
       baseUrl: this.#baseUrl,
-      ...options,
+      ...(this.#accessToken ? { accessToken: this.#accessToken } : {}),
+      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
     });
   }
 
   async createSceneGeneration(input: StoryBoredPassage): Promise<StoryBoredSceneGeneration> {
-    this.#assertConfigured();
+    this.#assertProtectedRequestReady();
 
     return await this.#sdk.createSceneGeneration({
       bookId: input.bookId,
@@ -55,17 +58,17 @@ export class StoryBoredReaderClient {
   }
 
   async getSceneGeneration(id: string): Promise<StoryBoredSceneGeneration> {
-    this.#assertConfigured();
+    this.#assertProtectedRequestReady();
     return await this.#sdk.getSceneGeneration(id);
   }
 
   async cancelSceneGeneration(id: string): Promise<StoryBoredSceneGeneration> {
-    this.#assertConfigured();
+    this.#assertProtectedRequestReady();
     return await this.#sdk.cancelSceneGeneration(id);
   }
 
   async retrySceneGeneration(id: string): Promise<StoryBoredSceneGeneration> {
-    this.#assertConfigured();
+    this.#assertProtectedRequestReady();
     return await this.#sdk.retrySceneGeneration(id);
   }
 
@@ -73,28 +76,31 @@ export class StoryBoredReaderClient {
     id: string,
     feedback: StoryBoredFeedbackRequest,
   ): Promise<StoryBoredFeedbackResponse> {
-    this.#assertConfigured();
+    this.#assertProtectedRequestReady();
     return await this.#sdk.submitSceneGenerationFeedback(id, feedback);
   }
 
   async listOwnedLibrary(): Promise<StoryBoredOwnedLibrary> {
-    this.#assertConfigured();
+    this.#assertProtectedRequestReady();
     return await this.#sdk.listOwnedLibrary();
   }
 
   async getOwnedLibraryContent(libraryItemId: string): Promise<StoryBoredOwnedLibraryContent> {
-    this.#assertConfigured();
+    this.#assertProtectedRequestReady();
     return await this.#sdk.getOwnedLibraryContent(libraryItemId);
   }
 
   async getOwnedLibraryScenePack(libraryItemId: string): Promise<StoryBoredOwnedLibraryScenePack> {
-    this.#assertConfigured();
+    this.#assertProtectedRequestReady();
     return await this.#sdk.getOwnedLibraryScenePack(libraryItemId);
   }
 
-  #assertConfigured(): void {
+  #assertProtectedRequestReady(): void {
     if (!this.#baseUrl) {
       throw new Error('StoryBored API is not configured.');
+    }
+    if (!this.#accessToken) {
+      throw new Error('StoryBored authentication is required.');
     }
   }
 }

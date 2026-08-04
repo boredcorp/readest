@@ -1,14 +1,32 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, cleanup, act } from '@testing-library/react';
+import type { User } from '@supabase/supabase-js';
+
+interface TestSession {
+  access_token: string;
+  refresh_token: string;
+  user: User;
+}
+
+type AuthStateListener = (event: string, session: TestSession | null) => void;
+
+const authMocks = vi.hoisted(() => ({
+  listeners: [] as AuthStateListener[],
+  refreshSession: vi.fn(),
+  signOut: vi.fn(),
+}));
 
 vi.mock('@/utils/supabase', () => ({
   supabase: {
     auth: {
-      onAuthStateChange: vi.fn(() => ({
-        data: { subscription: { unsubscribe: vi.fn() } },
-      })),
-      refreshSession: vi.fn().mockResolvedValue(undefined),
-      signOut: vi.fn().mockResolvedValue(undefined),
+      onAuthStateChange: vi.fn((listener: AuthStateListener) => {
+        authMocks.listeners.push(listener);
+        return {
+          data: { subscription: { unsubscribe: vi.fn() } },
+        };
+      }),
+      refreshSession: authMocks.refreshSession,
+      signOut: authMocks.signOut,
     },
   },
 }));
@@ -19,8 +37,61 @@ vi.mock('posthog-js', () => ({
 
 import { AuthProvider, useAuth } from '@/context/AuthContext';
 
+const testUser = {
+  id: 'reader-1',
+  app_metadata: {},
+  user_metadata: {},
+  aud: 'authenticated',
+  created_at: '2026-08-03T00:00:00.000Z',
+} as User;
+
+function testSession(accessToken: string, refreshToken: string): TestSession {
+  return {
+    access_token: accessToken,
+    refresh_token: refreshToken,
+    user: testUser,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function renderAuthProbe() {
+  let current: ReturnType<typeof useAuth> | undefined;
+
+  function Probe() {
+    current = useAuth();
+    return null;
+  }
+
+  const rendered = render(
+    <AuthProvider>
+      <Probe />
+    </AuthProvider>,
+  );
+
+  return {
+    ...rendered,
+    getCurrent: () => {
+      if (!current) throw new Error('Auth probe has not rendered.');
+      return current;
+    },
+  };
+}
+
 describe('AuthContext memoization', () => {
   beforeEach(() => {
+    authMocks.listeners.length = 0;
+    authMocks.refreshSession.mockReset().mockResolvedValue({
+      data: { session: null },
+      error: null,
+    });
+    authMocks.signOut.mockReset().mockResolvedValue({ error: null });
     if (typeof window !== 'undefined') {
       window.localStorage.clear();
     }
@@ -98,5 +169,104 @@ describe('AuthContext memoization', () => {
     expect(last.login).toBe(prev.login);
     expect(last.logout).toBe(prev.logout);
     expect(last.refresh).toBe(prev.refresh);
+  });
+
+  test('becomes ready only after Supabase resolves the initial session', () => {
+    const { getCurrent } = renderAuthProbe();
+
+    expect(Reflect.get(getCurrent(), 'isReady')).toBe(false);
+
+    act(() => {
+      authMocks.listeners[0]?.('INITIAL_SESSION', testSession('initial-token', 'initial-refresh'));
+    });
+
+    expect(Reflect.get(getCurrent(), 'isReady')).toBe(true);
+    expect(getCurrent().token).toBe('initial-token');
+  });
+
+  test('does not expose mirrored credentials before Supabase resolves the session', () => {
+    window.localStorage.setItem('token', 'stale-mirrored-token');
+    window.localStorage.setItem('user', JSON.stringify(testUser));
+
+    const { getCurrent } = renderAuthProbe();
+
+    expect(getCurrent().isReady).toBe(false);
+    expect(getCurrent().token).toBeNull();
+    expect(getCurrent().user).toBeNull();
+  });
+
+  test('rotates the current token and clears session storage on sign out', () => {
+    const { getCurrent } = renderAuthProbe();
+
+    act(() => {
+      authMocks.listeners[0]?.('INITIAL_SESSION', testSession('initial-token', 'initial-refresh'));
+    });
+
+    expect(getCurrent().token).toBe('initial-token');
+    expect(window.localStorage.getItem('refresh_token')).toBe('initial-refresh');
+
+    act(() => {
+      authMocks.listeners[0]?.(
+        'TOKEN_REFRESHED',
+        testSession('refreshed-token', 'refreshed-refresh'),
+      );
+    });
+
+    expect(getCurrent().token).toBe('refreshed-token');
+    expect(window.localStorage.getItem('token')).toBe('refreshed-token');
+    expect(window.localStorage.getItem('refresh_token')).toBe('refreshed-refresh');
+
+    act(() => {
+      authMocks.listeners[0]?.('SIGNED_OUT', null);
+    });
+
+    expect(getCurrent().token).toBeNull();
+    expect(getCurrent().user).toBeNull();
+    expect(window.localStorage.getItem('token')).toBeNull();
+    expect(window.localStorage.getItem('refresh_token')).toBeNull();
+    expect(window.localStorage.getItem('user')).toBeNull();
+  });
+
+  test('logout clears mirrored tokens when auth-js returns a remote error without an auth event', async () => {
+    window.localStorage.setItem('token', 'cached-token');
+    window.localStorage.setItem('refresh_token', 'cached-refresh');
+    window.localStorage.setItem('user', JSON.stringify(testUser));
+    authMocks.signOut.mockResolvedValue({ error: new Error('Remote session revocation failed.') });
+    const { getCurrent } = renderAuthProbe();
+
+    await act(async () => {
+      await getCurrent().logout();
+    });
+
+    expect(window.localStorage.getItem('token')).toBeNull();
+    expect(window.localStorage.getItem('refresh_token')).toBeNull();
+    expect(window.localStorage.getItem('user')).toBeNull();
+  });
+
+  test('logout clears the active session before remote sign-out resolves', async () => {
+    const pendingSignOut = deferred<{ error: null }>();
+    authMocks.signOut.mockReturnValue(pendingSignOut.promise);
+    const { getCurrent } = renderAuthProbe();
+
+    act(() => {
+      authMocks.listeners[0]?.('INITIAL_SESSION', testSession('active-token', 'active-refresh'));
+    });
+
+    let logoutPromise!: Promise<void>;
+    act(() => {
+      logoutPromise = getCurrent().logout();
+    });
+
+    expect(getCurrent().token).toBeNull();
+    expect(getCurrent().user).toBeNull();
+    expect(window.localStorage.getItem('token')).toBeNull();
+    expect(window.localStorage.getItem('refresh_token')).toBeNull();
+    expect(window.localStorage.getItem('user')).toBeNull();
+
+    pendingSignOut.resolve({ error: null });
+    await act(async () => {
+      await logoutPromise;
+    });
+    expect(authMocks.signOut).toHaveBeenCalledWith({ scope: 'local' });
   });
 });

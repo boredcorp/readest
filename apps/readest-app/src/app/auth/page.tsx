@@ -3,10 +3,6 @@ import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import { Auth } from '@supabase/auth-ui-react';
-import { ThemeSupa } from '@supabase/auth-ui-shared';
-import { FcGoogle } from 'react-icons/fc';
-import { FaApple, FaGithub, FaDiscord } from 'react-icons/fa';
 import { IoArrowBack } from 'react-icons/io5';
 
 import { useAuth } from '@/context/AuthContext';
@@ -20,53 +16,27 @@ import { useTrafficLightStore } from '@/store/trafficLightStore';
 import { getBaseUrl, isTauriAppPlatform } from '@/services/environment';
 import { onOpenUrl } from '@tauri-apps/plugin-deep-link';
 import { start, cancel, onUrl, onInvalidUrl } from '@fabianlars/tauri-plugin-oauth';
-import { openUrl } from '@tauri-apps/plugin-opener';
 import { invoke } from '@tauri-apps/api/core';
 import { handleAuthCallback } from '@/helpers/auth';
 import { getUserProfilePlan } from '@/utils/access';
-import { getAppleIdAuth, Scope } from './utils/appleIdAuth';
-import { authWithCustomTab, authWithSafari } from './utils/nativeAuth';
+import MagicLinkSignIn from './MagicLinkSignIn';
 import WindowButtons from '@/components/WindowButtons';
-
-type OAuthProvider = 'google' | 'apple' | 'azure' | 'github' | 'discord';
 
 interface SingleInstancePayload {
   args: string[];
   cwd: string;
 }
 
-interface ProviderLoginProp {
-  provider: OAuthProvider;
-  handleSignIn: (provider: OAuthProvider) => void;
-  Icon: React.ElementType;
-  label: string;
-}
-
 const WEB_AUTH_CALLBACK = `${getBaseUrl()}/auth/callback`;
 const DEEPLINK_CALLBACK = 'readest://auth-callback';
 const USE_APPLE_SIGN_IN = process.env['NEXT_PUBLIC_USE_APPLE_SIGN_IN'] === 'true';
-
-const ProviderLogin: React.FC<ProviderLoginProp> = ({ provider, handleSignIn, Icon, label }) => {
-  return (
-    <button
-      onClick={() => handleSignIn(provider)}
-      className={clsx(
-        'mb-2 flex w-64 items-center justify-center rounded border p-2.5',
-        'bg-base-100 border-base-300 hover:bg-base-200 shadow-sm transition',
-      )}
-    >
-      <Icon />
-      <span className='text-base-content/75 px-2 text-sm'>{label}</span>
-    </button>
-  );
-};
 
 export default function AuthPage() {
   const _ = useTranslation();
   const router = useRouter();
   const { login } = useAuth();
   const { envConfig, appService } = useEnv();
-  const { isDarkMode, safeAreaInsets, isRoundedWindow } = useThemeStore();
+  const { safeAreaInsets, isRoundedWindow } = useThemeStore();
   const { isTrafficLightVisible } = useTrafficLightStore();
   const { settings, setSettings, saveSettings } = useSettingsStore();
   const [port, setPort] = useState<number | null>(null);
@@ -101,64 +71,6 @@ export default function AuthPage() {
     return process.env.NODE_ENV === 'production'
       ? WEB_AUTH_CALLBACK
       : `${window.location.origin}/auth/callback`;
-  };
-
-  const tauriSignInApple = async () => {
-    if (!supabase) {
-      throw new Error('No backend connected');
-    }
-    supabase.auth.signOut();
-    const request = {
-      scope: ['fullName', 'email'] as Scope[],
-    };
-    if (appService?.isIOSApp || USE_APPLE_SIGN_IN) {
-      const appleAuthResponse = await getAppleIdAuth(request);
-      if (appleAuthResponse.identityToken) {
-        const { error } = await supabase.auth.signInWithIdToken({
-          provider: 'apple',
-          token: appleAuthResponse.identityToken,
-        });
-        if (error) {
-          console.error('Authentication error:', error);
-        }
-      }
-    } else {
-      console.log('Sign in with Apple on this platform is not supported yet');
-    }
-  };
-
-  const tauriSignIn = async (provider: OAuthProvider) => {
-    if (!supabase) {
-      throw new Error('No backend connected');
-    }
-    supabase.auth.signOut();
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: {
-        skipBrowserRedirect: true,
-        redirectTo: getTauriRedirectTo(true),
-      },
-    });
-
-    if (error) {
-      console.error('Authentication error:', error);
-      return;
-    }
-    // Open the OAuth URL in a ASWebAuthenticationSession on iOS to comply with Apple's guidelines
-    // for other platforms, open the OAuth URL in the default browser
-    if (appService?.isIOSApp || appService?.isMacOSApp) {
-      const res = await authWithSafari({ authUrl: data.url });
-      if (res) {
-        handleOAuthUrl(res.redirectUrl);
-      }
-    } else if (appService?.isAndroidApp) {
-      const res = await authWithCustomTab({ authUrl: data.url });
-      if (res) {
-        handleOAuthUrl(res.redirectUrl);
-      }
-    } else {
-      await openUrl(data.url);
-    }
   };
 
   const handleOAuthUrl = async (url: string) => {
@@ -237,61 +149,6 @@ export default function AuthPage() {
     } else {
       router.back();
     }
-  };
-
-  const getAuthLocalization = () => {
-    return {
-      variables: {
-        sign_in: {
-          email_label: _('Email address'),
-          password_label: _('Your Password'),
-          email_input_placeholder: _('Your email address'),
-          password_input_placeholder: _('Your password'),
-          button_label: _('Sign in'),
-          loading_button_label: _('Signing in...'),
-          social_provider_text: _('Sign in with {{provider}}'),
-          link_text: _('Already have an account? Sign in'),
-        },
-        sign_up: {
-          email_label: _('Email address'),
-          password_label: _('Create a Password'),
-          email_input_placeholder: _('Your email address'),
-          password_input_placeholder: _('Your password'),
-          button_label: _('Sign up'),
-          loading_button_label: _('Signing up...'),
-          social_provider_text: _('Sign in with {{provider}}'),
-          link_text: _("Don't have an account? Sign up"),
-          confirmation_text: _('Check your email for the confirmation link'),
-        },
-        magic_link: {
-          email_input_label: _('Email address'),
-          email_input_placeholder: _('Your email address'),
-          button_label: _('Sign in'),
-          loading_button_label: _('Signing in ...'),
-          link_text: _('Send a magic link email'),
-          confirmation_text: _('Check your email for the magic link'),
-        },
-        forgotten_password: {
-          email_label: _('Email address'),
-          password_label: _('Your Password'),
-          email_input_placeholder: _('Your email address'),
-          button_label: _('Send reset password instructions'),
-          loading_button_label: _('Sending reset instructions ...'),
-          link_text: _('Forgot your password?'),
-          confirmation_text: _('Check your email for the password reset link'),
-        },
-        verify_otp: {
-          email_input_label: _('Email address'),
-          email_input_placeholder: _('Your email address'),
-          phone_input_label: _('Phone number'),
-          phone_input_placeholder: _('Your phone number'),
-          token_input_label: _('Token'),
-          token_input_placeholder: _('Your OTP token'),
-          button_label: _('Verify token'),
-          loading_button_label: _('Signing in ...'),
-        },
-      },
-    };
   };
 
   useEffect(() => {
@@ -385,69 +242,25 @@ export default function AuthPage() {
         </div>
         <div
           className={clsx(
-            'z-20 flex flex-col items-center pb-8',
+            'z-20 flex w-full flex-col items-center px-8 pb-8',
             appService?.hasTrafficLight ? 'mt-24' : 'mt-12',
           )}
           style={{ maxWidth: '420px' }}
         >
-          <ProviderLogin
-            provider='google'
-            handleSignIn={tauriSignIn}
-            Icon={FcGoogle}
-            label={_('Sign in with {{provider}}', { provider: 'Google' })}
-          />
-          <ProviderLogin
-            provider='apple'
-            handleSignIn={
-              appService?.isIOSApp || USE_APPLE_SIGN_IN ? tauriSignInApple : tauriSignIn
-            }
-            Icon={FaApple}
-            label={_('Sign in with {{provider}}', { provider: 'Apple' })}
-          />
-          <ProviderLogin
-            provider='github'
-            handleSignIn={tauriSignIn}
-            Icon={FaGithub}
-            label={_('Sign in with {{provider}}', { provider: 'GitHub' })}
-          />
-          <ProviderLogin
-            provider='discord'
-            handleSignIn={tauriSignIn}
-            Icon={FaDiscord}
-            label={_('Sign in with {{provider}}', { provider: 'Discord' })}
-          />
-          <hr aria-hidden='true' className='border-base-300 my-3 mt-6 w-64 border-t' />
-          <div className='w-full'>
-            <Auth
-              supabaseClient={supabase}
-              appearance={{ theme: ThemeSupa }}
-              theme={isDarkMode ? 'dark' : 'light'}
-              magicLink={true}
-              providers={[]}
-              redirectTo={getTauriRedirectTo(false)}
-              localization={getAuthLocalization()}
-            />
-          </div>
+          <MagicLinkSignIn redirectTo={getTauriRedirectTo(false)} />
         </div>
       </div>
     </div>
   ) : (
     <div style={{ maxWidth: '420px', margin: 'auto', padding: '2rem', paddingTop: '4rem' }}>
       <button
+        aria-label={_('Go Back')}
         onClick={handleGoBack}
         className='btn btn-ghost fixed left-6 top-6 h-8 min-h-8 w-8 p-0'
       >
         <IoArrowBack className='text-base-content' />
       </button>
-      <Auth
-        supabaseClient={supabase}
-        appearance={{ theme: ThemeSupa }}
-        theme={isDarkMode ? 'dark' : 'light'}
-        magicLink={true}
-        providers={['google', 'apple', 'github', 'discord']}
-        redirectTo={getWebRedirectTo()}
-        localization={getAuthLocalization()}
-      />
+      <MagicLinkSignIn redirectTo={getWebRedirectTo()} />
     </div>
   );
 }

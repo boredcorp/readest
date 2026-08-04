@@ -8,35 +8,44 @@ import {
   useMemo,
   ReactNode,
   useEffect,
+  useRef,
 } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase } from '@/utils/supabase';
+import {
+  beginAuthSessionResolution,
+  publishAuthSessionToken,
+} from '@/utils/auth-session-readiness';
 import posthog from 'posthog-js';
 
 interface AuthContextType {
+  isReady: boolean;
   token: string | null;
   user: User | null;
   login: (token: string, user: User) => void;
-  logout: () => void;
-  refresh: () => void;
+  logout: () => Promise<void>;
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [token, setToken] = useState<string | null>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('token');
-    }
-    return null;
+  const [isReady, setIsReady] = useState(() => {
+    beginAuthSessionResolution();
+    return false;
   });
-  const [user, setUser] = useState<User | null>(() => {
-    if (typeof window !== 'undefined') {
-      const userJson = localStorage.getItem('user');
-      return userJson ? JSON.parse(userJson) : null;
-    }
-    return null;
-  });
+  const [token, setToken] = useState<string | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const isLoggingOutRef = useRef(false);
+
+  const clearLocalSession = useCallback(() => {
+    publishAuthSessionToken(null);
+    localStorage.removeItem('token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+  }, []);
 
   useEffect(() => {
     const syncSession = (
@@ -48,15 +57,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         localStorage.setItem('token', access_token);
         localStorage.setItem('refresh_token', refresh_token);
         localStorage.setItem('user', JSON.stringify(user));
+        publishAuthSessionToken(access_token);
         posthog.identify(user.id);
         setToken(access_token);
         setUser(user);
       } else {
-        localStorage.removeItem('token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('user');
-        setToken(null);
-        setUser(null);
+        clearLocalSession();
       }
     };
     const refreshSession = async () => {
@@ -64,18 +70,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         await supabase.auth.refreshSession();
       } catch {
         syncSession(null);
+        setIsReady(true);
       }
     };
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_, session) => {
+      if (isLoggingOutRef.current && session) return;
       syncSession(session);
+      setIsReady(true);
     });
 
     refreshSession();
     return () => {
       subscription?.subscription.unsubscribe();
     };
-  }, []);
+  }, [clearLocalSession]);
 
   // setToken / setUser from useState are stable across renders, so the empty
   // deps array is correct. Wrapping in useCallback (and only including stable
@@ -88,21 +97,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(newUser);
     localStorage.setItem('token', newToken);
     localStorage.setItem('user', JSON.stringify(newUser));
+    publishAuthSessionToken(newToken);
+    isLoggingOutRef.current = false;
+    setIsReady(true);
   }, []);
 
   const logout = useCallback(async () => {
     console.log('Logging out');
+    isLoggingOutRef.current = true;
+    clearLocalSession();
+    setIsReady(true);
     try {
-      await supabase.auth.refreshSession();
-    } catch {
+      await supabase.auth.signOut({ scope: 'local' });
     } finally {
-      await supabase.auth.signOut();
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      setToken(null);
-      setUser(null);
+      clearLocalSession();
+      isLoggingOutRef.current = false;
+      setIsReady(true);
     }
-  }, []);
+  }, [clearLocalSession]);
 
   const refresh = useCallback(async () => {
     try {
@@ -111,8 +123,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const value = useMemo(
-    () => ({ token, user, login, logout, refresh }),
-    [token, user, login, logout, refresh],
+    () => ({ isReady, token, user, login, logout, refresh }),
+    [isReady, token, user, login, logout, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };

@@ -33,7 +33,7 @@ export function handleAuthCallback({
       return;
     }
 
-    const { error: err } = await supabase.auth.setSession({
+    const { data, error: err } = await supabase.auth.setSession({
       access_token: accessToken,
       refresh_token: refreshToken,
     });
@@ -44,11 +44,9 @@ export function handleAuthCallback({
       return;
     }
 
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (user) {
-      login(accessToken, user);
+    const session = data.session;
+    if (session?.access_token && session.user) {
+      login(session.access_token, session.user);
       if (type === 'recovery') {
         navigate('/auth/recovery');
         return;
