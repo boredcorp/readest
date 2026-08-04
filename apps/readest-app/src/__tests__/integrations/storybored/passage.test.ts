@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createStoryBoredPassage } from '@/integrations/storybored/passage';
+import type { Book } from '@/types/book';
+import { createStoryBoredPassage, getStoryBoredBookId } from '@/integrations/storybored/passage';
 import { getSelectionContext } from '@/integrations/storybored/passage-context';
 import type { TextSelection } from '@/utils/sel';
 
@@ -26,6 +27,48 @@ function splitContext(context: string): { before: string; after: string } {
     after: match?.[2] ?? '',
   };
 }
+
+describe('getStoryBoredBookId', () => {
+  it('uses the shared metadata hash across different sideloaded file revisions', () => {
+    const metaHash = '8f7f66e69a4a2dfab7d2b33588d1843a';
+    const firstRevision = { hash: 'first-file-hash', metaHash } as Book;
+    const secondRevision = { hash: 'second-file-hash', metaHash } as Book;
+
+    expect(getStoryBoredBookId('first-file-hash-view', firstRevision)).toBe(metaHash);
+    expect(getStoryBoredBookId('second-file-hash-view', secondRevision)).toBe(metaHash);
+  });
+
+  it('keeps the API source key for marketplace books after metadata is calculated', () => {
+    const marketplaceBook = {
+      hash: 'entitlement-local-hash',
+      metaHash: 'reader-calculated-metadata-hash',
+      marketplace: {
+        libraryItemId: 'library-account-a',
+        listingId: 'listing-shared',
+        sourceKey: 'shared-marketplace-source-key',
+      },
+    } as Book;
+
+    expect(getStoryBoredBookId('entitlement-local-hash-view', marketplaceBook)).toBe(
+      'shared-marketplace-source-key',
+    );
+  });
+
+  it('falls back to the entitlement-local hash for legacy marketplace records', () => {
+    const legacyMarketplaceBook = {
+      hash: 'legacy-entitlement-hash',
+      metaHash: 'reader-calculated-metadata-hash',
+      marketplace: {
+        libraryItemId: 'library-account-a',
+        listingId: 'listing-shared',
+      },
+    } as Book;
+
+    expect(getStoryBoredBookId('legacy-entitlement-hash-view', legacyMarketplaceBook)).toBe(
+      'legacy-entitlement-hash',
+    );
+  });
+});
 
 describe('createStoryBoredPassage', () => {
   it('anchors context to the exact selected occurrence across the full rendered section', () => {

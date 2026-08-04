@@ -93,6 +93,8 @@ export interface Book {
   marketplace?: {
     libraryItemId: string;
     listingId: string;
+    /** Stable StoryBored API identity; distinct from the entitlement-local `Book.hash`. */
+    sourceKey?: string;
     grantedByListingId?: string;
     slug: string;
     entitlementStatus: 'active' | 'revoked' | 'refunded';

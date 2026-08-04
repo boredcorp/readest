@@ -14,6 +14,9 @@ interface CreateStoryBoredPassageInput {
 }
 
 export function getStoryBoredBookId(bookKey: string, book?: Book): string {
+  if (book?.marketplace) {
+    return book.marketplace.sourceKey || book.hash;
+  }
   return book?.metaHash || book?.hash || bookKey.split('-')[0] || bookKey;
 }
 

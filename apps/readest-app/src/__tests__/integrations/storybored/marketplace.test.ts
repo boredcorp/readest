@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { EnvConfigType } from '@/services/environment';
 import type { Book } from '@/types/book';
+import { isMd5 } from '@/utils/md5';
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -276,8 +277,313 @@ describe('StoryBored marketplace library authentication', () => {
 
     await expect(accountASync).resolves.toBe(library);
     const accountBLibrary = await accountBSync;
-    expect(accountBLibrary[0]?.hash).toBe('book-b');
+    expect(isMd5(accountBLibrary[0]?.hash ?? '')).toBe(true);
+    expect(accountBLibrary[0]?.hash).not.toBe('book-b');
+    expect(accountBLibrary[0]?.marketplace?.sourceKey).toBe('book-b');
     expect(saveLibraryBooks).toHaveBeenLastCalledWith(accountBLibrary);
+  });
+
+  it('keeps shared marketplace source keys isolated by entitlement-local hashes', async () => {
+    const ownedItem = (account: 'a' | 'b') => ({
+      acquiredAt: '2026-08-03T00:00:00.000Z',
+      author: 'StoryBored',
+      bookId: 'shared-marketplace-source-key',
+      coverImageUrl: null,
+      entitlementStatus: 'active',
+      exportAllowed: false,
+      format: 'EPUB',
+      grantedByListingId: 'listing-shared',
+      hasScenePack: false,
+      language: 'en',
+      libraryItemId: `library-account-${account}`,
+      listingId: 'listing-shared',
+      offlineCacheAllowed: true,
+      slug: 'shared-book',
+      title: 'Shared Marketplace Book',
+    });
+    storyBoredMocks.listOwnedLibrary
+      .mockResolvedValueOnce({ libraryItems: [ownedItem('a')] })
+      .mockResolvedValueOnce({ libraryItems: [ownedItem('b')] })
+      .mockResolvedValueOnce({ libraryItems: [ownedItem('a')] });
+    const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+    const isolatedEnvConfig = {
+      getAppService: async () => ({ saveLibraryBooks }),
+    } as unknown as EnvConfigType;
+
+    const accountALibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: isolatedEnvConfig,
+      token: 'account-a-token',
+      library: [],
+    });
+    const accountABook = accountALibrary[0]!;
+    expect(isMd5(accountABook.hash)).toBe(true);
+    expect(accountABook.marketplace?.sourceKey).toBe('shared-marketplace-source-key');
+
+    const accountBLibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: isolatedEnvConfig,
+      token: 'account-b-token',
+      library: accountALibrary,
+    });
+    const accountBBook = accountBLibrary.find(
+      (book) => book.marketplace?.libraryItemId === 'library-account-b',
+    )!;
+    const accountARevoked = accountBLibrary.find(
+      (book) => book.marketplace?.libraryItemId === 'library-account-a',
+    )!;
+
+    expect(accountBLibrary).toHaveLength(2);
+    expect(isMd5(accountBBook.hash)).toBe(true);
+    expect(accountBBook.hash).not.toBe(accountABook.hash);
+    expect(accountBBook.marketplace?.sourceKey).toBe('shared-marketplace-source-key');
+    expect(accountARevoked.marketplace?.entitlementStatus).toBe('revoked');
+
+    const accountAAgainLibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: isolatedEnvConfig,
+      token: 'account-a-token',
+      library: accountBLibrary,
+    });
+    const accountAAgain = accountAAgainLibrary.find(
+      (book) => book.marketplace?.libraryItemId === 'library-account-a',
+    )!;
+
+    expect(accountAAgainLibrary).toHaveLength(2);
+    expect(accountAAgain.hash).toBe(accountABook.hash);
+    expect(accountAAgain.marketplace?.sourceKey).toBe('shared-marketplace-source-key');
+    expect(accountAAgain.marketplace?.entitlementStatus).toBe('active');
+  });
+
+  it('adds the API source key to a legacy entitlement without changing its local hash', async () => {
+    storyBoredMocks.listOwnedLibrary.mockResolvedValue({
+      libraryItems: [
+        {
+          acquiredAt: '2026-08-03T00:00:00.000Z',
+          author: 'StoryBored',
+          bookId: 'shared-marketplace-source-key',
+          coverImageUrl: null,
+          entitlementStatus: 'active',
+          exportAllowed: false,
+          format: 'EPUB',
+          grantedByListingId: 'listing-shared',
+          hasScenePack: false,
+          language: 'en',
+          libraryItemId: 'library-account-a',
+          listingId: 'listing-shared',
+          offlineCacheAllowed: true,
+          slug: 'shared-book',
+          title: 'Shared Marketplace Book',
+        },
+      ],
+    });
+    const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+    const migrationEnvConfig = {
+      getAppService: async () => ({ saveLibraryBooks }),
+    } as unknown as EnvConfigType;
+    const legacyBook = {
+      hash: 'legacy-entitlement-local-hash',
+      format: 'EPUB',
+      title: 'Shared Marketplace Book',
+      author: 'StoryBored',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      marketplace: {
+        libraryItemId: 'library-account-a',
+        listingId: 'listing-shared',
+        slug: 'shared-book',
+        entitlementStatus: 'active',
+      },
+    } as Book;
+
+    const migratedLibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: migrationEnvConfig,
+      token: 'account-a-token',
+      library: [legacyBook],
+    });
+
+    expect(migratedLibrary).toHaveLength(1);
+    expect(migratedLibrary[0]?.hash).toBe('legacy-entitlement-local-hash');
+    expect(migratedLibrary[0]?.marketplace?.sourceKey).toBe('shared-marketplace-source-key');
+  });
+
+  it('reattaches marketplace metadata after a cloud round trip by entitlement-local hash', async () => {
+    const sourceKey = 'a'.repeat(64);
+    const ownedItem = {
+      acquiredAt: '2026-08-03T00:00:00.000Z',
+      author: 'StoryBored',
+      bookId: sourceKey,
+      coverImageUrl: null,
+      entitlementStatus: 'active',
+      exportAllowed: false,
+      format: 'EPUB',
+      grantedByListingId: 'listing-shared',
+      hasScenePack: false,
+      language: 'en',
+      libraryItemId: 'library-account-a',
+      listingId: 'listing-shared',
+      offlineCacheAllowed: true,
+      slug: 'shared-book',
+      title: 'Shared Marketplace Book',
+    };
+    storyBoredMocks.listOwnedLibrary.mockResolvedValue({ libraryItems: [ownedItem] });
+    const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+    const roundTripEnvConfig = {
+      getAppService: async () => ({ saveLibraryBooks }),
+    } as unknown as EnvConfigType;
+
+    const firstLibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: roundTripEnvConfig,
+      token: 'account-a-token',
+      library: [],
+    });
+    const originalHash = firstLibrary[0]!.hash;
+    const cloudRoundTrippedBook = {
+      ...firstLibrary[0]!,
+      marketplace: undefined,
+    };
+
+    const restoredLibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: roundTripEnvConfig,
+      token: 'account-a-token',
+      library: [cloudRoundTrippedBook],
+    });
+
+    expect(restoredLibrary).toHaveLength(1);
+    expect(restoredLibrary[0]?.hash).toBe(originalHash);
+    expect(restoredLibrary[0]?.marketplace?.libraryItemId).toBe('library-account-a');
+    expect(restoredLibrary[0]?.marketplace?.sourceKey).toBe(sourceKey);
+  });
+
+  it('recovers a marked pre-cutover row by its legacy source-key hash', async () => {
+    const legacySourceKey = 'legacy-marketplace-user-listing-key';
+    storyBoredMocks.listOwnedLibrary.mockResolvedValue({
+      libraryItems: [
+        {
+          acquiredAt: '2026-08-03T00:00:00.000Z',
+          author: 'StoryBored',
+          bookId: legacySourceKey,
+          coverImageUrl: null,
+          entitlementStatus: 'active',
+          exportAllowed: false,
+          format: 'EPUB',
+          grantedByListingId: 'listing-shared',
+          hasScenePack: false,
+          language: 'en',
+          libraryItemId: 'library-account-a',
+          listingId: 'listing-shared',
+          offlineCacheAllowed: true,
+          slug: 'shared-book',
+          title: 'Shared Marketplace Book',
+        },
+      ],
+    });
+    const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+    const migrationEnvConfig = {
+      getAppService: async () => ({ saveLibraryBooks }),
+    } as unknown as EnvConfigType;
+    const cloudLegacyBook = {
+      hash: legacySourceKey,
+      format: 'EPUB',
+      title: 'Shared Marketplace Book',
+      author: 'StoryBored',
+      groupName: 'StoryBored Marketplace',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    } as Book;
+
+    const migratedLibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: migrationEnvConfig,
+      token: 'account-a-token',
+      library: [cloudLegacyBook],
+    });
+
+    expect(migratedLibrary).toHaveLength(1);
+    expect(migratedLibrary[0]?.hash).toBe(legacySourceKey);
+    expect(migratedLibrary[0]?.marketplace?.libraryItemId).toBe('library-account-a');
+    expect(migratedLibrary[0]?.marketplace?.sourceKey).toBe(legacySourceKey);
+  });
+
+  it('does not merge a current shared source-key row after marketplace metadata is lost', async () => {
+    const sharedSourceKey = 'b'.repeat(64);
+    storyBoredMocks.listOwnedLibrary.mockResolvedValue({
+      libraryItems: [
+        {
+          acquiredAt: '2026-08-03T00:00:00.000Z',
+          author: 'StoryBored',
+          bookId: sharedSourceKey,
+          coverImageUrl: null,
+          entitlementStatus: 'active',
+          exportAllowed: false,
+          format: 'EPUB',
+          grantedByListingId: 'listing-shared',
+          hasScenePack: false,
+          language: 'en',
+          libraryItemId: 'library-account-b',
+          listingId: 'listing-shared',
+          offlineCacheAllowed: true,
+          slug: 'shared-book',
+          title: 'Shared Marketplace Book',
+        },
+      ],
+    });
+    const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+    const isolatedEnvConfig = {
+      getAppService: async () => ({ saveLibraryBooks }),
+    } as unknown as EnvConfigType;
+    const metadataStrippedSharedRow = {
+      hash: sharedSourceKey,
+      format: 'EPUB',
+      title: 'Shared Marketplace Book',
+      author: 'StoryBored',
+      groupName: 'StoryBored Marketplace',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    } as Book;
+
+    const accountBLibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: isolatedEnvConfig,
+      token: 'account-b-token',
+      library: [metadataStrippedSharedRow],
+    });
+
+    expect(accountBLibrary).toHaveLength(2);
+    const accountBBook = accountBLibrary.find(
+      (book) => book.marketplace?.libraryItemId === 'library-account-b',
+    )!;
+    expect(isMd5(accountBBook.hash)).toBe(true);
+    expect(accountBBook.hash).not.toBe(sharedSourceKey);
+    const quarantinedSharedRow = accountBLibrary.find((book) => book.hash === sharedSourceKey)!;
+    expect(quarantinedSharedRow.deletedAt).toEqual(expect.any(Number));
+    expect(quarantinedSharedRow.downloadedAt).toBeNull();
+    expect(quarantinedSharedRow.exportAllowed).toBe(false);
+  });
+
+  it('quarantines an unmatched marketplace-group row after cloud metadata loss', async () => {
+    storyBoredMocks.listOwnedLibrary.mockResolvedValue({ libraryItems: [] });
+    const saveLibraryBooks = vi.fn().mockResolvedValue(undefined);
+    const quarantineEnvConfig = {
+      getAppService: async () => ({ saveLibraryBooks }),
+    } as unknown as EnvConfigType;
+    const orphanedCloudBook = {
+      hash: 'orphaned-entitlement-local-hash',
+      format: 'EPUB',
+      title: 'Former Marketplace Book',
+      author: 'StoryBored',
+      groupName: 'StoryBored Marketplace',
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      downloadedAt: Date.now(),
+      exportAllowed: false,
+    } as Book;
+
+    const quarantinedLibrary = await syncStoryBoredMarketplaceLibrary({
+      envConfig: quarantineEnvConfig,
+      token: 'account-b-token',
+      library: [orphanedCloudBook],
+    });
+
+    expect(quarantinedLibrary).toHaveLength(1);
+    expect(quarantinedLibrary[0]?.deletedAt).toEqual(expect.any(Number));
+    expect(quarantinedLibrary[0]?.downloadedAt).toBeNull();
+    expect(saveLibraryBooks).toHaveBeenCalledWith(quarantinedLibrary);
   });
 
   it('does not write marketplace content after its auth session is aborted', async () => {

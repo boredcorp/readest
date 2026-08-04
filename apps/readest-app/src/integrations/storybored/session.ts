@@ -1,11 +1,13 @@
 import type { StoryBoredPassage, StoryBoredSceneStatus } from './types';
 
-const STORAGE_KEY = 'storybored.scene-panel-session.v1';
+const STORAGE_KEY = 'storybored.scene-panel-session.v2';
+const LEGACY_STORAGE_KEY = 'storybored.scene-panel-session.v1';
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_STATUSES = new Set<StoryBoredSceneStatus>(['queued', 'prompting', 'generating']);
 
 export interface StoryBoredSceneSession {
-  version: 1;
+  version: 2;
+  ownerUserId: string;
   bookId: string;
   generationId: string;
   generationStatus: StoryBoredSceneStatus;
@@ -32,13 +34,16 @@ function parseSession(value: unknown): StoryBoredSceneSession | null {
   const passage = value['passage'];
 
   if (
-    value['version'] !== 1 ||
+    value['version'] !== 2 ||
+    typeof value['ownerUserId'] !== 'string' ||
+    value['ownerUserId'].length === 0 ||
     typeof value['bookId'] !== 'string' ||
     typeof value['generationId'] !== 'string' ||
     typeof value['generationStatus'] !== 'string' ||
     typeof value['updatedAt'] !== 'number' ||
     !isObject(passage) ||
     typeof passage['bookId'] !== 'string' ||
+    passage['bookId'] !== value['bookId'] ||
     typeof passage['selectedText'] !== 'string' ||
     typeof passage['stylePreset'] !== 'string'
   ) {
@@ -46,7 +51,8 @@ function parseSession(value: unknown): StoryBoredSceneSession | null {
   }
 
   return {
-    version: 1,
+    version: 2,
+    ownerUserId: value['ownerUserId'],
     bookId: value['bookId'],
     generationId: value['generationId'],
     generationStatus: value['generationStatus'] as StoryBoredSceneStatus,
@@ -66,21 +72,34 @@ export function writeStoryBoredSceneSession(
   if (!storage) return;
 
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify({ ...session, version: 1 }));
+    storage.removeItem(LEGACY_STORAGE_KEY);
+    storage.setItem(STORAGE_KEY, JSON.stringify({ ...session, version: 2 }));
   } catch {}
 }
 
-export function readStoryBoredSceneSession(bookId?: string): StoryBoredSceneSession | null {
+export function readStoryBoredSceneSession(input: {
+  ownerUserId: string;
+  bookId?: string;
+}): StoryBoredSceneSession | null {
   const storage = getStorage();
   if (!storage) return null;
 
   try {
+    storage.removeItem(LEGACY_STORAGE_KEY);
+    if (!input.ownerUserId) return null;
+
     const session = parseSession(JSON.parse(storage.getItem(STORAGE_KEY) || 'null'));
     if (!session) return null;
 
     const isExpired = Date.now() - session.updatedAt > SESSION_MAX_AGE_MS;
-    const isWrongBook = bookId !== undefined && session.bookId !== bookId;
-    if (isExpired || isWrongBook || !isStoryBoredSceneActive(session.generationStatus)) {
+    const isWrongOwner = session.ownerUserId !== input.ownerUserId;
+    const isWrongBook = input.bookId !== undefined && session.bookId !== input.bookId;
+    if (
+      isExpired ||
+      isWrongOwner ||
+      isWrongBook ||
+      !isStoryBoredSceneActive(session.generationStatus)
+    ) {
       return null;
     }
 
@@ -95,7 +114,8 @@ export function clearStoryBoredSceneSession(generationId?: string): void {
   if (!storage) return;
 
   try {
-    const session = readStoryBoredSceneSession();
+    storage.removeItem(LEGACY_STORAGE_KEY);
+    const session = parseSession(JSON.parse(storage.getItem(STORAGE_KEY) || 'null'));
     if (generationId && session?.generationId !== generationId) return;
     storage.removeItem(STORAGE_KEY);
   } catch {}

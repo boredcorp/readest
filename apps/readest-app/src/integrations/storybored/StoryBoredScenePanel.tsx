@@ -93,7 +93,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   onClose,
 }) => {
   const _ = useTranslation();
-  const { token, user } = useAuth();
+  const { isReady, token, user } = useAuth();
   const userId = user?.id ?? null;
   const [stylePreset, setStylePreset] = useState<StoryBoredStylePreset>('cinematic-literary');
   const [generation, setGeneration] = useState<StoryBoredSceneGeneration | null>(null);
@@ -103,25 +103,36 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const [feedbackDraft, setFeedbackDraft] =
     useState<StoryBoredFeedbackDraft>(DEFAULT_FEEDBACK_DRAFT);
   const [error, setError] = useState<string | null>(null);
-  const authEpochRef = useRef({ token, userId, version: 0 });
+  const authEpochRef = useRef({ isReady, token, userId, version: 0 });
   const authSessionEpochRef = useRef({
-    hasSession: Boolean(token && userId),
+    hasSession: Boolean(isReady && token && userId),
     userId,
     version: 0,
   });
-  const previousUserIdRef = useRef(userId);
+  const resolvedAuthRef = useRef<{ isReady: boolean; userId: string | null }>({
+    isReady: false,
+    userId: null,
+  });
   const generationOwnerRef = useRef<string | null>(userId);
+  const generationPassageKeyRef = useRef<string | null>(null);
+  const currentGenerationIdRef = useRef<string | null>(generation?.id ?? null);
+  currentGenerationIdRef.current = generation?.id ?? null;
   const rejectedGenerationIdRef = useRef<string | null>(null);
 
-  if (authEpochRef.current.token !== token || authEpochRef.current.userId !== userId) {
+  if (
+    authEpochRef.current.isReady !== isReady ||
+    authEpochRef.current.token !== token ||
+    authEpochRef.current.userId !== userId
+  ) {
     authEpochRef.current = {
+      isReady,
       token,
       userId,
       version: authEpochRef.current.version + 1,
     };
   }
   const authEpoch = authEpochRef.current.version;
-  const hasAuthSession = Boolean(token && userId);
+  const hasAuthSession = Boolean(isReady && token && userId);
   const previousAuthSession = authSessionEpochRef.current;
   if (
     previousAuthSession.userId !== userId ||
@@ -141,7 +152,12 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const authSessionEpoch = authSessionEpochRef.current.version;
   const isCurrentAuthEpoch = useCallback((epoch: number) => {
     const current = authEpochRef.current;
-    return current.version === epoch && Boolean(current.token) && Boolean(current.userId);
+    return (
+      current.version === epoch &&
+      current.isReady &&
+      Boolean(current.token) &&
+      Boolean(current.userId)
+    );
   }, []);
   const isCurrentAuthSessionEpoch = useCallback((epoch: number, ownerUserId: string) => {
     const current = authSessionEpochRef.current;
@@ -155,21 +171,48 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const passageKey = useMemo(
     () =>
       passage
-        ? [passage.bookId, passage.location, passage.selectedText.slice(0, 80)].join('|')
+        ? JSON.stringify([
+            passage.bookId,
+            passage.selectedText,
+            passage.surroundingContext,
+            passage.chapter,
+            passage.location,
+          ])
         : '',
     [passage],
   );
-  const isActive = generation ? ACTIVE_STATUSES.has(generation.status) : false;
-  const canRetry = generation ? RETRYABLE_STATUSES.has(generation.status) : false;
-  const imageUrl = generation?.image?.url;
+  const currentPassageKeyRef = useRef(passageKey);
+  currentPassageKeyRef.current = passageKey;
+  const passageBookId = passage?.bookId ?? null;
+  const visibleGeneration =
+    isReady &&
+    token &&
+    userId &&
+    passage &&
+    generation &&
+    generationOwnerRef.current === userId &&
+    generationPassageKeyRef.current === passageKey &&
+    generation.bookId === passage.bookId &&
+    (!generationId || generation.id === generationId)
+      ? generation
+      : null;
+  const isActive = visibleGeneration ? ACTIVE_STATUSES.has(visibleGeneration.status) : false;
+  const canRetry = visibleGeneration ? RETRYABLE_STATUSES.has(visibleGeneration.status) : false;
+  const imageUrl = visibleGeneration?.image?.url;
 
   useEffect(() => {
-    const accountChanged = previousUserIdRef.current !== userId;
-    previousUserIdRef.current = userId;
+    if (!isReady) return;
+
+    const previousAuth = resolvedAuthRef.current;
+    resolvedAuthRef.current = { isReady: true, userId };
+    if (!previousAuth.isReady) return;
+
+    const accountChanged = previousAuth.userId !== userId;
     if (!accountChanged && token) return;
 
     rejectedGenerationIdRef.current = generationId ?? null;
     generationOwnerRef.current = null;
+    generationPassageKeyRef.current = null;
     setGeneration(null);
     setIsSubmitting(false);
     setIsFeedbackSubmitting(false);
@@ -178,25 +221,34 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     setError(null);
     clearStoryBoredSceneSession();
     onGenerationChange?.(null);
-  }, [generationId, onGenerationChange, token, userId]);
+  }, [generationId, isReady, onGenerationChange, token, userId]);
+
+  useEffect(() => {
+    setIsSubmitting(false);
+    setIsFeedbackSubmitting(false);
+    setFeedbackSubmitted(false);
+    setFeedbackDraft(DEFAULT_FEEDBACK_DRAFT);
+    setError(null);
+  }, [generationId, passageKey]);
 
   useEffect(() => {
     if (generationId) return;
+    rejectedGenerationIdRef.current = null;
     generationOwnerRef.current = null;
+    generationPassageKeyRef.current = null;
     setGeneration(null);
     onGenerationChange?.(null);
-    setError(null);
-    setFeedbackSubmitted(false);
-    setFeedbackDraft(DEFAULT_FEEDBACK_DRAFT);
     setStylePreset(passage?.stylePreset ?? 'cinematic-literary');
   }, [generationId, onGenerationChange, passageKey, passage?.stylePreset]);
 
   useEffect(() => {
     if (
       !isOpen ||
+      !isReady ||
       !generationId ||
       !token ||
       !userId ||
+      !passageBookId ||
       rejectedGenerationIdRef.current === generationId
     ) {
       return;
@@ -204,17 +256,40 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
 
     let cancelled = false;
     const requestAuthEpoch = authEpoch;
+    const requestPassageKey = currentPassageKeyRef.current;
+    const requestBookId = passageBookId;
 
     const loadGeneration = async () => {
       try {
         const restoredGeneration = await client.getSceneGeneration(generationId);
-        if (cancelled || !isCurrentAuthEpoch(requestAuthEpoch)) return;
+        if (
+          cancelled ||
+          !isCurrentAuthEpoch(requestAuthEpoch) ||
+          currentPassageKeyRef.current !== requestPassageKey
+        ) {
+          return;
+        }
+        if (restoredGeneration.id !== generationId || restoredGeneration.bookId !== requestBookId) {
+          rejectedGenerationIdRef.current = generationId;
+          generationOwnerRef.current = null;
+          generationPassageKeyRef.current = null;
+          setGeneration(null);
+          clearStoryBoredSceneSession(generationId);
+          onGenerationChange?.(null);
+          return;
+        }
+        rejectedGenerationIdRef.current = null;
         generationOwnerRef.current = userId;
+        generationPassageKeyRef.current = requestPassageKey;
         setGeneration(restoredGeneration);
         onGenerationChange?.(restoredGeneration);
         setError(null);
       } catch (err) {
-        if (!cancelled && isCurrentAuthEpoch(requestAuthEpoch)) {
+        if (
+          !cancelled &&
+          isCurrentAuthEpoch(requestAuthEpoch) &&
+          currentPassageKeyRef.current === requestPassageKey
+        ) {
           setError(getErrorMessage(err));
         }
       }
@@ -230,17 +305,39 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     client,
     generationId,
     isCurrentAuthEpoch,
+    isReady,
     isOpen,
     onGenerationChange,
+    passageBookId,
     token,
     userId,
   ]);
 
   useEffect(() => {
-    if (!passage || !generation || !token || generationOwnerRef.current !== userId) return;
+    if (
+      !isReady ||
+      !passage ||
+      !generation ||
+      !token ||
+      !userId ||
+      generationOwnerRef.current !== userId
+    ) {
+      return;
+    }
+
+    if (
+      !generationId ||
+      generation.id !== generationId ||
+      generation.bookId !== passage.bookId ||
+      generationPassageKeyRef.current !== passageKey
+    ) {
+      clearStoryBoredSceneSession(generation.id);
+      return;
+    }
 
     if (isStoryBoredSceneActive(generation.status)) {
       writeStoryBoredSceneSession({
+        ownerUserId: userId,
         bookId: passage.bookId,
         generationId: generation.id,
         generationStatus: generation.status,
@@ -250,45 +347,108 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     } else {
       clearStoryBoredSceneSession(generation.id);
     }
-  }, [generation, passage, passageKey, token, userId]);
+  }, [generation, generationId, isReady, passage, passageKey, token, userId]);
 
   useEffect(() => {
     if (
       !generation ||
+      !isReady ||
       !token ||
       !userId ||
+      !passage ||
       generationOwnerRef.current !== userId ||
+      generationPassageKeyRef.current !== passageKey ||
+      generation.bookId !== passage.bookId ||
+      (generationId !== null && generationId !== undefined && generation.id !== generationId) ||
       !ACTIVE_STATUSES.has(generation.status)
     ) {
       return;
     }
 
     const requestAuthEpoch = authEpoch;
+    const requestPassageKey = passageKey;
+    const requestBookId = passage.bookId;
+    let cancelled = false;
+    let timeoutId: number | undefined;
 
-    const interval = window.setInterval(async () => {
+    const pollGeneration = async () => {
+      let shouldContinue = true;
       try {
         const nextGeneration = await client.getSceneGeneration(generation.id);
-        if (!isCurrentAuthEpoch(requestAuthEpoch)) return;
+        if (
+          cancelled ||
+          !isCurrentAuthEpoch(requestAuthEpoch) ||
+          currentPassageKeyRef.current !== requestPassageKey
+        ) {
+          shouldContinue = false;
+          return;
+        }
+        if (nextGeneration.id !== generation.id || nextGeneration.bookId !== requestBookId) {
+          shouldContinue = false;
+          rejectedGenerationIdRef.current = generation.id;
+          generationOwnerRef.current = null;
+          generationPassageKeyRef.current = null;
+          setGeneration(null);
+          clearStoryBoredSceneSession(generation.id);
+          onGenerationChange?.(null);
+          return;
+        }
         generationOwnerRef.current = userId;
+        generationPassageKeyRef.current = requestPassageKey;
         setGeneration(nextGeneration);
         onGenerationChange?.(nextGeneration);
         setError(null);
+        shouldContinue = ACTIVE_STATUSES.has(nextGeneration.status);
       } catch (err) {
-        if (isCurrentAuthEpoch(requestAuthEpoch)) {
+        if (
+          !cancelled &&
+          isCurrentAuthEpoch(requestAuthEpoch) &&
+          currentPassageKeyRef.current === requestPassageKey
+        ) {
           setError(getErrorMessage(err));
+        } else {
+          shouldContinue = false;
+        }
+      } finally {
+        if (
+          shouldContinue &&
+          !cancelled &&
+          isCurrentAuthEpoch(requestAuthEpoch) &&
+          currentPassageKeyRef.current === requestPassageKey
+        ) {
+          timeoutId = window.setTimeout(pollGeneration, 2000);
         }
       }
-    }, 2000);
+    };
 
-    return () => window.clearInterval(interval);
-  }, [authEpoch, client, generation, isCurrentAuthEpoch, onGenerationChange, token, userId]);
+    timeoutId = window.setTimeout(pollGeneration, 2000);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+    };
+  }, [
+    authEpoch,
+    client,
+    generation,
+    generationId,
+    isCurrentAuthEpoch,
+    isReady,
+    onGenerationChange,
+    passage,
+    passageKey,
+    token,
+    userId,
+  ]);
 
   if (!isOpen) return null;
 
   const handleGenerate = async () => {
-    if (!passage || !token || !userId) return;
+    if (!isReady || !passage || !token || !userId) return;
     const requestAuthSessionEpoch = authSessionEpoch;
     const requestUserId = userId;
+    const requestPassageKey = passageKey;
+    const requestBookId = passage.bookId;
     setIsSubmitting(true);
     setError(null);
     setFeedbackSubmitted(false);
@@ -296,49 +456,103 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
 
     try {
       const nextGeneration = await client.createSceneGeneration({ ...passage, stylePreset });
-      if (!isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) return;
+      if (
+        !isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) ||
+        currentPassageKeyRef.current !== requestPassageKey ||
+        nextGeneration.bookId !== requestBookId
+      ) {
+        return;
+      }
+      rejectedGenerationIdRef.current = null;
       generationOwnerRef.current = requestUserId;
+      generationPassageKeyRef.current = requestPassageKey;
       setGeneration(nextGeneration);
       onGenerationChange?.(nextGeneration);
     } catch (err) {
-      if (isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) {
+      if (
+        isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+        currentPassageKeyRef.current === requestPassageKey
+      ) {
         setError(getErrorMessage(err));
       }
     } finally {
-      if (isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) {
+      if (
+        isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+        currentPassageKeyRef.current === requestPassageKey
+      ) {
         setIsSubmitting(false);
       }
     }
   };
 
   const handleCancel = async () => {
-    if (!generation || !token || !userId || generationOwnerRef.current !== userId) return;
+    if (
+      !isReady ||
+      !generation ||
+      !token ||
+      !userId ||
+      !passage ||
+      generationOwnerRef.current !== userId ||
+      generationPassageKeyRef.current !== passageKey ||
+      generation.bookId !== passage.bookId
+    ) {
+      return;
+    }
     const requestAuthSessionEpoch = authSessionEpoch;
     const requestUserId = userId;
+    const requestPassageKey = passageKey;
+    const requestBookId = passage.bookId;
     setIsSubmitting(true);
     setError(null);
 
     try {
       const nextGeneration = await client.cancelSceneGeneration(generation.id);
-      if (!isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) return;
+      if (
+        !isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) ||
+        currentPassageKeyRef.current !== requestPassageKey ||
+        nextGeneration.id !== generation.id ||
+        nextGeneration.bookId !== requestBookId
+      ) {
+        return;
+      }
       generationOwnerRef.current = requestUserId;
+      generationPassageKeyRef.current = requestPassageKey;
       setGeneration(nextGeneration);
       onGenerationChange?.(nextGeneration);
     } catch (err) {
-      if (isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) {
+      if (
+        isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+        currentPassageKeyRef.current === requestPassageKey
+      ) {
         setError(getErrorMessage(err));
       }
     } finally {
-      if (isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) {
+      if (
+        isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+        currentPassageKeyRef.current === requestPassageKey
+      ) {
         setIsSubmitting(false);
       }
     }
   };
 
   const handleRetry = async () => {
-    if (!generation || !token || !userId || generationOwnerRef.current !== userId) return;
+    if (
+      !isReady ||
+      !generation ||
+      !token ||
+      !userId ||
+      !passage ||
+      generationOwnerRef.current !== userId ||
+      generationPassageKeyRef.current !== passageKey ||
+      generation.bookId !== passage.bookId
+    ) {
+      return;
+    }
     const requestAuthSessionEpoch = authSessionEpoch;
     const requestUserId = userId;
+    const requestPassageKey = passageKey;
+    const requestBookId = passage.bookId;
     setIsSubmitting(true);
     setError(null);
     setFeedbackSubmitted(false);
@@ -346,16 +560,30 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
 
     try {
       const nextGeneration = await client.retrySceneGeneration(generation.id);
-      if (!isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) return;
+      if (
+        !isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) ||
+        currentPassageKeyRef.current !== requestPassageKey ||
+        nextGeneration.id !== generation.id ||
+        nextGeneration.bookId !== requestBookId
+      ) {
+        return;
+      }
       generationOwnerRef.current = requestUserId;
+      generationPassageKeyRef.current = requestPassageKey;
       setGeneration(nextGeneration);
       onGenerationChange?.(nextGeneration);
     } catch (err) {
-      if (isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) {
+      if (
+        isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+        currentPassageKeyRef.current === requestPassageKey
+      ) {
         setError(getErrorMessage(err));
       }
     } finally {
-      if (isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) {
+      if (
+        isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+        currentPassageKeyRef.current === requestPassageKey
+      ) {
         setIsSubmitting(false);
       }
     }
@@ -378,9 +606,13 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const handleFeedback = async () => {
     if (
       !generation ||
+      !isReady ||
       !token ||
       !userId ||
+      !passage ||
       generationOwnerRef.current !== userId ||
+      generationPassageKeyRef.current !== passageKey ||
+      generation.bookId !== passage.bookId ||
       generation.status !== 'completed'
     ) {
       return;
@@ -389,20 +621,27 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     if (!feedback || !isStoryBoredFeedbackDraftReady(feedbackDraft)) return;
     const requestAuthSessionEpoch = authSessionEpoch;
     const requestUserId = userId;
+    const requestPassageKey = passageKey;
+    const requestGenerationId = generation.id;
+    const isCurrentFeedbackScope = () =>
+      isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+      currentPassageKeyRef.current === requestPassageKey &&
+      currentGenerationIdRef.current === requestGenerationId &&
+      generationOwnerRef.current === requestUserId;
 
     setIsFeedbackSubmitting(true);
     setError(null);
 
     try {
       await client.submitFeedback(generation.id, feedback);
-      if (!isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) return;
+      if (!isCurrentFeedbackScope()) return;
       setFeedbackSubmitted(true);
     } catch (err) {
-      if (isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) {
+      if (isCurrentFeedbackScope()) {
         setError(getErrorMessage(err));
       }
     } finally {
-      if (isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId)) {
+      if (isCurrentFeedbackScope()) {
         setIsFeedbackSubmitting(false);
       }
     }
@@ -423,7 +662,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
           <div className='min-w-0'>
             <h2 className='truncate text-base font-semibold'>{_('StoryBored')}</h2>
             <p className='text-base-content/60 truncate text-xs'>
-              {_(getStatusLabel(generation?.status))}
+              {_(getStatusLabel(visibleGeneration?.status))}
             </p>
           </div>
         </div>
@@ -479,17 +718,17 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
               {_('Scene')}
             </span>
             <span className='bg-base-200 rounded-full px-2.5 py-1 text-xs'>
-              {_(getStatusLabel(generation?.status))}
+              {_(getStatusLabel(visibleGeneration?.status))}
             </span>
           </div>
 
-          {!generation && (
+          {!visibleGeneration && (
             <div className='border-base-300 text-base-content/60 flex min-h-40 items-center justify-center rounded-md border border-dashed p-6 text-center text-sm'>
               {_('Choose a style and generate a scene.')}
             </div>
           )}
 
-          {generation && !imageUrl && (
+          {visibleGeneration && !imageUrl && (
             <div className='bg-base-200 flex min-h-40 flex-col items-center justify-center gap-3 rounded-md p-6 text-center'>
               {isActive ? (
                 <span className='loading loading-spinner loading-md' aria-hidden='true' />
@@ -497,7 +736,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
                 <ImagePlus className='text-base-content/50 size-8' />
               )}
               <p className='text-base-content/70 text-sm'>
-                {generation.failureReason || _(getStatusLabel(generation.status))}
+                {visibleGeneration.failureReason || _(getStatusLabel(visibleGeneration.status))}
               </p>
             </div>
           )}
@@ -513,7 +752,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
           {error && <p className='text-error mt-3 text-sm'>{error}</p>}
         </section>
 
-        {generation?.status === 'completed' && (
+        {visibleGeneration?.status === 'completed' && (
           <section className='p-4'>
             <span className='text-base-content/60 mb-3 block text-xs font-semibold uppercase tracking-wide'>
               {_('Feedback')}
@@ -621,7 +860,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       </div>
 
       <footer className='border-base-300 flex gap-2 border-t p-4'>
-        {!generation && (
+        {!visibleGeneration && (
           <button
             type='button'
             className='btn btn-primary h-11 min-h-11 flex-1'
@@ -632,7 +871,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
             {isSubmitting ? _('Generating') : _('Generate')}
           </button>
         )}
-        {generation && isActive && (
+        {visibleGeneration && isActive && (
           <button
             type='button'
             className='btn btn-outline h-11 min-h-11 flex-1'
@@ -643,7 +882,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
             {_('Cancel')}
           </button>
         )}
-        {generation && canRetry && (
+        {visibleGeneration && canRetry && (
           <button
             type='button'
             className='btn btn-primary h-11 min-h-11 flex-1'
@@ -654,7 +893,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
             {_('Retry')}
           </button>
         )}
-        {generation?.status === 'completed' && (
+        {visibleGeneration?.status === 'completed' && (
           <button type='button' className='btn btn-ghost h-11 min-h-11 flex-1' disabled>
             <Star className='size-4' />
             {_('Saved')}

@@ -4,6 +4,7 @@ import { RiDeleteBinLine } from 'react-icons/ri';
 import * as CFI from 'foliate-js/epubcfi.js';
 import { Overlayer } from 'foliate-js/overlayer.js';
 import { useEnv } from '@/context/EnvContext';
+import { useAuth } from '@/context/AuthContext';
 import { BookNote, BooknoteGroup, HighlightColor, HighlightStyle } from '@/types/book';
 import { NOTE_PREFIX } from '@/types/view';
 import { NativeTouchEventType } from '@/types/system';
@@ -46,6 +47,7 @@ import StoryBoredScenePanel from '@/integrations/storybored/StoryBoredScenePanel
 import { isStoryBoredReaderEnabled } from '@/integrations/storybored/client';
 import { createStoryBoredPassage, getStoryBoredBookId } from '@/integrations/storybored/passage';
 import {
+  clearStoryBoredSceneSession,
   isStoryBoredSceneActive,
   readStoryBoredSceneSession,
 } from '@/integrations/storybored/session';
@@ -54,6 +56,7 @@ import type { StoryBoredPassage, StoryBoredSceneGeneration } from '@/integration
 const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const _ = useTranslation();
   const { envConfig, appService } = useEnv();
+  const { isReady: isStoryBoredAuthReady, user: storyBoredUser } = useAuth();
   const { settings } = useSettingsStore();
   const { isDarkMode } = useThemeStore();
   const { getConfig, saveConfig, getBookData, updateBooknotes } = useBookDataStore();
@@ -94,6 +97,29 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const [storyBoredPassage, setStoryBoredPassage] = useState<StoryBoredPassage | null>(null);
   const [storyBoredGenerationId, setStoryBoredGenerationId] = useState<string | null>(null);
   const [storyBoredGenerationActive, setStoryBoredGenerationActive] = useState(false);
+  const [storyBoredStateOwnerUserId, setStoryBoredStateOwnerUserId] = useState<string | null>(null);
+  const storyBoredUserId = storyBoredUser?.id ?? null;
+  const resolvedStoryBoredAuthRef = useRef<{ isReady: boolean; userId: string | null }>({
+    isReady: false,
+    userId: null,
+  });
+  const resolvedStoryBoredBookId = getStoryBoredBookId(
+    bookKey,
+    bookData.book === null ? undefined : bookData.book,
+  );
+  const isStoryBoredStateOwnedByCurrentUser = Boolean(
+    isStoryBoredAuthReady && storyBoredUserId && storyBoredStateOwnerUserId === storyBoredUserId,
+  );
+  const visibleStoryBoredPanel = isStoryBoredStateOwnedByCurrentUser && showStoryBoredPanel;
+  const visibleStoryBoredPassage = isStoryBoredStateOwnedByCurrentUser ? storyBoredPassage : null;
+  const visibleStoryBoredGenerationId = isStoryBoredStateOwnedByCurrentUser
+    ? storyBoredGenerationId
+    : null;
+  const visibleStoryBoredGenerationActive =
+    isStoryBoredStateOwnedByCurrentUser && storyBoredGenerationActive;
+  const canUseStoryBored = Boolean(
+    storyBoredReaderEnabled && isStoryBoredAuthReady && storyBoredUserId,
+  );
 
   const [selectedStyle, setSelectedStyle] = useState<HighlightStyle>(
     settings.globalReadSettings.highlightStyle,
@@ -119,7 +145,7 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const transPopupHeight = Math.min(265, maxHeight);
   const annotPopupBaseWidth = useResponsiveSize(300);
   const annotPopupButtonSlotWidth = useResponsiveSize(40);
-  const hasStoryBoredPrimaryButton = storyBoredReaderEnabled && annotationNotes.length === 0;
+  const hasStoryBoredPrimaryButton = canUseStoryBored && annotationNotes.length === 0;
   const secondaryAnnotationToolCount = annotationToolButtons.filter(
     ({ type }) => type !== 'storybored',
   ).length;
@@ -470,18 +496,44 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   }, []);
 
   useEffect(() => {
-    if (!storyBoredReaderEnabled || showStoryBoredPanel || storyBoredPassage) return;
+    if (!isStoryBoredAuthReady) return;
 
-    const bookId = getStoryBoredBookId(bookKey, bookData.book === null ? undefined : bookData.book);
-    const session = readStoryBoredSceneSession(bookId);
+    const previousAuth = resolvedStoryBoredAuthRef.current;
+    resolvedStoryBoredAuthRef.current = { isReady: true, userId: storyBoredUserId };
+    if (!previousAuth.isReady || previousAuth.userId === storyBoredUserId) return;
+
+    setShowStoryBoredPanel(false);
+    setStoryBoredPassage(null);
+    setStoryBoredGenerationId(null);
+    setStoryBoredGenerationActive(false);
+    setStoryBoredStateOwnerUserId(null);
+  }, [isStoryBoredAuthReady, storyBoredUserId]);
+
+  useEffect(() => {
+    if (!storyBoredReaderEnabled || !isStoryBoredAuthReady) return;
+    if (!storyBoredUserId) return;
+    if (isStoryBoredStateOwnedByCurrentUser && (showStoryBoredPanel || storyBoredPassage)) return;
+
+    const session = readStoryBoredSceneSession({
+      ownerUserId: storyBoredUserId,
+      bookId: resolvedStoryBoredBookId,
+    });
     if (!session) return;
 
+    setStoryBoredStateOwnerUserId(storyBoredUserId);
     setStoryBoredPassage(session.passage);
     setStoryBoredGenerationId(session.generationId);
     setStoryBoredGenerationActive(true);
     setShowStoryBoredPanel(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookKey, bookData.book?.hash, bookData.book?.metaHash]);
+  }, [
+    isStoryBoredAuthReady,
+    isStoryBoredStateOwnedByCurrentUser,
+    resolvedStoryBoredBookId,
+    showStoryBoredPanel,
+    storyBoredPassage,
+    storyBoredReaderEnabled,
+    storyBoredUserId,
+  ]);
 
   useEffect(() => {
     const updateBooknotesPage = async () => {
@@ -799,19 +851,20 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   };
 
   const handleStoryBored = () => {
-    if (!selection || !selection.text) return;
+    if (!isStoryBoredAuthReady || !storyBoredUserId || !selection || !selection.text) return;
     const cfi = selection.cfi ?? view?.getCFI(selection.index, selection.range);
     const storyBoredSelection = cfi ? { ...selection, cfi } : selection;
+    const nextPassage = createStoryBoredPassage({
+      bookKey,
+      progress,
+      selection: storyBoredSelection,
+      ...(bookData.book ? { book: bookData.book } : {}),
+      ...(bookData.bookDoc ? { bookDoc: bookData.bookDoc } : {}),
+    });
 
-    setStoryBoredPassage(
-      createStoryBoredPassage({
-        bookKey,
-        progress,
-        selection: storyBoredSelection,
-        ...(bookData.book ? { book: bookData.book } : {}),
-        ...(bookData.bookDoc ? { bookDoc: bookData.bookDoc } : {}),
-      }),
-    );
+    clearStoryBoredSceneSession();
+    setStoryBoredStateOwnerUserId(storyBoredUserId);
+    setStoryBoredPassage(nextPassage);
     setStoryBoredGenerationId(null);
     setStoryBoredGenerationActive(false);
     setShowStoryBoredPanel(true);
@@ -820,12 +873,26 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
 
   const handleStoryBoredGenerationChange = useCallback(
     (generation: StoryBoredSceneGeneration | null) => {
+      if (
+        !isStoryBoredAuthReady ||
+        !storyBoredUserId ||
+        storyBoredStateOwnerUserId !== storyBoredUserId ||
+        (generation && generation.bookId !== storyBoredPassage?.bookId)
+      ) {
+        return;
+      }
+
       setStoryBoredGenerationId(generation?.id ?? null);
       setStoryBoredGenerationActive(
         generation ? isStoryBoredSceneActive(generation.status) : false,
       );
     },
-    [],
+    [
+      isStoryBoredAuthReady,
+      storyBoredPassage?.bookId,
+      storyBoredStateOwnerUserId,
+      storyBoredUserId,
+    ],
   );
 
   const handleStartEditAnnotation = useCallback(() => {
@@ -973,7 +1040,7 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
           labelText: _(label),
           Icon,
           onClick: handleStoryBored,
-          visible: storyBoredReaderEnabled,
+          visible: canUseStoryBored,
           isPrimary: true,
         };
       default:
@@ -1048,13 +1115,13 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
         />
       )}
       <StoryBoredScenePanel
-        isOpen={showStoryBoredPanel}
-        passage={storyBoredPassage}
-        generationId={storyBoredGenerationId}
+        isOpen={visibleStoryBoredPanel}
+        passage={visibleStoryBoredPassage}
+        generationId={visibleStoryBoredGenerationId}
         onGenerationChange={handleStoryBoredGenerationChange}
         onClose={() => setShowStoryBoredPanel(false)}
       />
-      {!showStoryBoredPanel && storyBoredGenerationActive && storyBoredPassage && (
+      {!visibleStoryBoredPanel && visibleStoryBoredGenerationActive && visibleStoryBoredPassage && (
         <button
           type='button'
           className='btn btn-primary fixed bottom-4 right-4 z-30 h-12 min-h-12 w-12 rounded-full p-0 shadow-xl'

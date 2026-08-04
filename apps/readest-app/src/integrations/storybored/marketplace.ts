@@ -1,6 +1,7 @@
 import type { Book, BookFormat } from '@/types/book';
 import type { EnvConfigType } from '@/services/environment';
 import { INIT_BOOK_CONFIG, getLocalBookFilename } from '@/utils/book';
+import { md5 } from '@/utils/md5';
 import { createStoryBoredReaderClient, isStoryBoredReaderEnabled } from './client';
 import type { StoryBoredOwnedLibrary } from './types';
 
@@ -16,6 +17,8 @@ const SUPPORTED_MARKETPLACE_FORMATS = new Set<BookFormat>([
   'TXT',
   'MD',
 ]);
+const MARKETPLACE_GROUP_NAME = 'StoryBored Marketplace';
+const SHARED_MARKETPLACE_SOURCE_KEY = /^[0-9a-f]{64}$/i;
 
 let marketplaceSyncVersion = 0;
 let marketplacePersistenceQueue: Promise<void> = Promise.resolve();
@@ -34,11 +37,38 @@ function toBookFormat(format: string): BookFormat {
   return SUPPORTED_MARKETPLACE_FORMATS.has(normalized) ? normalized : 'EPUB';
 }
 
+function getMarketplaceLocalBookHash(libraryItemId: string): string {
+  return md5(`storybored-marketplace:${libraryItemId}`);
+}
+
+function matchesMarketplaceBook(
+  book: Book,
+  item: StoryBoredOwnedLibrary['libraryItems'][number],
+  entitlementLocalHash: string,
+): boolean {
+  if (book.marketplace?.libraryItemId === item.libraryItemId) return true;
+
+  // `book_hash` and `group_name` survive Readest's cloud transform even though
+  // the nested marketplace metadata does not. The entitlement-derived hash is
+  // account-specific, so restoring by it cannot merge two owners of one source.
+  if (!book.marketplace && book.hash === entitlementLocalHash) return true;
+
+  // Before user-scoped source keys, marketplace books used the API book ID as
+  // their local hash. Only recover those marked legacy rows. Current shared
+  // SHA-256 source keys must never be used as local cross-account identity.
+  return (
+    !book.marketplace &&
+    book.groupName === MARKETPLACE_GROUP_NAME &&
+    !SHARED_MARKETPLACE_SOURCE_KEY.test(item.bookId) &&
+    book.hash === item.bookId
+  );
+}
+
 function toMarketplaceBook(item: StoryBoredOwnedLibrary['libraryItems'][number]): Book {
   const now = Date.now();
 
   return {
-    hash: item.bookId,
+    hash: getMarketplaceLocalBookHash(item.libraryItemId),
     format: toBookFormat(item.format),
     title: item.title,
     sourceTitle: item.title,
@@ -52,10 +82,11 @@ function toMarketplaceBook(item: StoryBoredOwnedLibrary['libraryItems'][number])
     downloadedAt: null,
     coverDownloadedAt: item.coverImageUrl ? now : null,
     syncedAt: now,
-    groupName: 'StoryBored Marketplace',
+    groupName: MARKETPLACE_GROUP_NAME,
     marketplace: {
       libraryItemId: item.libraryItemId,
       listingId: item.listingId,
+      sourceKey: item.bookId,
       grantedByListingId: item.grantedByListingId,
       slug: item.slug,
       entitlementStatus: item.entitlementStatus,
@@ -103,10 +134,10 @@ export async function syncStoryBoredMarketplaceLibrary(input: {
   let changed = false;
 
   for (const item of owned.libraryItems) {
-    const idx = nextLibrary.findIndex(
-      (book) => book.marketplace?.libraryItemId === item.libraryItemId || book.hash === item.bookId,
-    );
     const marketplaceBook = toMarketplaceBook(item);
+    const idx = nextLibrary.findIndex((book) =>
+      matchesMarketplaceBook(book, item, marketplaceBook.hash),
+    );
 
     if (idx === -1) {
       nextLibrary.unshift(marketplaceBook);
@@ -135,6 +166,24 @@ export async function syncStoryBoredMarketplaceLibrary(input: {
   for (let index = 0; index < nextLibrary.length; index += 1) {
     const book = nextLibrary[index]!;
     const marketplace = book.marketplace;
+    if (!marketplace && book.groupName === MARKETPLACE_GROUP_NAME) {
+      const quarantinedAt = book.deletedAt ?? Date.now();
+      if (
+        book.deletedAt !== quarantinedAt ||
+        book.downloadedAt !== null ||
+        book.exportAllowed !== false
+      ) {
+        nextLibrary[index] = {
+          ...book,
+          deletedAt: quarantinedAt,
+          downloadedAt: null,
+          exportAllowed: false,
+        };
+        changed = true;
+      }
+      continue;
+    }
+
     if (!marketplace || activeLibraryItemIds.has(marketplace.libraryItemId)) {
       continue;
     }
