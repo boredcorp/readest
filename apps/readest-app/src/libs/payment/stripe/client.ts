@@ -1,4 +1,3 @@
-import posthog from 'posthog-js';
 import Stripe from 'stripe';
 import { loadStripe, Stripe as StripeClient } from '@stripe/stripe-js';
 import { getAPIBaseUrl, isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
@@ -6,6 +5,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { getAccessToken } from '@/utils/access';
 import { StripeProductMetadata } from '@/types/payment';
 import { AvailablePlan, PlanType } from '@/types/quota';
+import { captureEvent } from '@/utils/telemetry';
 
 let stripePromise: Promise<StripeClient | null>;
 
@@ -105,9 +105,9 @@ export const redirectToStripePortal = async (url: string): Promise<void> => {
   }
 };
 
-export const handleStripeCheckoutError = (error: string) => {
-  console.error(error);
-  posthog.capture('checkout_error', { error });
+export const handleStripeCheckoutError = (_error: string) => {
+  console.error('Stripe checkout failed');
+  captureEvent('checkout_error', { failureCode: 'stripe_checkout_failed' });
 };
 
 export const getSubscriptionSuccessUrl = (sessionId: string) => {

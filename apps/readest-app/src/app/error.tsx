@@ -1,11 +1,11 @@
 'use client';
 
-import posthog from 'posthog-js';
 import { useEffect, useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { parseWebViewInfo } from '@/utils/ua';
 import { handleGlobalError } from '@/utils/error';
+import { captureException } from '@/utils/telemetry';
 
 interface ErrorPageProps {
   error: Error & { digest?: string };
@@ -22,7 +22,7 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
   }, [appService]);
 
   useEffect(() => {
-    posthog.captureException(error);
+    captureException(error, { errorDigest: error.digest });
     handleGlobalError(error);
   }, [appService, error]);
 
@@ -57,15 +57,21 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
           <div className='alert alert-error mb-8 overflow-hidden'>
             <div className='w-full min-w-0 flex-col items-start text-left'>
               <h3 className='mb-2 font-bold'>{_('Error Details:')}</h3>
-              <p className='overflow-wrap-anywhere w-full break-words font-mono text-sm'>
-                {error.message}
-              </p>
+              {process.env.NODE_ENV === 'production' ? (
+                <p className='overflow-wrap-anywhere w-full break-words font-mono text-sm'>
+                  {_('Diagnostic details are hidden for security.')}
+                </p>
+              ) : (
+                <p className='overflow-wrap-anywhere w-full break-words font-mono text-sm'>
+                  {error.message}
+                </p>
+              )}
               {browserInfo && (
                 <p className='overflow-wrap-anywhere mt-2 w-full break-words font-mono text-sm'>
                   Browser: {browserInfo}
                 </p>
               )}
-              {error.stack && (
+              {process.env.NODE_ENV !== 'production' && error.stack && (
                 <p className='overflow-wrap-anywhere mt-2 w-full whitespace-pre-wrap break-words font-mono text-sm'>
                   {error.stack.split('\n').slice(0, 3).join('\n')}
                 </p>
