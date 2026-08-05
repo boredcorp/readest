@@ -64,7 +64,7 @@ export interface CreateLearningBoredSdkClientOptions {
   apiBaseUrl?: string;
   /** Browser/native transport injected into the SDK. */
   transport?: LearningBoredFetch;
-  /** Optional Clerk bearer token provider; cookie sessions work without one. */
+  /** Optional application-session bearer token provider; cookie sessions work without one. */
   getAccessToken?: AccessTokenProvider;
 }
 

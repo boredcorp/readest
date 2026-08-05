@@ -6,8 +6,20 @@ import {
   createOrUpdatePayment,
 } from '@/libs/payment/stripe/server';
 import { createSupabaseAdminClient } from '@/utils/supabase';
+import {
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
 
 export async function POST(request: NextRequest) {
+  const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+  if (!privateBetaPolicy.allowPayments) {
+    return NextResponse.json(
+      { error: LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE },
+      { status: 403 },
+    );
+  }
+
   try {
     const body = await request.text();
     const signature = request.headers.get('stripe-signature');

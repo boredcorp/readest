@@ -243,6 +243,24 @@ describe('LearningBored review panel', () => {
     vi.restoreAllMocks();
   });
 
+  it('keeps the AI-generated source-check notice visible throughout recall study', async () => {
+    const client = createClient([dueItem('recall-one', 'Which fictional component moves?')]);
+    render(<LearningBoredReviewPanel client={client} onClose={vi.fn()} />);
+
+    await screen.findByText('1 question is due now.');
+    const notice = screen.getByRole('note', { name: 'AI-generated review notice' });
+    expect(notice.textContent).toContain(
+      'AI-generated study aid. Check important details against the source.',
+    );
+
+    await beginReview();
+    expect(screen.getByRole('note', { name: 'AI-generated review notice' })).toBe(notice);
+
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    await screen.findByText('The inner fictional rotor moves.');
+    expect(screen.getByRole('note', { name: 'AI-generated review notice' })).toBe(notice);
+  });
+
   it('keeps answer material out of the DOM until a deliberate Space reveal', async () => {
     const item = dueItem('recall-one', 'Which fictional component moves?');
     const client = createClient([item]);

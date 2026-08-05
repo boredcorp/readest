@@ -653,6 +653,7 @@ export interface CommandRegistryOptions {
   toggleOpenLastBooks: () => void;
   showAbout: () => void;
   toggleTelemetry: () => void;
+  allowTelemetry?: boolean;
   isDesktop: boolean;
   // TODO: add reader-specific actions when reader is open (tts, bookmark, etc.)
 }
@@ -803,12 +804,14 @@ export const buildCommandRegistry = (options: CommandRegistryOptions): CommandIt
     }),
   );
 
-  items.push(
-    createActionItem({
-      id: 'action.telemetry',
-      action: options.toggleTelemetry,
-    }),
-  );
+  if (options.allowTelemetry !== false) {
+    items.push(
+      createActionItem({
+        id: 'action.telemetry',
+        action: options.toggleTelemetry,
+      }),
+    );
+  }
 
   return items;
 };

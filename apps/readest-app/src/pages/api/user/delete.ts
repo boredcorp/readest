@@ -2,12 +2,21 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { validateUserAndToken } from '@/utils/access';
+import {
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
 
   if (req.method !== 'DELETE') {
     return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+  if (!privateBetaPolicy.allowSelfServiceAccountDeletion) {
+    return res.status(403).json({ error: LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE });
   }
 
   try {

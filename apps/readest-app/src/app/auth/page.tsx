@@ -27,6 +27,9 @@ import { getUserProfilePlan } from '@/utils/access';
 import { getAppleIdAuth, Scope } from './utils/appleIdAuth';
 import { authWithCustomTab, authWithSafari } from './utils/nativeAuth';
 import WindowButtons from '@/components/WindowButtons';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
 
 type OAuthProvider = 'google' | 'apple' | 'azure' | 'github' | 'discord';
 
@@ -295,6 +298,7 @@ export default function AuthPage() {
   };
 
   useEffect(() => {
+    if (!privateBetaPolicy.allowSocialOAuth) return;
     if (!isTauriAppPlatform()) return;
     if (isOAuthServerRunning.current) return;
     isOAuthServerRunning.current = true;
@@ -390,33 +394,37 @@ export default function AuthPage() {
           )}
           style={{ maxWidth: '420px' }}
         >
-          <ProviderLogin
-            provider='google'
-            handleSignIn={tauriSignIn}
-            Icon={FcGoogle}
-            label={_('Sign in with {{provider}}', { provider: 'Google' })}
-          />
-          <ProviderLogin
-            provider='apple'
-            handleSignIn={
-              appService?.isIOSApp || USE_APPLE_SIGN_IN ? tauriSignInApple : tauriSignIn
-            }
-            Icon={FaApple}
-            label={_('Sign in with {{provider}}', { provider: 'Apple' })}
-          />
-          <ProviderLogin
-            provider='github'
-            handleSignIn={tauriSignIn}
-            Icon={FaGithub}
-            label={_('Sign in with {{provider}}', { provider: 'GitHub' })}
-          />
-          <ProviderLogin
-            provider='discord'
-            handleSignIn={tauriSignIn}
-            Icon={FaDiscord}
-            label={_('Sign in with {{provider}}', { provider: 'Discord' })}
-          />
-          <hr aria-hidden='true' className='border-base-300 my-3 mt-6 w-64 border-t' />
+          {privateBetaPolicy.allowSocialOAuth && (
+            <>
+              <ProviderLogin
+                provider='google'
+                handleSignIn={tauriSignIn}
+                Icon={FcGoogle}
+                label={_('Sign in with {{provider}}', { provider: 'Google' })}
+              />
+              <ProviderLogin
+                provider='apple'
+                handleSignIn={
+                  appService?.isIOSApp || USE_APPLE_SIGN_IN ? tauriSignInApple : tauriSignIn
+                }
+                Icon={FaApple}
+                label={_('Sign in with {{provider}}', { provider: 'Apple' })}
+              />
+              <ProviderLogin
+                provider='github'
+                handleSignIn={tauriSignIn}
+                Icon={FaGithub}
+                label={_('Sign in with {{provider}}', { provider: 'GitHub' })}
+              />
+              <ProviderLogin
+                provider='discord'
+                handleSignIn={tauriSignIn}
+                Icon={FaDiscord}
+                label={_('Sign in with {{provider}}', { provider: 'Discord' })}
+              />
+              <hr aria-hidden='true' className='border-base-300 my-3 mt-6 w-64 border-t' />
+            </>
+          )}
           <div className='w-full'>
             <Auth
               supabaseClient={supabase}
@@ -424,6 +432,8 @@ export default function AuthPage() {
               theme={isDarkMode ? 'dark' : 'light'}
               magicLink={true}
               providers={[]}
+              view={privateBetaPolicy.active ? 'sign_in' : undefined}
+              showLinks={privateBetaPolicy.allowSignUpLinks}
               redirectTo={getTauriRedirectTo(false)}
               localization={getAuthLocalization()}
             />
@@ -444,7 +454,11 @@ export default function AuthPage() {
         appearance={{ theme: ThemeSupa }}
         theme={isDarkMode ? 'dark' : 'light'}
         magicLink={true}
-        providers={['google', 'apple', 'github', 'discord']}
+        providers={
+          privateBetaPolicy.allowSocialOAuth ? ['google', 'apple', 'github', 'discord'] : []
+        }
+        view={privateBetaPolicy.active ? 'sign_in' : undefined}
+        showLinks={privateBetaPolicy.allowSignUpLinks}
         redirectTo={getWebRedirectTo()}
         localization={getAuthLocalization()}
       />

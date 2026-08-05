@@ -1,6 +1,18 @@
 import { AvailablePlan } from '@/types/quota';
 import { IAPService, IAPPurchase, IAPProduct } from '@/utils/iap';
 import { mapProductIdToInterval, mapProductIdToUserPlan } from './utils';
+import {
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+
+function assertPaymentsEnabled(): void {
+  if (!privateBetaPolicy.allowPayments) {
+    throw new Error(LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE);
+  }
+}
 
 const SUBSCRIPTION_SUCCESS_PATH = '/user/subscription/success';
 
@@ -18,29 +30,34 @@ export const getPurchaseVerifyParams = (purchase: IAPPurchase) => {
 };
 
 export const isIAPAvailable = async () => {
+  if (!privateBetaPolicy.allowPayments) return false;
   const available = await IAPService.isAvailable();
   return available;
 };
 
 export const purchaseIAPProduct = async (productId: string) => {
+  assertPaymentsEnabled();
   const iapService = new IAPService();
   const purchase = await iapService.purchaseProduct(productId);
   return purchase;
 };
 
 export const restoreIAPPurchases = async () => {
+  assertPaymentsEnabled();
   const iapService = new IAPService();
   const purchases = await iapService.restorePurchases();
   return purchases;
 };
 
 export const initializeIAP = async () => {
+  assertPaymentsEnabled();
   const iapService = new IAPService();
   await iapService.initialize();
   return iapService;
 };
 
 export const fetchIAPProducts = async (productIds: string[]) => {
+  assertPaymentsEnabled();
   const iapService = new IAPService();
   await iapService.initialize();
   const products = await iapService.fetchProducts(productIds);

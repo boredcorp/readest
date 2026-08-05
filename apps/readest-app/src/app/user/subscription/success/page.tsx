@@ -9,6 +9,9 @@ import { getAccessToken } from '@/utils/access';
 import { PlanType } from '@/types/quota';
 import { VerifiedIAP } from '@/libs/payment/iap/types';
 import Spinner from '@/components/Spinner';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
 
 const STRIPE_CHECK_URL = `${getAPIBaseUrl()}/stripe/check`;
 const APPLE_IAP_VERIFY_URL = `${getNodeAPIBaseUrl()}/apple/iap-verify`;
@@ -214,6 +217,11 @@ const SuccessPageWithSearchParams = () => {
   };
 
   const updateSessionStatus = async () => {
+    if (!privateBetaPolicy.allowPayments) {
+      setSessionStatus((prev) => ({ ...prev, status: 'failed' }));
+      return;
+    }
+
     if (payment === 'stripe' && sessionId) {
       await updateStripeSessionStatus();
     } else if (payment === 'iap') {
@@ -238,11 +246,13 @@ const SuccessPageWithSearchParams = () => {
   };
 
   useEffect(() => {
+    if (!privateBetaPolicy.allowPayments) return;
     updateSessionStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, originalTransactionId, router]);
 
   useEffect(() => {
+    if (!privateBetaPolicy.allowPayments) return;
     if (sessionStatus.status === 'processing' && retryCount < 3) {
       const timer = setTimeout(() => {
         setRetryCount((prev) => prev + 1);
@@ -258,6 +268,29 @@ const SuccessPageWithSearchParams = () => {
 
   if (!mounted) {
     return null;
+  }
+
+  if (!privateBetaPolicy.allowPayments) {
+    return (
+      <div className='flex min-h-screen items-center justify-center bg-gray-50'>
+        <div className='mx-auto max-w-2xl px-4 text-center'>
+          <h1 className='mb-3 text-2xl font-semibold text-gray-800'>
+            {_('Payments are unavailable')}
+          </h1>
+          <p className='mb-6 text-gray-600'>
+            {_(
+              'LearningBored private beta is free and does not accept purchases or subscriptions.',
+            )}
+          </p>
+          <button
+            onClick={handleGoToLibrary}
+            className='rounded-lg bg-blue-600 px-6 py-3 font-medium text-white'
+          >
+            {_('Go to Library')}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   // Loading state

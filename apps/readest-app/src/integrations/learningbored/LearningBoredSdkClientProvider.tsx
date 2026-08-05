@@ -11,7 +11,7 @@ export interface LearningBoredSdkClientProviderProps {
   children: ReactNode;
   /** Optional application-shell override; production normally uses browser fetch. */
   transport?: LearningBoredFetch;
-  /** Optional Clerk bearer token provider. Cookie sessions need no explicit provider. */
+  /** Optional application-session bearer token provider. Cookie sessions need no explicit provider. */
   getAccessToken?: AccessTokenProvider;
   /** SDK-shaped seam used by focused tests and native application shells. */
   sdkClient?: LearningBoredSdkPort;

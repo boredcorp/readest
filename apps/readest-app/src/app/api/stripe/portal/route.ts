@@ -2,8 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getStripe } from '@/libs/payment/stripe/server';
 import { validateUserAndToken } from '@/utils/access';
 import { createSupabaseAdminClient } from '@/utils/supabase';
+import {
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
 
 export async function POST(request: NextRequest) {
+  const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+  if (!privateBetaPolicy.allowPayments) {
+    return NextResponse.json(
+      { error: LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE },
+      { status: 403 },
+    );
+  }
+
   const { user, token } = await validateUserAndToken(request.headers.get('authorization'));
   if (!user || !token) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 403 });

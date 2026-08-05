@@ -2,6 +2,16 @@ import withSerwistInit from '@serwist/next';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import path from 'node:path';
 
+import { assertLearningBoredProductionSupabaseEnvironment } from './src/integrations/learningbored/production-environment.mjs';
+
+assertLearningBoredProductionSupabaseEnvironment({
+  deploymentProfile: process.env['NEXT_PUBLIC_LEARNINGBORED_DEPLOYMENT_PROFILE'],
+  learningBoredEnabled: process.env['NEXT_PUBLIC_LEARNINGBORED_ENABLED'],
+  nodeEnv: process.env['NODE_ENV'],
+  supabaseAnonKey: process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'],
+  supabaseUrl: process.env['NEXT_PUBLIC_SUPABASE_URL'],
+});
+
 const isDev = process.env['NODE_ENV'] === 'development';
 const appPlatform = process.env['NEXT_PUBLIC_APP_PLATFORM'];
 const storyBoredRoot = path.resolve(process.cwd(), '../../..');
@@ -15,6 +25,9 @@ const exportOutput = appPlatform !== 'web' && !isDev;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // The local Caddy hostname has two labels before `.localhost`, so Next.js's
+  // built-in `*.localhost` development allowlist does not cover it.
+  allowedDevOrigins: isDev ? ['reader.learningbored.localhost'] : undefined,
   // Ensure Next.js uses SSG instead of SSR
   // https://nextjs.org/docs/pages/building-your-application/deploying/static-exports
   output: exportOutput ? 'export' : undefined,

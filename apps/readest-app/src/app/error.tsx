@@ -6,6 +6,9 @@ import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { parseWebViewInfo } from '@/utils/ua';
 import { handleGlobalError } from '@/utils/error';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
 
 interface ErrorPageProps {
   error: Error & { digest?: string };
@@ -22,7 +25,9 @@ export default function ErrorPage({ error, reset }: ErrorPageProps) {
   }, [appService]);
 
   useEffect(() => {
-    posthog.captureException(error);
+    if (privateBetaPolicy.allowTelemetry) {
+      posthog.captureException(error);
+    }
     handleGlobalError(error);
   }, [appService, error]);
 

@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
 import { UserPlan } from '@/types/quota';
+import {
+  LEARNINGBORED_SUPPORT_EMAIL,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
 
 interface DeleteConfirmationModalProps {
   show: boolean;
@@ -82,33 +88,36 @@ const AccountActions: React.FC<AccountActionsProps> = ({
 
   return (
     <>
-      <DeleteConfirmationModal
-        show={showConfirmDelete}
-        onCancel={handleCancelDelete}
-        onConfirm={async () => {
-          await onConfirmDelete();
-          setShowConfirmDelete(false);
-        }}
-      />
+      {privateBetaPolicy.allowSelfServiceAccountDeletion && (
+        <DeleteConfirmationModal
+          show={showConfirmDelete}
+          onCancel={handleCancelDelete}
+          onConfirm={async () => {
+            await onConfirmDelete();
+            setShowConfirmDelete(false);
+          }}
+        />
+      )}
       <div className='flex flex-col gap-4 md:grid md:grid-cols-2 lg:grid-cols-3'>
-        {appService?.hasIAP && iapAvailable ? (
-          <button
-            onClick={onRestorePurchase}
-            className='w-full rounded-lg bg-blue-100 px-6 py-3 font-medium text-blue-600 transition-colors hover:bg-blue-200 md:w-auto'
-          >
-            {_('Restore Purchase')}
-          </button>
-        ) : (
-          userPlan !== 'free' && (
+        {privateBetaPolicy.allowPayments &&
+          (appService?.hasIAP && iapAvailable ? (
             <button
-              onClick={onManageSubscription}
+              onClick={onRestorePurchase}
               className='w-full rounded-lg bg-blue-100 px-6 py-3 font-medium text-blue-600 transition-colors hover:bg-blue-200 md:w-auto'
             >
-              {_('Manage Subscription')}
+              {_('Restore Purchase')}
             </button>
-          )
-        )}
-        {onManageStorage && (
+          ) : (
+            userPlan !== 'free' && (
+              <button
+                onClick={onManageSubscription}
+                className='w-full rounded-lg bg-blue-100 px-6 py-3 font-medium text-blue-600 transition-colors hover:bg-blue-200 md:w-auto'
+              >
+                {_('Manage Subscription')}
+              </button>
+            )
+          ))}
+        {privateBetaPolicy.allowPayments && onManageStorage && (
           <button
             onClick={onManageStorage}
             className='w-full rounded-lg bg-purple-100 px-6 py-3 font-medium text-purple-600 transition-colors hover:bg-purple-200 md:w-auto'
@@ -134,12 +143,28 @@ const AccountActions: React.FC<AccountActionsProps> = ({
         >
           {_('Sign Out')}
         </button>
-        <button
-          onClick={handleDeleteRequest}
-          className='w-full rounded-lg bg-red-100 px-6 py-3 font-medium text-red-600 transition-colors hover:bg-red-200 md:w-auto'
-        >
-          {_('Delete Account')}
-        </button>
+        {privateBetaPolicy.allowSelfServiceAccountDeletion ? (
+          <button
+            onClick={handleDeleteRequest}
+            className='w-full rounded-lg bg-red-100 px-6 py-3 font-medium text-red-600 transition-colors hover:bg-red-200 md:w-auto'
+          >
+            {_('Delete Account')}
+          </button>
+        ) : (
+          <div className='border-base-300 rounded-lg border p-4 md:col-span-2 lg:col-span-3'>
+            <a
+              href={`mailto:${LEARNINGBORED_SUPPORT_EMAIL}?subject=LearningBored%20account%20deletion%20request`}
+              className='link link-error font-medium'
+            >
+              {_('Request account deletion')}
+            </a>
+            <p className='text-base-content/70 mt-2 text-sm'>
+              {_(
+                'Email support to start staged deletion. LearningBored content is removed before the Supabase sign-in identity.',
+              )}
+            </p>
+          </div>
+        )}
       </div>
     </>
   );

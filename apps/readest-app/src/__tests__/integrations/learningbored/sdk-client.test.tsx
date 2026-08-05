@@ -257,10 +257,11 @@ describe('LearningBored SDK Reader adapter', () => {
       figureResponse(),
     ]);
     const controller = new AbortController();
+    const getAccessToken = vi.fn(async () => 'supabase-reader-token');
     const client = createLearningBoredSdkClient({
       apiBaseUrl: 'https://api.example.test',
       transport: transport.transport,
-      getAccessToken: () => 'signed-reader-token',
+      getAccessToken,
     });
 
     const board = await client.getBoard(
@@ -307,9 +308,10 @@ describe('LearningBored SDK Reader adapter', () => {
       expect(request.init.credentials).toBe('include');
       expect(request.init.signal).toBe(controller.signal);
       expect(new Headers(request.init.headers).get('authorization')).toBe(
-        'Bearer signed-reader-token',
+        'Bearer supabase-reader-token',
       );
     }
+    expect(getAccessToken).toHaveBeenCalledTimes(transport.requests.length);
   });
 
   it('keeps figure labels and structural meaning when private hydration fails', async () => {

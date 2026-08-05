@@ -20,6 +20,9 @@ import {
   getRecentCommands,
   CommandCategory,
 } from '@/services/commandRegistry';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
 
 interface CommandPaletteContextValue {
   isOpen: boolean;
@@ -100,6 +103,7 @@ export const CommandPaletteProvider: React.FC<CommandPaletteProviderProps> = ({ 
   }, []);
 
   const toggleTelemetry = useCallback(() => {
+    if (!privateBetaPolicy.allowTelemetry) return;
     const newValue = !settings.telemetryEnabled;
     saveSysSettings(envConfig, 'telemetryEnabled', newValue);
   }, [envConfig, settings.telemetryEnabled]);
@@ -131,6 +135,7 @@ export const CommandPaletteProvider: React.FC<CommandPaletteProviderProps> = ({ 
         toggleOpenLastBooks,
         showAbout,
         toggleTelemetry,
+        allowTelemetry: privateBetaPolicy.allowTelemetry,
         isDesktop,
       }),
     [

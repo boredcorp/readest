@@ -1,4 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/hooks/useTranslation', () => ({
@@ -293,6 +294,49 @@ describe('LearningBored reader result panel', () => {
     expect(onSessionPatch).toHaveBeenCalledWith({ generationId: 'generation-new' });
   });
 
+  it('restarts an initial generation when StrictMode replays mount effects', async () => {
+    const requestSignals: AbortSignal[] = [];
+    const createGeneration = vi.fn<LearningBoredClient['createGeneration']>((_input, options) => {
+      const signal = options?.signal;
+      if (!signal) throw new Error('Expected the generation request to be abortable.');
+      requestSignals.push(signal);
+
+      if (requestSignals.length === 1) {
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+        });
+      }
+
+      return Promise.resolve({
+        id: 'generation-after-replay',
+        status: 'extracting' as const,
+        boardId: null,
+      });
+    });
+    const onSessionPatch = vi.fn();
+
+    render(
+      <StrictMode>
+        <LearningBoredCapturePanel
+          isOpen
+          session={createSession({ generationId: null, boardId: null })}
+          document={documentInput}
+          client={createClient({ createGeneration })}
+          onClose={vi.fn()}
+          onClear={vi.fn()}
+          onSessionPatch={onSessionPatch}
+        />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(createGeneration).toHaveBeenCalledTimes(2));
+    expect(requestSignals[0]?.aborted).toBe(true);
+    expect(requestSignals[1]?.aborted).toBe(false);
+    await waitFor(() =>
+      expect(onSessionPatch).toHaveBeenCalledWith({ generationId: 'generation-after-replay' }),
+    );
+  });
+
   it('keeps an in-flight generation alive when the source-highlight callback changes', async () => {
     let resolveGeneration!: (snapshot: LearningBoredGenerationSnapshot) => void;
     let requestSignal: AbortSignal | undefined;
@@ -345,6 +389,9 @@ describe('LearningBored reader result panel', () => {
       });
     renderPanel({ client: createClient({ getGeneration }) });
 
+    expect(
+      screen.getByRole('complementary', { name: 'AI-generated content notice' }).textContent,
+    ).toContain('AI-generated study aid. Check important details against the source.');
     expect(screen.getAllByText('Waiting to begin')).toHaveLength(2);
     await advancePoll();
     expect(screen.getAllByText('Illustrating')).toHaveLength(2);

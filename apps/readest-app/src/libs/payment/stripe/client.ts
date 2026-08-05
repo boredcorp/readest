@@ -6,10 +6,23 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { getAccessToken } from '@/utils/access';
 import { StripeProductMetadata } from '@/types/payment';
 import { AvailablePlan, PlanType } from '@/types/quota';
+import {
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+
+function assertPaymentsEnabled(): void {
+  if (!privateBetaPolicy.allowPayments) {
+    throw new Error(LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE);
+  }
+}
 
 let stripePromise: Promise<StripeClient | null>;
 
 export const getStripe = () => {
+  assertPaymentsEnabled();
   if (!stripePromise) {
     const publishableKey =
       process.env.NODE_ENV === 'production'
@@ -37,6 +50,7 @@ export type StripeAvailablePlan = AvailablePlan & {
 };
 
 export const fetchStripePlans = async () => {
+  assertPaymentsEnabled();
   const response = await fetch(WEB_STRIPE_PLANS_URL);
   const data = await response.json();
   return data && Array.isArray(data) ? data : [];
@@ -46,6 +60,7 @@ export const createStripeCheckoutSession = async (
   productId: string,
   planType: PlanType = 'subscription',
 ): Promise<StripeCheckoutResponse> => {
+  assertPaymentsEnabled();
   const token = await getAccessToken();
   const isEmbeddedCheckout = isTauriAppPlatform();
 
@@ -66,6 +81,7 @@ export const createStripeCheckoutSession = async (
 };
 
 export const redirectToStripeCheckout = async (url?: string): Promise<void> => {
+  assertPaymentsEnabled();
   if (url) {
     if (isWebAppPlatform()) {
       window.location.href = url;
@@ -78,6 +94,7 @@ export const redirectToStripeCheckout = async (url?: string): Promise<void> => {
 };
 
 export const createStripePortalSession = async () => {
+  assertPaymentsEnabled();
   const token = await getAccessToken();
 
   const response = await fetch(WEB_STRIPE_PORTAL_URL, {
@@ -98,6 +115,7 @@ export const createStripePortalSession = async () => {
 };
 
 export const redirectToStripePortal = async (url: string): Promise<void> => {
+  assertPaymentsEnabled();
   if (isWebAppPlatform()) {
     window.location.href = url;
   } else if (isTauriAppPlatform()) {
@@ -107,7 +125,9 @@ export const redirectToStripePortal = async (url: string): Promise<void> => {
 
 export const handleStripeCheckoutError = (error: string) => {
   console.error(error);
-  posthog.capture('checkout_error', { error });
+  if (privateBetaPolicy.allowTelemetry) {
+    posthog.capture('checkout_error', { error });
+  }
 };
 
 export const getSubscriptionSuccessUrl = (sessionId: string) => {

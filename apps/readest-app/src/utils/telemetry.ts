@@ -1,22 +1,33 @@
 import posthog from 'posthog-js';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
 
 export const TELEMETRY_OPT_OUT_KEY = 'readest-telemetry-opt-out';
 
 export const hasOptedOutTelemetry = () => {
-  return localStorage.getItem(TELEMETRY_OPT_OUT_KEY) === 'true';
+  return (
+    !privateBetaPolicy.allowTelemetry || localStorage.getItem(TELEMETRY_OPT_OUT_KEY) === 'true'
+  );
 };
 
 export const captureEvent = (event: string, properties?: Record<string, unknown>) => {
-  if (!hasOptedOutTelemetry()) {
+  if (privateBetaPolicy.allowTelemetry && !hasOptedOutTelemetry()) {
     posthog.capture(event, properties);
   }
 };
 
 export const optInTelemetry = () => {
+  if (!privateBetaPolicy.allowTelemetry) {
+    localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
+    return;
+  }
   localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'false');
   posthog.opt_in_capturing();
 };
 export const optOutTelemetry = () => {
   localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
-  posthog.opt_out_capturing();
+  if (privateBetaPolicy.allowTelemetry) {
+    posthog.opt_out_capturing();
+  }
 };

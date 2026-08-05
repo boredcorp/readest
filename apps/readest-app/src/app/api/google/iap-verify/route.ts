@@ -4,6 +4,10 @@ import { validateUserAndToken } from '@/utils/access';
 import { getGoogleIAPVerifier, VerifyPurchaseParams } from '@/libs/payment/iap/google/verifier';
 import { processPurchaseData, VerifiedPurchase } from '@/libs/payment/iap/google/server';
 import { IAPError } from '@/libs/payment/iap/types';
+import {
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
 
 const iapVerificationSchema = z.object({
   packageName: z.string().min(1, 'Package name is required'),
@@ -13,6 +17,14 @@ const iapVerificationSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+  if (!privateBetaPolicy.allowPayments) {
+    return NextResponse.json(
+      { error: LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE, purchase: null },
+      { status: 403 },
+    );
+  }
+
   const body = await request.json();
   let validatedInput;
   try {

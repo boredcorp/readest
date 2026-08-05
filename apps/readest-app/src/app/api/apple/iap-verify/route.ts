@@ -4,6 +4,10 @@ import { IAPError } from '@/libs/payment/iap/types';
 import { validateUserAndToken } from '@/utils/access';
 import { getAppleIAPVerifier } from '@/libs/payment/iap/apple/verifier';
 import { processPurchaseData, VerifiedPurchase } from '@/libs/payment/iap/apple/server';
+import {
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
 
 const iapVerificationSchema = z.object({
   transactionId: z.string().min(1, 'Transaction ID is required'),
@@ -11,6 +15,14 @@ const iapVerificationSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+  if (!privateBetaPolicy.allowPayments) {
+    return NextResponse.json(
+      { error: LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE, purchase: null },
+      { status: 403 },
+    );
+  }
+
   const body = await request.json();
   let validatedInput;
   try {

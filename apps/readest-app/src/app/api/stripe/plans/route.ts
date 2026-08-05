@@ -2,8 +2,20 @@ import Stripe from 'stripe';
 import { NextResponse } from 'next/server';
 import { getStripe } from '@/libs/payment/stripe/server';
 import { StripeProductMetadata } from '@/types/payment';
+import {
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+  getLearningBoredPrivateBetaPolicy,
+} from '@/integrations/learningbored/private-beta-policy';
 
 export async function GET() {
+  const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+  if (!privateBetaPolicy.allowPayments) {
+    return NextResponse.json(
+      { error: LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE },
+      { status: 403 },
+    );
+  }
+
   try {
     const stripe = getStripe();
     const prices = await stripe.prices.list({

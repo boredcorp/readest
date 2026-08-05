@@ -623,6 +623,8 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
   useEffect(
     () => () => {
       operationControllerRef.current?.abort();
+      operationControllerRef.current = null;
+      createAttemptRef.current = null;
     },
     [],
   );
@@ -848,6 +850,16 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
           <X className='size-5' />
         </button>
       </header>
+
+      <aside
+        aria-label={_('AI-generated content notice')}
+        className='border-base-300 bg-base-100/70 border-b px-4 py-3 text-xs leading-5'
+      >
+        <strong>{_('AI-generated study aid.')}</strong>{' '}
+        <span className='text-base-content/70'>
+          {_('Check important details against the source.')}
+        </span>
+      </aside>
 
       <div className='min-h-0 flex-1 overflow-y-auto'>
         {session.passage && (

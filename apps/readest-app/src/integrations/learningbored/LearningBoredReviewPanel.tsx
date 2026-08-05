@@ -719,6 +719,14 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
         </button>
       </header>
 
+      <div
+        role='note'
+        aria-label={_('AI-generated review notice')}
+        className='shrink-0 border-b border-[var(--lb-review-border)] bg-[var(--lb-review-recessed)] px-4 py-2 text-xs leading-5 text-[var(--lb-review-muted)]'
+      >
+        {_('AI-generated study aid. Check important details against the source.')}
+      </div>
+
       <p className='sr-only' aria-live='polite' aria-atomic='true'>
         {statusMessage}
       </p>

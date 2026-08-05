@@ -3,6 +3,9 @@ import { fetchAndTransformIAPPlans, isIAPAvailable } from '@/libs/payment/iap/cl
 import { fetchStripePlans } from '@/libs/payment/stripe/client';
 import { AvailablePlan } from '@/types/quota';
 import { stubTranslation as _ } from '@/utils/misc';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
 
 const IAP_PRODUCT_IDS = [
   'com.bilingify.readest.monthly.plus',
@@ -25,6 +28,14 @@ export const useAvailablePlans = ({ hasIAP, onError }: UseAvailablePlansParams) 
   const [error, setError] = useState<Error | null>(null);
 
   useEffect(() => {
+    if (!privateBetaPolicy.allowPayments) {
+      setAvailablePlans([]);
+      setIapAvailable(false);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+
     const fetchPlans = async () => {
       setLoading(true);
       setError(null);

@@ -20,6 +20,7 @@ import { DropdownProvider } from '@/context/DropdownContext';
 import { CommandPaletteProvider, CommandPalette } from '@/components/command-palette';
 import AtmosphereOverlay from '@/components/AtmosphereOverlay';
 import LearningBoredSdkClientProvider from '@/integrations/learningbored/LearningBoredSdkClientProvider';
+import { getAccessToken } from '@/utils/access';
 
 const Providers = ({ children }: { children: React.ReactNode }) => {
   const { envConfig, appService } = useEnv();
@@ -72,7 +73,7 @@ const Providers = ({ children }: { children: React.ReactNode }) => {
       <AuthProvider>
         <IconContext.Provider value={{ size: `${iconSize}px` }}>
           <SyncProvider>
-            <LearningBoredSdkClientProvider>
+            <LearningBoredSdkClientProvider getAccessToken={getAccessToken}>
               <DropdownProvider>
                 <CommandPaletteProvider>
                   {children}

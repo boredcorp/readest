@@ -32,6 +32,9 @@ import UserAvatar from '@/components/UserAvatar';
 import MenuItem from '@/components/MenuItem';
 import Quota from '@/components/Quota';
 import Menu from '@/components/Menu';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+
+const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
 
 interface SettingsMenuProps {
   onPullLibrary: (fullRefresh?: boolean, verbose?: boolean) => void;
@@ -166,6 +169,7 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
   };
 
   const toggleTelemetry = () => {
+    if (!privateBetaPolicy.allowTelemetry) return;
     const newValue = !settings.telemetryEnabled;
     saveSysSettings(envConfig, 'telemetryEnabled', newValue);
     setIsTelemetryEnabled(newValue);
@@ -442,17 +446,19 @@ const SettingsMenu: React.FC<SettingsMenuProps> = ({ onPullLibrary, setIsDropdow
         </ul>
       </MenuItem>
       <hr aria-hidden='true' className='border-base-200 my-1' />
-      {user && userProfilePlan === 'free' && (
+      {privateBetaPolicy.allowPayments && user && userProfilePlan === 'free' && (
         <MenuItem label={_('Upgrade to Readest Premium')} onClick={handleUpgrade} />
       )}
       {isWebAppPlatform() && <MenuItem label={_('Download Readest')} onClick={downloadReadest} />}
       <MenuItem label={_('About Readest')} onClick={showAboutReadest} />
-      <MenuItem
-        label={_('Help improve Readest')}
-        description={isTelemetryEnabled ? _('Sharing anonymized statistics') : ''}
-        toggled={isTelemetryEnabled}
-        onClick={toggleTelemetry}
-      />
+      {privateBetaPolicy.allowTelemetry && (
+        <MenuItem
+          label={_('Help improve Readest')}
+          description={isTelemetryEnabled ? _('Sharing anonymized statistics') : ''}
+          toggled={isTelemetryEnabled}
+          onClick={toggleTelemetry}
+        />
+      )}
     </Menu>
   );
 };
