@@ -47,7 +47,6 @@ import StoryBoredScenePanel from '@/integrations/storybored/StoryBoredScenePanel
 import { isStoryBoredReaderEnabled } from '@/integrations/storybored/client';
 import { createStoryBoredPassage, getStoryBoredBookId } from '@/integrations/storybored/passage';
 import {
-  clearStoryBoredSceneSession,
   isStoryBoredSceneActive,
   readStoryBoredSceneSession,
 } from '@/integrations/storybored/session';
@@ -97,6 +96,8 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const [storyBoredPassage, setStoryBoredPassage] = useState<StoryBoredPassage | null>(null);
   const [storyBoredGenerationId, setStoryBoredGenerationId] = useState<string | null>(null);
   const [storyBoredGenerationActive, setStoryBoredGenerationActive] = useState(false);
+  const [storyBoredHasHistory, setStoryBoredHasHistory] = useState(false);
+  const [storyBoredHistoryDiscoveryFailed, setStoryBoredHistoryDiscoveryFailed] = useState(false);
   const [storyBoredStateOwnerUserId, setStoryBoredStateOwnerUserId] = useState<string | null>(null);
   const storyBoredUserId = storyBoredUser?.id ?? null;
   const resolvedStoryBoredAuthRef = useRef<{ isReady: boolean; userId: string | null }>({
@@ -117,9 +118,15 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     : null;
   const visibleStoryBoredGenerationActive =
     isStoryBoredStateOwnedByCurrentUser && storyBoredGenerationActive;
+  const visibleStoryBoredHasHistory = isStoryBoredStateOwnedByCurrentUser && storyBoredHasHistory;
+  const visibleStoryBoredHistoryDiscoveryFailed =
+    isStoryBoredStateOwnedByCurrentUser && storyBoredHistoryDiscoveryFailed;
   const canUseStoryBored = Boolean(
     storyBoredReaderEnabled && isStoryBoredAuthReady && storyBoredUserId,
   );
+  const storyBoredReopenLabel = visibleStoryBoredHistoryDiscoveryFailed
+    ? _('Retry StoryBored scene history')
+    : _('Open StoryBored scene history');
 
   const [selectedStyle, setSelectedStyle] = useState<HighlightStyle>(
     settings.globalReadSettings.highlightStyle,
@@ -506,6 +513,8 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     setStoryBoredPassage(null);
     setStoryBoredGenerationId(null);
     setStoryBoredGenerationActive(false);
+    setStoryBoredHasHistory(false);
+    setStoryBoredHistoryDiscoveryFailed(false);
     setStoryBoredStateOwnerUserId(null);
   }, [isStoryBoredAuthReady, storyBoredUserId]);
 
@@ -523,8 +532,11 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     setStoryBoredStateOwnerUserId(storyBoredUserId);
     setStoryBoredPassage(session.passage);
     setStoryBoredGenerationId(session.generationId);
-    setStoryBoredGenerationActive(true);
-    setShowStoryBoredPanel(true);
+    const generationIsActive = isStoryBoredSceneActive(session.generationStatus);
+    setStoryBoredGenerationActive(generationIsActive);
+    setStoryBoredHasHistory(true);
+    setStoryBoredHistoryDiscoveryFailed(false);
+    setShowStoryBoredPanel(generationIsActive);
   }, [
     isStoryBoredAuthReady,
     isStoryBoredStateOwnedByCurrentUser,
@@ -862,7 +874,6 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       ...(bookData.bookDoc ? { bookDoc: bookData.bookDoc } : {}),
     });
 
-    clearStoryBoredSceneSession();
     setStoryBoredStateOwnerUserId(storyBoredUserId);
     setStoryBoredPassage(nextPassage);
     setStoryBoredGenerationId(null);
@@ -876,23 +887,32 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       if (
         !isStoryBoredAuthReady ||
         !storyBoredUserId ||
-        storyBoredStateOwnerUserId !== storyBoredUserId ||
-        (generation && generation.bookId !== storyBoredPassage?.bookId)
+        (generation && generation.bookId !== resolvedStoryBoredBookId)
       ) {
         return;
       }
 
+      setStoryBoredStateOwnerUserId(storyBoredUserId);
       setStoryBoredGenerationId(generation?.id ?? null);
       setStoryBoredGenerationActive(
         generation ? isStoryBoredSceneActive(generation.status) : false,
       );
+      if (generation) {
+        setStoryBoredHasHistory(true);
+        setStoryBoredHistoryDiscoveryFailed(false);
+      }
     },
-    [
-      isStoryBoredAuthReady,
-      storyBoredPassage?.bookId,
-      storyBoredStateOwnerUserId,
-      storyBoredUserId,
-    ],
+    [isStoryBoredAuthReady, resolvedStoryBoredBookId, storyBoredUserId],
+  );
+
+  const handleStoryBoredHistoryChange = useCallback(
+    (hasScenes: boolean, discoveryFailed = false) => {
+      if (!isStoryBoredAuthReady || !storyBoredUserId) return;
+      setStoryBoredStateOwnerUserId(storyBoredUserId);
+      setStoryBoredHasHistory(hasScenes);
+      setStoryBoredHistoryDiscoveryFailed(discoveryFailed);
+    },
+    [isStoryBoredAuthReady, storyBoredUserId],
   );
 
   const handleStartEditAnnotation = useCallback(() => {
@@ -1116,22 +1136,27 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       )}
       <StoryBoredScenePanel
         isOpen={visibleStoryBoredPanel}
+        bookId={resolvedStoryBoredBookId}
         passage={visibleStoryBoredPassage}
         generationId={visibleStoryBoredGenerationId}
         onGenerationChange={handleStoryBoredGenerationChange}
+        onHistoryChange={handleStoryBoredHistoryChange}
         onClose={() => setShowStoryBoredPanel(false)}
       />
-      {!visibleStoryBoredPanel && visibleStoryBoredGenerationActive && visibleStoryBoredPassage && (
-        <button
-          type='button'
-          className='btn btn-primary fixed bottom-4 right-4 z-30 h-12 min-h-12 w-12 rounded-full p-0 shadow-xl'
-          aria-label={_('Open StoryBored scene')}
-          title={_('Open StoryBored scene')}
-          onClick={() => setShowStoryBoredPanel(true)}
-        >
-          <StoryBoredLogoMarkIcon className='size-5' />
-        </button>
-      )}
+      {!visibleStoryBoredPanel &&
+        (visibleStoryBoredGenerationActive ||
+          visibleStoryBoredHasHistory ||
+          visibleStoryBoredHistoryDiscoveryFailed) && (
+          <button
+            type='button'
+            className='btn btn-primary absolute bottom-4 right-4 z-30 h-12 min-h-12 w-12 rounded-full p-0 shadow-xl'
+            aria-label={storyBoredReopenLabel}
+            title={storyBoredReopenLabel}
+            onClick={() => setShowStoryBoredPanel(true)}
+          >
+            <StoryBoredLogoMarkIcon className='size-5' />
+          </button>
+        )}
     </div>
   );
 };

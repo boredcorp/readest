@@ -44,14 +44,29 @@ describe('StoryBored scene panel session', () => {
       generationStatus: 'generating',
       passage,
     });
+    const persistedSession = localStorage.getItem('storybored.scene-panel-session.v2') ?? '';
+    expect(persistedSession).not.toContain('urlExpiresAt');
+    expect(persistedSession).not.toContain('X-Amz-');
   });
 
-  it('does not restore inactive, wrong-book, or stale sessions', () => {
+  it('restores the latest completed generation but rejects terminal failures, wrong books, and stale sessions', () => {
     writeStoryBoredSceneSession({
       ownerUserId: 'account-a',
       bookId: 'book-1',
       generationId: 'generation-1',
       generationStatus: 'completed',
+      passage,
+      updatedAt: Date.now(),
+    });
+    expect(
+      readStoryBoredSceneSession({ ownerUserId: 'account-a', bookId: 'book-1' })?.generationId,
+    ).toBe('generation-1');
+
+    writeStoryBoredSceneSession({
+      ownerUserId: 'account-a',
+      bookId: 'book-1',
+      generationId: 'generation-failed',
+      generationStatus: 'failed',
       passage,
       updatedAt: Date.now(),
     });

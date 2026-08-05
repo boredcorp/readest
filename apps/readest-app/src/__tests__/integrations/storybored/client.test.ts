@@ -28,6 +28,10 @@ describe('StoryBored reader client authentication', () => {
       },
       { name: 'get scene generation', request: () => client.getSceneGeneration('generation-1') },
       {
+        name: 'list book scene generations',
+        request: () => client.listBookSceneGenerations('book-1'),
+      },
+      {
         name: 'cancel scene generation',
         request: () => client.cancelSceneGeneration('generation-1'),
       },

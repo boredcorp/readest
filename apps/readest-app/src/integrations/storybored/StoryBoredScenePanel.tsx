@@ -2,7 +2,18 @@
 
 import clsx from 'clsx';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Ban, ImagePlus, RefreshCcw, Send, Star, ThumbsDown, ThumbsUp, X } from 'lucide-react';
+import {
+  Ban,
+  History as HistoryIcon,
+  ImageOff,
+  ImagePlus,
+  RefreshCcw,
+  Send,
+  Star,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -13,6 +24,12 @@ import {
   isStoryBoredFeedbackDraftReady,
   type StoryBoredFeedbackDraft,
 } from './feedback';
+import {
+  getStoryBoredSceneHistory,
+  isStoryBoredSceneImageExpired,
+  isStoryBoredSceneImageUrlExpired,
+  type StoryBoredSceneHistory,
+} from './history';
 import {
   clearStoryBoredSceneSession,
   isStoryBoredSceneActive,
@@ -28,6 +45,7 @@ import type {
 
 const ACTIVE_STATUSES = new Set<StoryBoredSceneStatus>(['queued', 'prompting', 'generating']);
 const RETRYABLE_STATUSES = new Set<StoryBoredSceneStatus>(['failed', 'cancelled']);
+const MAX_CONSECUTIVE_IMAGE_REFRESHES = 2;
 
 const STYLE_OPTIONS: Array<{ value: StoryBoredStylePreset; label: string }> = [
   { value: 'cinematic-literary', label: 'Cinematic literary' },
@@ -56,11 +74,19 @@ const DEFAULT_FEEDBACK_DRAFT: StoryBoredFeedbackDraft = {
 
 interface StoryBoredScenePanelProps {
   isOpen: boolean;
+  bookId?: string;
   passage: StoryBoredPassage | null;
   generationId?: string | null;
   onGenerationChange?: (generation: StoryBoredSceneGeneration | null) => void;
+  onHistoryChange?: (hasScenes: boolean, discoveryFailed?: boolean) => void;
   onClose: () => void;
 }
+
+const EMPTY_SCENE_HISTORY: StoryBoredSceneHistory = {
+  latestActive: null,
+  completed: [],
+  items: [],
+};
 
 function getStatusLabel(status?: StoryBoredSceneStatus): string {
   switch (status) {
@@ -85,11 +111,20 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'StoryBored request failed.';
 }
 
+function clearGenerationAttemptKeys(attempts: Set<string>, generationId: string): void {
+  const prefix = `${generationId}:`;
+  for (const attempt of attempts) {
+    if (attempt.startsWith(prefix)) attempts.delete(attempt);
+  }
+}
+
 const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   isOpen,
+  bookId,
   passage,
   generationId,
   onGenerationChange,
+  onHistoryChange,
   onClose,
 }) => {
   const _ = useTranslation();
@@ -103,6 +138,14 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const [feedbackDraft, setFeedbackDraft] =
     useState<StoryBoredFeedbackDraft>(DEFAULT_FEEDBACK_DRAFT);
   const [error, setError] = useState<string | null>(null);
+  const [sceneHistory, setSceneHistory] = useState<StoryBoredSceneHistory>(EMPTY_SCENE_HISTORY);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [selectingHistoryId, setSelectingHistoryId] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [unavailableImageIds, setUnavailableImageIds] = useState<Set<string>>(() => new Set());
+  const [unavailableThumbnailIds, setUnavailableThumbnailIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const authEpochRef = useRef({ isReady, token, userId, version: 0 });
   const authSessionEpochRef = useRef({
     hasSession: Boolean(isReady && token && userId),
@@ -118,6 +161,12 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const currentGenerationIdRef = useRef<string | null>(generation?.id ?? null);
   currentGenerationIdRef.current = generation?.id ?? null;
   const rejectedGenerationIdRef = useRef<string | null>(null);
+  const historyRequestVersionRef = useRef(0);
+  const historySelectionVersionRef = useRef(0);
+  const imageRefreshAttemptedRef = useRef<Set<string>>(new Set());
+  const thumbnailRefreshAttemptedRef = useRef<Set<string>>(new Set());
+  const imageRefreshCountRef = useRef<Map<string, number>>(new Map());
+  const thumbnailRefreshCountRef = useRef<Map<string, number>>(new Map());
 
   if (
     authEpochRef.current.isReady !== isReady ||
@@ -181,24 +230,218 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
         : '',
     [passage],
   );
+  const readerIntentEpochRef = useRef({
+    passageKey,
+    generationId: generationId ?? null,
+    version: 0,
+  });
+  if (
+    readerIntentEpochRef.current.passageKey !== passageKey ||
+    readerIntentEpochRef.current.generationId !== (generationId ?? null)
+  ) {
+    readerIntentEpochRef.current = {
+      passageKey,
+      generationId: generationId ?? null,
+      version: readerIntentEpochRef.current.version + 1,
+    };
+  }
+  const readerIntentEpoch = readerIntentEpochRef.current.version;
   const currentPassageKeyRef = useRef(passageKey);
   currentPassageKeyRef.current = passageKey;
-  const passageBookId = passage?.bookId ?? null;
+  const resolvedBookId = bookId ?? passage?.bookId ?? null;
+  const currentBookIdRef = useRef(resolvedBookId);
+  currentBookIdRef.current = resolvedBookId;
+  const generationMatchesPassage =
+    generationPassageKeyRef.current === null ||
+    (Boolean(passage) && generationPassageKeyRef.current === passageKey);
   const visibleGeneration =
     isReady &&
     token &&
     userId &&
-    passage &&
+    resolvedBookId &&
     generation &&
     generationOwnerRef.current === userId &&
-    generationPassageKeyRef.current === passageKey &&
-    generation.bookId === passage.bookId &&
+    generationMatchesPassage &&
+    generation.bookId === resolvedBookId &&
     (!generationId || generation.id === generationId)
       ? generation
       : null;
   const isActive = visibleGeneration ? ACTIVE_STATUSES.has(visibleGeneration.status) : false;
   const canRetry = visibleGeneration ? RETRYABLE_STATUSES.has(visibleGeneration.status) : false;
   const imageUrl = visibleGeneration?.image?.url;
+  const isVisibleImageExpired = Boolean(
+    visibleGeneration && isStoryBoredSceneImageExpired(visibleGeneration),
+  );
+  const isVisibleImageUnavailable = Boolean(
+    visibleGeneration && unavailableImageIds.has(visibleGeneration.id),
+  );
+  const shouldShowVisibleImagePlaceholder = isVisibleImageExpired || isVisibleImageUnavailable;
+  const sceneHistoryRef = useRef(sceneHistory);
+  sceneHistoryRef.current = sceneHistory;
+
+  const applyScopedGeneration = useCallback(
+    (nextGeneration: StoryBoredSceneGeneration, generationPassageKey: string | null) => {
+      if (!userId || !resolvedBookId || nextGeneration.bookId !== resolvedBookId) return false;
+
+      rejectedGenerationIdRef.current = null;
+      generationOwnerRef.current = userId;
+      generationPassageKeyRef.current = generationPassageKey;
+      setGeneration(nextGeneration);
+      onGenerationChange?.(nextGeneration);
+      return true;
+    },
+    [onGenerationChange, resolvedBookId, userId],
+  );
+
+  const mergeHistoryGeneration = useCallback(
+    (nextGeneration: StoryBoredSceneGeneration) => {
+      if (!resolvedBookId || nextGeneration.bookId !== resolvedBookId) return;
+
+      const nextHistory = getStoryBoredSceneHistory(
+        [
+          nextGeneration,
+          ...sceneHistoryRef.current.items.filter(({ id }) => id !== nextGeneration.id),
+        ],
+        resolvedBookId,
+      );
+      sceneHistoryRef.current = nextHistory;
+      setSceneHistory(nextHistory);
+      onHistoryChange?.(nextHistory.items.length > 0, false);
+    },
+    [onHistoryChange, resolvedBookId],
+  );
+
+  const loadHistory = useCallback(
+    async (selectLatest: boolean) => {
+      const requestVersion = historyRequestVersionRef.current + 1;
+      historyRequestVersionRef.current = requestVersion;
+      const requestSelectionVersion = historySelectionVersionRef.current;
+      const requestReaderIntentEpoch = readerIntentEpoch;
+
+      if (!isReady || !token || !userId || !resolvedBookId) {
+        sceneHistoryRef.current = EMPTY_SCENE_HISTORY;
+        setSceneHistory(EMPTY_SCENE_HISTORY);
+        setIsHistoryLoading(false);
+        setHistoryError(null);
+        onHistoryChange?.(false, false);
+        return;
+      }
+
+      const requestAuthEpoch = authEpoch;
+      const requestBookId = resolvedBookId;
+      setIsHistoryLoading(true);
+      setHistoryError(null);
+
+      try {
+        const generations = await client.listBookSceneGenerations(requestBookId);
+        if (
+          historyRequestVersionRef.current !== requestVersion ||
+          !isCurrentAuthEpoch(requestAuthEpoch) ||
+          currentBookIdRef.current !== requestBookId
+        ) {
+          return;
+        }
+
+        let nextHistory = getStoryBoredSceneHistory(generations, requestBookId);
+        sceneHistoryRef.current = nextHistory;
+        setSceneHistory(nextHistory);
+        onHistoryChange?.(nextHistory.items.length > 0, false);
+        imageRefreshAttemptedRef.current.clear();
+        thumbnailRefreshAttemptedRef.current.clear();
+        imageRefreshCountRef.current.clear();
+        thumbnailRefreshCountRef.current.clear();
+        setUnavailableImageIds(new Set());
+        setUnavailableThumbnailIds(new Set());
+
+        if (
+          !selectLatest ||
+          nextHistory.items.length === 0 ||
+          (passage !== null && !generationId) ||
+          historySelectionVersionRef.current !== requestSelectionVersion ||
+          readerIntentEpochRef.current.version !== requestReaderIntentEpoch
+        ) {
+          return;
+        }
+
+        const currentGenerationId = currentGenerationIdRef.current ?? generationId ?? null;
+        let selectedGeneration =
+          (currentGenerationId
+            ? nextHistory.items.find(({ id }) => id === currentGenerationId)
+            : null) ??
+          nextHistory.latestActive ??
+          nextHistory.completed[0] ??
+          null;
+        if (!selectedGeneration) return;
+
+        if (isStoryBoredSceneImageUrlExpired(selectedGeneration)) {
+          const refreshedGeneration = await client.getSceneGeneration(selectedGeneration.id);
+          if (
+            historyRequestVersionRef.current !== requestVersion ||
+            historySelectionVersionRef.current !== requestSelectionVersion ||
+            readerIntentEpochRef.current.version !== requestReaderIntentEpoch ||
+            !isCurrentAuthEpoch(requestAuthEpoch) ||
+            currentBookIdRef.current !== requestBookId ||
+            refreshedGeneration.id !== selectedGeneration.id ||
+            refreshedGeneration.bookId !== requestBookId
+          ) {
+            return;
+          }
+
+          selectedGeneration = refreshedGeneration;
+          nextHistory = getStoryBoredSceneHistory(
+            [
+              refreshedGeneration,
+              ...nextHistory.items.filter(({ id }) => id !== refreshedGeneration.id),
+            ],
+            requestBookId,
+          );
+          sceneHistoryRef.current = nextHistory;
+          setSceneHistory(nextHistory);
+        }
+
+        const preserveHistoryBinding =
+          currentGenerationIdRef.current === selectedGeneration.id &&
+          generationPassageKeyRef.current === null;
+        const generationPassageKey =
+          passage && selectedGeneration.id === generationId && !preserveHistoryBinding
+            ? passageKey
+            : null;
+        applyScopedGeneration(selectedGeneration, generationPassageKey);
+      } catch (historyLoadError) {
+        if (
+          historyRequestVersionRef.current === requestVersion &&
+          isCurrentAuthEpoch(requestAuthEpoch) &&
+          currentBookIdRef.current === requestBookId
+        ) {
+          setHistoryError(getErrorMessage(historyLoadError));
+          onHistoryChange?.(sceneHistoryRef.current.items.length > 0, true);
+        }
+      } finally {
+        if (historyRequestVersionRef.current === requestVersion) {
+          setIsHistoryLoading(false);
+        }
+      }
+    },
+    [
+      applyScopedGeneration,
+      authEpoch,
+      client,
+      generationId,
+      isCurrentAuthEpoch,
+      isReady,
+      onHistoryChange,
+      passage,
+      passageKey,
+      readerIntentEpoch,
+      resolvedBookId,
+      token,
+      userId,
+    ],
+  );
+
+  useEffect(() => {
+    void loadHistory(isOpen);
+  }, [isOpen, loadHistory]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -248,7 +491,10 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       !generationId ||
       !token ||
       !userId ||
-      !passageBookId ||
+      !resolvedBookId ||
+      (generation?.id === generationId &&
+        generation.bookId === resolvedBookId &&
+        generationOwnerRef.current === userId) ||
       rejectedGenerationIdRef.current === generationId
     ) {
       return;
@@ -256,8 +502,8 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
 
     let cancelled = false;
     const requestAuthEpoch = authEpoch;
-    const requestPassageKey = currentPassageKeyRef.current;
-    const requestBookId = passageBookId;
+    const requestPassageKey = passage ? currentPassageKeyRef.current : null;
+    const requestBookId = resolvedBookId;
 
     const loadGeneration = async () => {
       try {
@@ -265,7 +511,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
         if (
           cancelled ||
           !isCurrentAuthEpoch(requestAuthEpoch) ||
-          currentPassageKeyRef.current !== requestPassageKey
+          (requestPassageKey !== null && currentPassageKeyRef.current !== requestPassageKey)
         ) {
           return;
         }
@@ -288,7 +534,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
         if (
           !cancelled &&
           isCurrentAuthEpoch(requestAuthEpoch) &&
-          currentPassageKeyRef.current === requestPassageKey
+          (requestPassageKey === null || currentPassageKeyRef.current === requestPassageKey)
         ) {
           setError(getErrorMessage(err));
         }
@@ -303,12 +549,14 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   }, [
     authEpoch,
     client,
+    generation,
     generationId,
     isCurrentAuthEpoch,
     isReady,
     isOpen,
     onGenerationChange,
-    passageBookId,
+    passage,
+    resolvedBookId,
     token,
     userId,
   ]);
@@ -331,11 +579,10 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       generation.bookId !== passage.bookId ||
       generationPassageKeyRef.current !== passageKey
     ) {
-      clearStoryBoredSceneSession(generation.id);
       return;
     }
 
-    if (isStoryBoredSceneActive(generation.status)) {
+    if (isStoryBoredSceneActive(generation.status) || generation.status === 'completed') {
       writeStoryBoredSceneSession({
         ownerUserId: userId,
         bookId: passage.bookId,
@@ -355,10 +602,9 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       !isReady ||
       !token ||
       !userId ||
-      !passage ||
+      !resolvedBookId ||
       generationOwnerRef.current !== userId ||
-      generationPassageKeyRef.current !== passageKey ||
-      generation.bookId !== passage.bookId ||
+      generation.bookId !== resolvedBookId ||
       (generationId !== null && generationId !== undefined && generation.id !== generationId) ||
       !ACTIVE_STATUSES.has(generation.status)
     ) {
@@ -366,8 +612,8 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     }
 
     const requestAuthEpoch = authEpoch;
-    const requestPassageKey = passageKey;
-    const requestBookId = passage.bookId;
+    const requestPassageKey = generationPassageKeyRef.current;
+    const requestBookId = resolvedBookId;
     let cancelled = false;
     let timeoutId: number | undefined;
 
@@ -378,7 +624,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
         if (
           cancelled ||
           !isCurrentAuthEpoch(requestAuthEpoch) ||
-          currentPassageKeyRef.current !== requestPassageKey
+          (requestPassageKey !== null && currentPassageKeyRef.current !== requestPassageKey)
         ) {
           shouldContinue = false;
           return;
@@ -397,13 +643,14 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
         generationPassageKeyRef.current = requestPassageKey;
         setGeneration(nextGeneration);
         onGenerationChange?.(nextGeneration);
+        mergeHistoryGeneration(nextGeneration);
         setError(null);
         shouldContinue = ACTIVE_STATUSES.has(nextGeneration.status);
       } catch (err) {
         if (
           !cancelled &&
           isCurrentAuthEpoch(requestAuthEpoch) &&
-          currentPassageKeyRef.current === requestPassageKey
+          (requestPassageKey === null || currentPassageKeyRef.current === requestPassageKey)
         ) {
           setError(getErrorMessage(err));
         } else {
@@ -414,7 +661,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
           shouldContinue &&
           !cancelled &&
           isCurrentAuthEpoch(requestAuthEpoch) &&
-          currentPassageKeyRef.current === requestPassageKey
+          (requestPassageKey === null || currentPassageKeyRef.current === requestPassageKey)
         ) {
           timeoutId = window.setTimeout(pollGeneration, 2000);
         }
@@ -434,9 +681,9 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     generationId,
     isCurrentAuthEpoch,
     isReady,
+    mergeHistoryGeneration,
     onGenerationChange,
-    passage,
-    passageKey,
+    resolvedBookId,
     token,
     userId,
   ]);
@@ -449,6 +696,9 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     const requestUserId = userId;
     const requestPassageKey = passageKey;
     const requestBookId = passage.bookId;
+    const requestReaderIntentEpoch = readerIntentEpochRef.current.version;
+    const requestSelectionVersion = historySelectionVersionRef.current;
+    const requestGenerationId = currentGenerationIdRef.current;
     setIsSubmitting(true);
     setError(null);
     setFeedbackSubmitted(false);
@@ -458,6 +708,9 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       const nextGeneration = await client.createSceneGeneration({ ...passage, stylePreset });
       if (
         !isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) ||
+        readerIntentEpochRef.current.version !== requestReaderIntentEpoch ||
+        historySelectionVersionRef.current !== requestSelectionVersion ||
+        currentGenerationIdRef.current !== requestGenerationId ||
         currentPassageKeyRef.current !== requestPassageKey ||
         nextGeneration.bookId !== requestBookId
       ) {
@@ -468,9 +721,13 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       generationPassageKeyRef.current = requestPassageKey;
       setGeneration(nextGeneration);
       onGenerationChange?.(nextGeneration);
+      mergeHistoryGeneration(nextGeneration);
     } catch (err) {
       if (
         isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+        readerIntentEpochRef.current.version === requestReaderIntentEpoch &&
+        historySelectionVersionRef.current === requestSelectionVersion &&
+        currentGenerationIdRef.current === requestGenerationId &&
         currentPassageKeyRef.current === requestPassageKey
       ) {
         setError(getErrorMessage(err));
@@ -478,6 +735,9 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     } finally {
       if (
         isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
+        readerIntentEpochRef.current.version === requestReaderIntentEpoch &&
+        historySelectionVersionRef.current === requestSelectionVersion &&
+        currentGenerationIdRef.current === requestGenerationId &&
         currentPassageKeyRef.current === requestPassageKey
       ) {
         setIsSubmitting(false);
@@ -491,17 +751,19 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       !generation ||
       !token ||
       !userId ||
-      !passage ||
+      !resolvedBookId ||
       generationOwnerRef.current !== userId ||
-      generationPassageKeyRef.current !== passageKey ||
-      generation.bookId !== passage.bookId
+      generation.bookId !== resolvedBookId
     ) {
       return;
     }
     const requestAuthSessionEpoch = authSessionEpoch;
     const requestUserId = userId;
-    const requestPassageKey = passageKey;
-    const requestBookId = passage.bookId;
+    const requestPassageKey = generationPassageKeyRef.current;
+    const requestBookId = resolvedBookId;
+    const requestReaderIntentEpoch = readerIntentEpochRef.current.version;
+    const requestSelectionVersion = historySelectionVersionRef.current;
+    const requestGenerationId = generation.id;
     setIsSubmitting(true);
     setError(null);
 
@@ -509,7 +771,10 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       const nextGeneration = await client.cancelSceneGeneration(generation.id);
       if (
         !isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) ||
-        currentPassageKeyRef.current !== requestPassageKey ||
+        readerIntentEpochRef.current.version !== requestReaderIntentEpoch ||
+        historySelectionVersionRef.current !== requestSelectionVersion ||
+        currentGenerationIdRef.current !== requestGenerationId ||
+        (requestPassageKey !== null && currentPassageKeyRef.current !== requestPassageKey) ||
         nextGeneration.id !== generation.id ||
         nextGeneration.bookId !== requestBookId
       ) {
@@ -519,17 +784,24 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       generationPassageKeyRef.current = requestPassageKey;
       setGeneration(nextGeneration);
       onGenerationChange?.(nextGeneration);
+      mergeHistoryGeneration(nextGeneration);
     } catch (err) {
       if (
         isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
-        currentPassageKeyRef.current === requestPassageKey
+        readerIntentEpochRef.current.version === requestReaderIntentEpoch &&
+        historySelectionVersionRef.current === requestSelectionVersion &&
+        currentGenerationIdRef.current === requestGenerationId &&
+        (requestPassageKey === null || currentPassageKeyRef.current === requestPassageKey)
       ) {
         setError(getErrorMessage(err));
       }
     } finally {
       if (
         isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
-        currentPassageKeyRef.current === requestPassageKey
+        readerIntentEpochRef.current.version === requestReaderIntentEpoch &&
+        historySelectionVersionRef.current === requestSelectionVersion &&
+        currentGenerationIdRef.current === requestGenerationId &&
+        (requestPassageKey === null || currentPassageKeyRef.current === requestPassageKey)
       ) {
         setIsSubmitting(false);
       }
@@ -542,17 +814,19 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       !generation ||
       !token ||
       !userId ||
-      !passage ||
+      !resolvedBookId ||
       generationOwnerRef.current !== userId ||
-      generationPassageKeyRef.current !== passageKey ||
-      generation.bookId !== passage.bookId
+      generation.bookId !== resolvedBookId
     ) {
       return;
     }
     const requestAuthSessionEpoch = authSessionEpoch;
     const requestUserId = userId;
-    const requestPassageKey = passageKey;
-    const requestBookId = passage.bookId;
+    const requestPassageKey = generationPassageKeyRef.current;
+    const requestBookId = resolvedBookId;
+    const requestReaderIntentEpoch = readerIntentEpochRef.current.version;
+    const requestSelectionVersion = historySelectionVersionRef.current;
+    const requestGenerationId = generation.id;
     setIsSubmitting(true);
     setError(null);
     setFeedbackSubmitted(false);
@@ -562,7 +836,10 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       const nextGeneration = await client.retrySceneGeneration(generation.id);
       if (
         !isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) ||
-        currentPassageKeyRef.current !== requestPassageKey ||
+        readerIntentEpochRef.current.version !== requestReaderIntentEpoch ||
+        historySelectionVersionRef.current !== requestSelectionVersion ||
+        currentGenerationIdRef.current !== requestGenerationId ||
+        (requestPassageKey !== null && currentPassageKeyRef.current !== requestPassageKey) ||
         nextGeneration.id !== generation.id ||
         nextGeneration.bookId !== requestBookId
       ) {
@@ -572,17 +849,24 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       generationPassageKeyRef.current = requestPassageKey;
       setGeneration(nextGeneration);
       onGenerationChange?.(nextGeneration);
+      mergeHistoryGeneration(nextGeneration);
     } catch (err) {
       if (
         isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
-        currentPassageKeyRef.current === requestPassageKey
+        readerIntentEpochRef.current.version === requestReaderIntentEpoch &&
+        historySelectionVersionRef.current === requestSelectionVersion &&
+        currentGenerationIdRef.current === requestGenerationId &&
+        (requestPassageKey === null || currentPassageKeyRef.current === requestPassageKey)
       ) {
         setError(getErrorMessage(err));
       }
     } finally {
       if (
         isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
-        currentPassageKeyRef.current === requestPassageKey
+        readerIntentEpochRef.current.version === requestReaderIntentEpoch &&
+        historySelectionVersionRef.current === requestSelectionVersion &&
+        currentGenerationIdRef.current === requestGenerationId &&
+        (requestPassageKey === null || currentPassageKeyRef.current === requestPassageKey)
       ) {
         setIsSubmitting(false);
       }
@@ -609,10 +893,9 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
       !isReady ||
       !token ||
       !userId ||
-      !passage ||
+      !resolvedBookId ||
       generationOwnerRef.current !== userId ||
-      generationPassageKeyRef.current !== passageKey ||
-      generation.bookId !== passage.bookId ||
+      generation.bookId !== resolvedBookId ||
       generation.status !== 'completed'
     ) {
       return;
@@ -621,11 +904,11 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     if (!feedback || !isStoryBoredFeedbackDraftReady(feedbackDraft)) return;
     const requestAuthSessionEpoch = authSessionEpoch;
     const requestUserId = userId;
-    const requestPassageKey = passageKey;
+    const requestPassageKey = generationPassageKeyRef.current;
     const requestGenerationId = generation.id;
     const isCurrentFeedbackScope = () =>
       isCurrentAuthSessionEpoch(requestAuthSessionEpoch, requestUserId) &&
-      currentPassageKeyRef.current === requestPassageKey &&
+      (requestPassageKey === null || currentPassageKeyRef.current === requestPassageKey) &&
       currentGenerationIdRef.current === requestGenerationId &&
       generationOwnerRef.current === requestUserId;
 
@@ -647,6 +930,211 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     }
   };
 
+  const handleSelectHistoryGeneration = async (historyGeneration: StoryBoredSceneGeneration) => {
+    if (!isReady || !token || !userId || !resolvedBookId) return;
+    const requestVersion = historySelectionVersionRef.current + 1;
+    historySelectionVersionRef.current = requestVersion;
+    const requestAuthEpoch = authEpoch;
+    const requestReaderIntentEpoch = readerIntentEpochRef.current.version;
+    const requestBookId = resolvedBookId;
+    let selectedGeneration = historyGeneration;
+
+    setFeedbackSubmitted(false);
+    setFeedbackDraft(DEFAULT_FEEDBACK_DRAFT);
+    setError(null);
+    setSelectingHistoryId(historyGeneration.id);
+
+    try {
+      if (
+        unavailableImageIds.has(selectedGeneration.id) ||
+        isStoryBoredSceneImageUrlExpired(selectedGeneration)
+      ) {
+        selectedGeneration = await client.getSceneGeneration(selectedGeneration.id);
+      }
+
+      if (
+        historySelectionVersionRef.current !== requestVersion ||
+        readerIntentEpochRef.current.version !== requestReaderIntentEpoch ||
+        !isCurrentAuthEpoch(requestAuthEpoch) ||
+        currentBookIdRef.current !== requestBookId ||
+        selectedGeneration.id !== historyGeneration.id ||
+        selectedGeneration.bookId !== requestBookId
+      ) {
+        return;
+      }
+
+      if (selectedGeneration.image) {
+        setUnavailableImageIds((current) => {
+          if (!current.has(selectedGeneration.id)) return current;
+          const next = new Set(current);
+          next.delete(selectedGeneration.id);
+          return next;
+        });
+      }
+      applyScopedGeneration(selectedGeneration, null);
+      mergeHistoryGeneration(selectedGeneration);
+    } catch (historySelectionError) {
+      if (
+        historySelectionVersionRef.current === requestVersion &&
+        readerIntentEpochRef.current.version === requestReaderIntentEpoch &&
+        isCurrentAuthEpoch(requestAuthEpoch) &&
+        currentBookIdRef.current === requestBookId
+      ) {
+        setError(getErrorMessage(historySelectionError));
+      }
+    } finally {
+      if (historySelectionVersionRef.current === requestVersion) {
+        setSelectingHistoryId(null);
+      }
+    }
+  };
+
+  const handleVisibleImageError = async () => {
+    if (!visibleGeneration || !isReady || !token || !userId || !resolvedBookId) return;
+    const failedImageUrl = visibleGeneration.image?.url;
+    if (!failedImageUrl) return;
+    const refreshAttemptKey = `${visibleGeneration.id}:${failedImageUrl}`;
+    const refreshCount = imageRefreshCountRef.current.get(visibleGeneration.id) ?? 0;
+
+    if (
+      refreshCount >= MAX_CONSECUTIVE_IMAGE_REFRESHES ||
+      imageRefreshAttemptedRef.current.has(refreshAttemptKey)
+    ) {
+      setUnavailableImageIds((current) => new Set(current).add(visibleGeneration.id));
+      return;
+    }
+
+    imageRefreshAttemptedRef.current.add(refreshAttemptKey);
+    imageRefreshCountRef.current.set(visibleGeneration.id, refreshCount + 1);
+    const requestAuthEpoch = authEpoch;
+    const requestGenerationId = visibleGeneration.id;
+    const requestBookId = resolvedBookId;
+    const requestPassageKey = generationPassageKeyRef.current;
+    const requestReaderIntentEpoch = readerIntentEpochRef.current.version;
+    const requestSelectionVersion = historySelectionVersionRef.current;
+
+    try {
+      const refreshedGeneration = await client.getSceneGeneration(requestGenerationId);
+      if (
+        !isCurrentAuthEpoch(requestAuthEpoch) ||
+        readerIntentEpochRef.current.version !== requestReaderIntentEpoch ||
+        historySelectionVersionRef.current !== requestSelectionVersion ||
+        currentGenerationIdRef.current !== requestGenerationId ||
+        currentBookIdRef.current !== requestBookId ||
+        refreshedGeneration.id !== requestGenerationId ||
+        refreshedGeneration.bookId !== requestBookId
+      ) {
+        return;
+      }
+
+      if (!refreshedGeneration.image) {
+        setUnavailableImageIds((current) => {
+          if (!current.has(requestGenerationId)) return current;
+          const next = new Set(current);
+          next.delete(requestGenerationId);
+          return next;
+        });
+      } else if (refreshedGeneration.image.url === failedImageUrl) {
+        setUnavailableImageIds((current) => new Set(current).add(requestGenerationId));
+      } else {
+        setUnavailableImageIds((current) => {
+          if (!current.has(requestGenerationId)) return current;
+          const next = new Set(current);
+          next.delete(requestGenerationId);
+          return next;
+        });
+      }
+      applyScopedGeneration(refreshedGeneration, requestPassageKey);
+      mergeHistoryGeneration(refreshedGeneration);
+    } catch (imageRefreshError) {
+      if (
+        isCurrentAuthEpoch(requestAuthEpoch) &&
+        readerIntentEpochRef.current.version === requestReaderIntentEpoch &&
+        historySelectionVersionRef.current === requestSelectionVersion &&
+        currentGenerationIdRef.current === requestGenerationId &&
+        currentBookIdRef.current === requestBookId
+      ) {
+        setUnavailableImageIds((current) => new Set(current).add(requestGenerationId));
+        setError(getErrorMessage(imageRefreshError));
+      }
+    }
+  };
+
+  const handleVisibleImageLoad = (generationIdToReset: string) => {
+    imageRefreshCountRef.current.delete(generationIdToReset);
+    clearGenerationAttemptKeys(imageRefreshAttemptedRef.current, generationIdToReset);
+    setUnavailableImageIds((current) => {
+      if (!current.has(generationIdToReset)) return current;
+      const next = new Set(current);
+      next.delete(generationIdToReset);
+      return next;
+    });
+  };
+
+  const handleHistoryThumbnailError = async (
+    historyGeneration: StoryBoredSceneGeneration,
+    failedThumbnailUrl: string,
+  ) => {
+    if (!isReady || !token || !userId || !resolvedBookId) return;
+    const refreshAttemptKey = `${historyGeneration.id}:${failedThumbnailUrl}`;
+    const refreshCount = thumbnailRefreshCountRef.current.get(historyGeneration.id) ?? 0;
+
+    if (
+      refreshCount >= MAX_CONSECUTIVE_IMAGE_REFRESHES ||
+      thumbnailRefreshAttemptedRef.current.has(refreshAttemptKey)
+    ) {
+      setUnavailableThumbnailIds((current) => new Set(current).add(historyGeneration.id));
+      return;
+    }
+
+    thumbnailRefreshAttemptedRef.current.add(refreshAttemptKey);
+    thumbnailRefreshCountRef.current.set(historyGeneration.id, refreshCount + 1);
+    const requestAuthEpoch = authEpoch;
+    const requestBookId = resolvedBookId;
+
+    try {
+      const refreshedGeneration = await client.getSceneGeneration(historyGeneration.id);
+      if (
+        !isCurrentAuthEpoch(requestAuthEpoch) ||
+        currentBookIdRef.current !== requestBookId ||
+        refreshedGeneration.id !== historyGeneration.id ||
+        refreshedGeneration.bookId !== requestBookId
+      ) {
+        return;
+      }
+
+      const refreshedThumbnailUrl =
+        refreshedGeneration.image?.thumbnailUrl ?? refreshedGeneration.image?.url;
+      if (refreshedGeneration.image && refreshedThumbnailUrl !== failedThumbnailUrl) {
+        setUnavailableThumbnailIds((current) => {
+          if (!current.has(historyGeneration.id)) return current;
+          const next = new Set(current);
+          next.delete(historyGeneration.id);
+          return next;
+        });
+      } else if (refreshedGeneration.image) {
+        setUnavailableThumbnailIds((current) => new Set(current).add(historyGeneration.id));
+      }
+      mergeHistoryGeneration(refreshedGeneration);
+    } catch (thumbnailRefreshError) {
+      if (isCurrentAuthEpoch(requestAuthEpoch) && currentBookIdRef.current === requestBookId) {
+        setUnavailableThumbnailIds((current) => new Set(current).add(historyGeneration.id));
+        setHistoryError(getErrorMessage(thumbnailRefreshError));
+      }
+    }
+  };
+
+  const handleHistoryThumbnailLoad = (generationIdToReset: string) => {
+    thumbnailRefreshCountRef.current.delete(generationIdToReset);
+    clearGenerationAttemptKeys(thumbnailRefreshAttemptedRef.current, generationIdToReset);
+    setUnavailableThumbnailIds((current) => {
+      if (!current.has(generationIdToReset)) return current;
+      const next = new Set(current);
+      next.delete(generationIdToReset);
+      return next;
+    });
+  };
+
   return (
     <aside
       aria-label={_('StoryBored scene panel')}
@@ -666,17 +1154,122 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
             </p>
           </div>
         </div>
-        <button
-          type='button'
-          className='btn btn-ghost btn-sm h-10 min-h-10 w-10 p-0'
-          aria-label={_('Close')}
-          onClick={onClose}
-        >
-          <X className='size-5' />
-        </button>
+        <div className='flex items-center gap-1'>
+          <button
+            type='button'
+            className='btn btn-ghost btn-sm h-10 min-h-10 w-10 p-0'
+            aria-label={_('Refresh scene history')}
+            disabled={isHistoryLoading || !resolvedBookId || !token}
+            onClick={() => void loadHistory(true)}
+          >
+            <RefreshCcw className={clsx('size-4', isHistoryLoading && 'animate-spin')} />
+          </button>
+          <button
+            type='button'
+            className='btn btn-ghost btn-sm h-10 min-h-10 w-10 p-0'
+            aria-label={_('Close')}
+            onClick={onClose}
+          >
+            <X className='size-5' />
+          </button>
+        </div>
       </header>
 
       <div className='min-h-0 flex-1 overflow-y-auto'>
+        <section
+          aria-label={_('Scene history')}
+          aria-busy={isHistoryLoading}
+          className='border-base-300 border-b p-4'
+        >
+          <div className='mb-3 flex items-center justify-between gap-3'>
+            <span className='text-base-content/60 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide'>
+              <HistoryIcon className='size-3.5' />
+              {_('History')}
+            </span>
+            {sceneHistory.completed.length > 0 && (
+              <span className='text-base-content/50 text-xs'>
+                {sceneHistory.completed.length}/20
+              </span>
+            )}
+          </div>
+
+          {isHistoryLoading && sceneHistory.items.length === 0 && (
+            <div role='status' className='text-base-content/60 flex items-center gap-2 text-sm'>
+              <span className='loading loading-spinner loading-xs' aria-hidden='true' />
+              {_('Loading saved scenes')}
+            </div>
+          )}
+
+          {!isHistoryLoading && sceneHistory.items.length === 0 && !historyError && (
+            <p className='text-base-content/60 text-sm'>{_('No saved scenes yet')}</p>
+          )}
+
+          {historyError && (
+            <p role='alert' className='text-error text-sm'>
+              {historyError}
+            </p>
+          )}
+
+          {sceneHistory.items.length > 0 && (
+            <div className='space-y-2'>
+              {sceneHistory.items.map((historyGeneration) => {
+                const historyImageUrl =
+                  historyGeneration.image?.thumbnailUrl ?? historyGeneration.image?.url;
+                const historyImageExpired = isStoryBoredSceneImageExpired(historyGeneration);
+                const historyImageUnavailable = unavailableThumbnailIds.has(historyGeneration.id);
+                const isSelected = visibleGeneration?.id === historyGeneration.id;
+
+                return (
+                  <button
+                    key={historyGeneration.id}
+                    type='button'
+                    className={clsx(
+                      'border-base-300 hover:bg-base-200/70 flex w-full items-center gap-3 rounded-lg border p-2 text-left transition-colors',
+                      isSelected && 'border-primary bg-primary/10',
+                    )}
+                    aria-pressed={isSelected}
+                    aria-busy={selectingHistoryId === historyGeneration.id}
+                    disabled={selectingHistoryId !== null || isSubmitting}
+                    aria-label={`${_('Open saved scene')}: ${historyGeneration.selectedTextPreview ?? _(getStatusLabel(historyGeneration.status))}`}
+                    onClick={() => void handleSelectHistoryGeneration(historyGeneration)}
+                  >
+                    <span className='bg-base-200 flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md'>
+                      {historyImageUrl && !historyImageExpired && !historyImageUnavailable ? (
+                        <img
+                          src={historyImageUrl}
+                          alt=''
+                          className='size-full object-cover'
+                          loading='lazy'
+                          onLoad={() => handleHistoryThumbnailLoad(historyGeneration.id)}
+                          onError={() =>
+                            void handleHistoryThumbnailError(historyGeneration, historyImageUrl)
+                          }
+                        />
+                      ) : historyImageExpired || historyImageUnavailable ? (
+                        <ImageOff className='text-base-content/40 size-5' />
+                      ) : (
+                        <span className='loading loading-spinner loading-sm' aria-hidden='true' />
+                      )}
+                    </span>
+                    <span className='min-w-0 flex-1'>
+                      <span className='block truncate text-sm font-medium'>
+                        {historyGeneration.selectedTextPreview ?? _('Saved scene')}
+                      </span>
+                      <span className='text-base-content/60 mt-0.5 block text-xs'>
+                        {historyImageExpired
+                          ? _('Expired')
+                          : historyImageUnavailable
+                            ? _('Preview unavailable')
+                            : _(getStatusLabel(historyGeneration.status))}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
         <section className='border-base-300 border-b p-4'>
           <div className='mb-3 flex items-center justify-between gap-3'>
             <span className='text-base-content/60 text-xs font-semibold uppercase tracking-wide'>
@@ -687,7 +1280,9 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
             )}
           </div>
           <p className='line-clamp-5 whitespace-pre-wrap text-sm leading-6'>
-            {passage?.selectedText || _('No passage selected')}
+            {generationPassageKeyRef.current === null && visibleGeneration?.selectedTextPreview
+              ? visibleGeneration.selectedTextPreview
+              : passage?.selectedText || _('No passage selected')}
           </p>
           {passage?.chapter && (
             <p className='text-base-content/60 mt-3 truncate text-xs'>{passage.chapter}</p>
@@ -701,7 +1296,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
           <select
             className='select select-bordered h-11 min-h-11 w-full text-sm'
             value={stylePreset}
-            disabled={isActive || isSubmitting}
+            disabled={!passage || isActive || isSubmitting}
             onChange={(event) => setStylePreset(event.target.value as StoryBoredStylePreset)}
           >
             {STYLE_OPTIONS.map((option) => (
@@ -728,24 +1323,33 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
             </div>
           )}
 
-          {visibleGeneration && !imageUrl && (
+          {visibleGeneration && (!imageUrl || shouldShowVisibleImagePlaceholder) && (
             <div className='bg-base-200 flex min-h-40 flex-col items-center justify-center gap-3 rounded-md p-6 text-center'>
               {isActive ? (
                 <span className='loading loading-spinner loading-md' aria-hidden='true' />
+              ) : shouldShowVisibleImagePlaceholder ? (
+                <ImageOff className='text-base-content/50 size-8' />
               ) : (
                 <ImagePlus className='text-base-content/50 size-8' />
               )}
               <p className='text-base-content/70 text-sm'>
-                {visibleGeneration.failureReason || _(getStatusLabel(visibleGeneration.status))}
+                {isVisibleImageExpired
+                  ? _('Scene image expired')
+                  : isVisibleImageUnavailable
+                    ? _('Scene image unavailable')
+                    : visibleGeneration.failureReason ||
+                      _(getStatusLabel(visibleGeneration.status))}
               </p>
             </div>
           )}
 
-          {imageUrl && (
+          {imageUrl && !shouldShowVisibleImagePlaceholder && (
             <img
               src={imageUrl}
               alt={_('Generated scene')}
               className='aspect-square w-full rounded-md object-cover'
+              onLoad={() => handleVisibleImageLoad(visibleGeneration.id)}
+              onError={() => void handleVisibleImageError()}
             />
           )}
 

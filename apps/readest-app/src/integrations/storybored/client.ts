@@ -62,6 +62,11 @@ export class StoryBoredReaderClient {
     return await this.#sdk.getSceneGeneration(id);
   }
 
+  async listBookSceneGenerations(bookId: string): Promise<StoryBoredSceneGeneration[]> {
+    this.#assertProtectedRequestReady();
+    return await this.#sdk.listBookSceneGenerations(bookId);
+  }
+
   async cancelSceneGeneration(id: string): Promise<StoryBoredSceneGeneration> {
     this.#assertProtectedRequestReady();
     return await this.#sdk.cancelSceneGeneration(id);

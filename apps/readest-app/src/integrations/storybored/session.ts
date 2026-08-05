@@ -4,6 +4,12 @@ const STORAGE_KEY = 'storybored.scene-panel-session.v2';
 const LEGACY_STORAGE_KEY = 'storybored.scene-panel-session.v1';
 const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ACTIVE_STATUSES = new Set<StoryBoredSceneStatus>(['queued', 'prompting', 'generating']);
+const RESTORABLE_STATUSES = new Set<StoryBoredSceneStatus>([
+  'queued',
+  'prompting',
+  'generating',
+  'completed',
+]);
 
 export interface StoryBoredSceneSession {
   version: 2;
@@ -98,7 +104,7 @@ export function readStoryBoredSceneSession(input: {
       isExpired ||
       isWrongOwner ||
       isWrongBook ||
-      !isStoryBoredSceneActive(session.generationStatus)
+      !RESTORABLE_STATUSES.has(session.generationStatus)
     ) {
       return null;
     }
