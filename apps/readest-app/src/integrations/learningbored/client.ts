@@ -8,6 +8,7 @@ import type {
   ConceptMastery,
   ConceptObjectiveMapping,
   CreateBlueprintRequest,
+  CreditsResponse,
   DocumentConceptMapping,
   DocumentListResponse,
   DocumentMasteryResponse,
@@ -411,6 +412,9 @@ export interface LearningBoredReviewStats {
   currentStreak: number;
 }
 
+export type LearningBoredCredits = CreditsResponse;
+export type LearningBoredCreditLedgerEntry = CreditsResponse['recent'][number];
+
 export type LearningBoredReviewStatsWindow = '7d' | '30d' | '90d' | 'all';
 
 export interface LearningBoredClientOptions {
@@ -424,6 +428,7 @@ export interface LearningBoredClientOptions {
  * implementation backed by the versioned SDK once that package is available.
  */
 export interface LearningBoredClient {
+  getCredits(options?: LearningBoredClientOptions): Promise<LearningBoredCredits>;
   listDocuments(options?: LearningBoredClientOptions): Promise<LearningBoredDocumentList>;
   getDocument(
     documentId: string,

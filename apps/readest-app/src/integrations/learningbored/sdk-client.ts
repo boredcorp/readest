@@ -12,6 +12,7 @@ import type {
   LearningBoredBatchReviewGradeResult,
   LearningBoredClient,
   LearningBoredClientOptions,
+  LearningBoredCredits,
   LearningBoredDocumentSummary,
   LearningBoredDueReviewItem,
   LearningBoredFigureRegenerationSnapshot,
@@ -27,6 +28,7 @@ import type {
 
 export type LearningBoredSdkPort = Pick<
   SdkLearningBoredClient,
+  | 'getCredits'
   | 'listDocuments'
   | 'getDocument'
   | 'getDocumentMastery'
@@ -461,6 +463,15 @@ export function createLearningBoredSdkClient(
   };
 
   return {
+    async getCredits(requestOptions) {
+      const sdk = createSdk(options, requestOptions?.signal);
+      const credits = await withAbort(() => sdk.getCredits(), requestOptions);
+      return {
+        ...credits,
+        recent: credits.recent.map((entry) => ({ ...entry })),
+      } satisfies LearningBoredCredits;
+    },
+
     async listDocuments(requestOptions) {
       const sdk = createSdk(options, requestOptions?.signal);
       const result = await withAbort(() => sdk.listDocuments(), requestOptions);

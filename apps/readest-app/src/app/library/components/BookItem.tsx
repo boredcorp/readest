@@ -18,8 +18,6 @@ import { navigateToLogin } from '@/utils/nav';
 import { formatAuthors, formatDescription } from '@/utils/book';
 import ReadingProgress from './ReadingProgress';
 import BookCover from '@/components/BookCover';
-import type { LearningBoredDocumentSummary } from '@/integrations/learningbored/client';
-import LearningBoredLibraryStatus from '@/integrations/learningbored/LearningBoredLibraryStatus';
 
 interface BookItemProps {
   book: Book;
@@ -28,7 +26,7 @@ interface BookItemProps {
   isSelectMode: boolean;
   bookSelected: boolean;
   transferProgress: number | null;
-  learningBoredDocument?: LearningBoredDocumentSummary;
+  status?: React.ReactNode;
   handleBookUpload: (book: Book) => void;
   handleBookDownload: (book: Book, options?: { redownload?: boolean; queued?: boolean }) => void;
   showBookDetailsModal: (book: Book) => void;
@@ -41,7 +39,7 @@ const BookItem: React.FC<BookItemProps> = ({
   isSelectMode,
   bookSelected,
   transferProgress,
-  learningBoredDocument,
+  status,
   handleBookUpload,
   handleBookDownload,
   showBookDetailsModal,
@@ -121,7 +119,7 @@ const BookItem: React.FC<BookItemProps> = ({
             {formatDescription(book.metadata?.description)}
           </h4>
         )}
-        <LearningBoredLibraryStatus document={learningBoredDocument ?? null} />
+        {status}
         <div
           className={clsx(
             'flex items-center',
@@ -136,8 +134,9 @@ const BookItem: React.FC<BookItemProps> = ({
           <div className='flex items-center justify-center gap-x-2'>
             {!appService?.isMobile && (
               <button
-                aria-label={_('Show Book Details')}
-                className='show-detail-button -m-2 p-2 sm:opacity-0 sm:group-hover:opacity-100'
+                type='button'
+                aria-label={`${_('Show Book Details')}: ${book.title}`}
+                className='show-detail-button pointer-events-auto relative z-20 -m-2 inline-flex h-11 min-h-11 w-11 items-center justify-center focus:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 sm:h-8 sm:min-h-8 sm:w-8 sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100'
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => {
                   showBookDetailsModal(book);
@@ -160,13 +159,18 @@ const BookItem: React.FC<BookItemProps> = ({
                     } as React.CSSProperties
                   }
                   role='progressbar'
+                  aria-label={_('Transferring {{title}}', { title: book.title })}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={transferProgress}
                 ></div>
               )
             ) : (
               (!book.uploadedAt || (book.uploadedAt && !book.downloadedAt)) && (
                 <button
-                  aria-label={!book.uploadedAt ? _('Upload Book') : _('Download Book')}
-                  className='show-cloud-button -m-2 p-2'
+                  type='button'
+                  aria-label={`${!book.uploadedAt ? _('Upload Book') : _('Download Book')}: ${book.title}`}
+                  className='show-cloud-button pointer-events-auto relative z-20 -m-2 inline-flex h-11 min-h-11 w-11 items-center justify-center sm:h-8 sm:min-h-8 sm:w-8'
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={() => {
                     if (!user) {

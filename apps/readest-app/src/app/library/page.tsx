@@ -80,18 +80,48 @@ import DropIndicator from '@/components/DropIndicator';
 import SettingsDialog from '@/components/settings/SettingsDialog';
 import ModalPortal from '@/components/ModalPortal';
 import TransferQueuePanel from './components/TransferQueuePanel';
-import LearningBoredLibraryPresentation from '@/integrations/learningbored/presentation/LearningBoredLibraryPresentation';
+import LearningBoredLibraryPresentation, {
+  LearningBoredLibraryEmptyState,
+  LearningBoredLibraryLoadingState,
+  LearningBoredLibrarySurface,
+  type LearningBoredLibraryPresentationContext,
+} from '@/integrations/learningbored/presentation/LearningBoredLibraryPresentation';
 import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
-import { getLearningBoredRoutePresentation } from '@/integrations/learningbored/presentation/selection';
+import {
+  getLearningBoredRoutePresentation,
+  type LearningBoredRoutePresentation,
+} from '@/integrations/learningbored/presentation/selection';
 
 const routePresentation = getLearningBoredRoutePresentation();
 
-const LibraryPageWithSearchParams = () => {
+interface LibraryPresentationProps {
+  presentation: LearningBoredRoutePresentation;
+  learningBoredContext?: LearningBoredLibraryPresentationContext;
+}
+
+const LibraryPageWithSearchParams = ({
+  presentation,
+  learningBoredContext,
+}: LibraryPresentationProps) => {
   const searchParams = useSearchParams();
-  return <LibraryPageContent searchParams={searchParams} />;
+  return (
+    <LibraryPageContent
+      searchParams={searchParams}
+      presentation={presentation}
+      learningBoredContext={learningBoredContext}
+    />
+  );
 };
 
-const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchParams | null }) => {
+const LibraryPageContent = ({
+  searchParams,
+  presentation,
+  learningBoredContext,
+}: {
+  searchParams: ReadonlyURLSearchParams | null;
+  presentation: LearningBoredRoutePresentation;
+  learningBoredContext?: LearningBoredLibraryPresentationContext;
+}) => {
   const router = useAppRouter();
   const { envConfig, appService } = useEnv();
   const { token, user } = useAuth();
@@ -871,6 +901,170 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
 
   const showBookshelf = libraryLoaded || libraryBooks.length > 0;
 
+  if (presentation === 'learningbored' && learningBoredContext) {
+    const learningBoredBreadcrumbs = currentGroupPath ? (
+      <div
+        className={`transition-all duration-300 ease-in-out ${
+          currentGroupPath ? 'opacity-100' : 'max-h-0 opacity-0'
+        }`}
+      >
+        <div className='flex flex-wrap items-center gap-y-1 px-4 text-base'>
+          <button
+            onClick={() => handleNavigateToPath(undefined)}
+            className='hover:bg-base-300 text-base-content/85 rounded px-2 py-1'
+          >
+            {_('All')}
+          </button>
+          {getBreadcrumbs(currentGroupPath).map((crumb, index, array) => {
+            const isLast = index === array.length - 1;
+            return (
+              <React.Fragment key={index}>
+                <MdChevronRight size={iconSize} className='text-neutral-content' />
+                {isLast ? (
+                  <span className='truncate rounded px-2 py-1'>{crumb.name}</span>
+                ) : (
+                  <button
+                    onClick={() => handleNavigateToPath(crumb.path)}
+                    className='hover:bg-base-300 text-base-content/85 truncate rounded px-2 py-1'
+                  >
+                    {crumb.name}
+                  </button>
+                )}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      </div>
+    ) : undefined;
+
+    const learningBoredGroupHeading = currentSeriesAuthorGroup ? (
+      <GroupHeader
+        groupBy={currentSeriesAuthorGroup.groupBy}
+        groupName={currentSeriesAuthorGroup.groupName}
+      />
+    ) : undefined;
+
+    return (
+      <LearningBoredLibrarySurface
+        pageRef={pageRef}
+        className={clsx(
+          'library-page text-base-content full-height select-none',
+          appService?.hasRoundedWindow && isRoundedWindow && 'window-border rounded-window',
+        )}
+        title={_('Your Library')}
+        busy={loading}
+        syncing={isSyncing}
+        syncProgress={syncProgress}
+        documentCount={learningBoredContext.documentCount}
+        dueCount={learningBoredContext.dueCount}
+        enrichmentStatus={learningBoredContext.enrichmentStatus}
+        controlBar={
+          <div
+            className='relative top-0 z-40 w-full'
+            role='group'
+            aria-label={_('Library controls')}
+          >
+            <LibraryHeader
+              isSelectMode={isSelectMode}
+              isSelectAll={isSelectAll}
+              onPullLibrary={pullLibrary}
+              onImportBooksFromFiles={handleImportBooksFromFiles}
+              onImportBooksFromDirectory={
+                appService?.canReadExternalDir ? handleImportBooksFromDirectory : undefined
+              }
+              onOpenCatalogManager={handleShowOPDSDialog}
+              onToggleSelectMode={() => handleSetSelectMode(!isSelectMode)}
+              onSelectAll={handleSelectAll}
+              onDeselectAll={handleDeselectAll}
+            />
+            <progress
+              aria-label={_('Library Sync Progress')}
+              aria-hidden={isSyncing ? 'false' : 'true'}
+              className={clsx(
+                'progress progress-success absolute bottom-0 left-0 right-0 h-1 translate-y-[2px] transition-opacity duration-200 sm:translate-y-[4px]',
+                isSyncing ? 'opacity-100' : 'opacity-0',
+              )}
+              value={syncProgress * 100}
+              max='100'
+            />
+          </div>
+        }
+        breadcrumbs={learningBoredBreadcrumbs}
+        groupHeading={learningBoredGroupHeading}
+        overlays={
+          <>
+            {showDetailsBook && (
+              <BookDetailModal
+                isOpen={!!showDetailsBook}
+                book={showDetailsBook}
+                onClose={() => setShowDetailsBook(null)}
+                handleBookUpload={handleBookUpload}
+                handleBookDownload={handleBookDownload}
+                handleBookDelete={handleBookDelete('both')}
+                handleBookDeleteCloudBackup={handleBookDelete('cloud')}
+                handleBookDeleteLocalCopy={handleBookDelete('local')}
+                handleBookMetadataUpdate={handleUpdateMetadata}
+              />
+            )}
+            {isTransferQueueOpen && (
+              <ModalPortal>
+                <TransferQueuePanel />
+              </ModalPortal>
+            )}
+            <AboutWindow />
+            <KeyboardShortcutsHelp />
+            <UpdaterWindow />
+            <MigrateDataWindow />
+            <BackupWindow onPullLibrary={pullLibrary} />
+            {isSettingsDialogOpen && <SettingsDialog bookKey={''} />}
+            {showCatalogManager && <CatalogDialog onClose={handleDismissOPDSDialog} />}
+            <Toast />
+          </>
+        }
+      >
+        {!showBookshelf || loading ? (
+          <LearningBoredLibraryLoadingState />
+        ) : libraryBooks.some((book) => !book.deletedAt) ? (
+          <div aria-label={_('Your Bookshelf')} className='flex min-h-0 flex-grow flex-col'>
+            <div
+              ref={containerRef}
+              className={clsx(
+                'scroll-container drop-zone flex min-h-0 flex-grow flex-col',
+                isDragging && 'drag-over',
+              )}
+              style={{
+                paddingRight: `${insets.right}px`,
+                paddingLeft: `${insets.left}px`,
+              }}
+            >
+              <DropIndicator />
+              <Bookshelf
+                libraryBooks={libraryBooks}
+                isSelectMode={isSelectMode}
+                isSelectAll={isSelectAll}
+                isSelectNone={isSelectNone}
+                onScrollerRef={handleScrollerRef}
+                handleImportBooks={handleImportBooksFromFiles}
+                handleBookUpload={handleBookUpload}
+                handleBookDownload={handleBookDownload}
+                handleBookDelete={handleBookDelete('both')}
+                handleSetSelectMode={handleSetSelectMode}
+                handleShowDetailsBook={handleShowDetailsBook}
+                handleLibraryNavigation={handleLibraryNavigation}
+                booksTransferProgress={booksTransferProgress}
+                handlePushLibrary={pushLibrary}
+                presentation={learningBoredContext.bookshelfPresentation}
+                landmarkRole='region'
+              />
+            </div>
+          </div>
+        ) : (
+          <LearningBoredLibraryEmptyState onImport={handleImportBooksFromFiles} />
+        )}
+      </LearningBoredLibrarySurface>
+    );
+  }
+
   return (
     <div
       ref={pageRef}
@@ -1037,10 +1231,16 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   );
 };
 
-const LibraryRouteController = () => {
+const LibraryRouteController = ({
+  presentation,
+  learningBoredContext,
+}: LibraryPresentationProps) => {
   return (
     <Suspense fallback={<div className='full-height' />}>
-      <LibraryPageWithSearchParams />
+      <LibraryPageWithSearchParams
+        presentation={presentation}
+        learningBoredContext={learningBoredContext}
+      />
     </Suspense>
   );
 };
@@ -1049,10 +1249,12 @@ const LibraryPage = () => {
   return (
     <SelectedRoutePresentation
       presentation={routePresentation}
-      readest={<LibraryRouteController />}
+      readest={<LibraryRouteController presentation='readest' />}
       learningbored={
         <LearningBoredLibraryPresentation>
-          <LibraryRouteController />
+          {(context) => (
+            <LibraryRouteController presentation='learningbored' learningBoredContext={context} />
+          )}
         </LearningBoredLibraryPresentation>
       }
     />

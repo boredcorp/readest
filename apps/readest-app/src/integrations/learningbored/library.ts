@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import type { Book, BooksGroup } from '@/types/book';
+import type { Book } from '@/types/book';
 import { getLearningBoredBookId } from './book';
 import type { LearningBoredDocumentSummary } from './client';
 import { useLearningBoredClient } from './LearningBoredClientContext';
 
 export type LearningBoredLibraryDocumentMap = ReadonlyMap<string, LearningBoredDocumentSummary>;
+export type LearningBoredLibraryEnrichmentStatus = 'loading' | 'available' | 'unavailable';
 
 function documentForBook(
   book: Book,
@@ -16,62 +17,36 @@ function documentForBook(
   return documentsByReaderBookId.get(getLearningBoredBookId(book.hash, book));
 }
 
-function attentionCount(
-  item: Book | BooksGroup,
-  documentsByReaderBookId: LearningBoredLibraryDocumentMap,
-): number {
-  if ('format' in item) return documentForBook(item, documentsByReaderBookId)?.dueCount ?? 0;
-  return item.books.reduce(
-    (count, book) => count + (documentForBook(book, documentsByReaderBookId)?.dueCount ?? 0),
-    0,
-  );
-}
-
-export function sortLearningBoredLibraryItemsByAttention(
-  items: readonly (Book | BooksGroup)[],
-  documentsByReaderBookId: LearningBoredLibraryDocumentMap,
-): (Book | BooksGroup)[] {
-  return items
-    .map((item, index) => ({
-      item,
-      index,
-      dueCount: attentionCount(item, documentsByReaderBookId),
-    }))
-    .sort((left, right) => right.dueCount - left.dueCount || left.index - right.index)
-    .map(({ item }) => {
-      if ('format' in item) return item;
-      const books = item.books
-        .map((book, index) => ({
-          book,
-          index,
-          dueCount: documentForBook(book, documentsByReaderBookId)?.dueCount ?? 0,
-        }))
-        .sort((left, right) => right.dueCount - left.dueCount || left.index - right.index)
-        .map(({ book }) => book);
-      return { ...item, books };
-    });
-}
-
 export function useLearningBoredLibraryDocuments(): {
   documentsByReaderBookId: LearningBoredLibraryDocumentMap;
+  status: LearningBoredLibraryEnrichmentStatus;
 } {
   const client = useLearningBoredClient();
   const [documents, setDocuments] = useState<LearningBoredDocumentSummary[]>([]);
+  const [status, setStatus] = useState<LearningBoredLibraryEnrichmentStatus>('loading');
 
   useEffect(() => {
     if (!client) {
       setDocuments([]);
+      setStatus('unavailable');
       return;
     }
 
     const controller = new AbortController();
+    setStatus('loading');
     void client
       .listDocuments({ signal: controller.signal })
       .then((result) => {
-        if (!controller.signal.aborted) setDocuments(result.documents);
+        if (!controller.signal.aborted) {
+          setDocuments(result.documents);
+          setStatus('available');
+        }
       })
       .catch(() => {
-        if (!controller.signal.aborted) setDocuments([]);
+        if (!controller.signal.aborted) {
+          setDocuments([]);
+          setStatus('unavailable');
+        }
       });
     return () => controller.abort();
   }, [client]);
@@ -84,7 +59,7 @@ export function useLearningBoredLibraryDocuments(): {
     return mapped;
   }, [documents]);
 
-  return { documentsByReaderBookId };
+  return { documentsByReaderBookId, status };
 }
 
 export function getLearningBoredDocumentForBook(

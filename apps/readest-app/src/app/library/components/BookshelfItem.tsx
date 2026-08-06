@@ -18,8 +18,6 @@ import { FILE_REVEAL_LABELS, FILE_REVEAL_PLATFORMS } from '@/utils/os';
 import { Book, BooksGroup, ReadingStatus } from '@/types/book';
 import { md5Fingerprint } from '@/utils/md5';
 import BookItem from './BookItem';
-import type { LearningBoredDocumentSummary } from '@/integrations/learningbored/client';
-import { getLearningBoredLibraryStatusLabels } from '@/integrations/learningbored/LearningBoredLibraryStatus';
 import GroupItem from './GroupItem';
 
 export const generateBookshelfItems = (
@@ -90,7 +88,8 @@ interface BookshelfItemProps {
   isSelectMode: boolean;
   itemSelected: boolean;
   transferProgress: number | null;
-  learningBoredDocument?: LearningBoredDocumentSummary;
+  accessibleDescription?: string;
+  status?: React.ReactNode;
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   toggleSelection: (hash: string) => void;
   handleGroupBooks: () => void;
@@ -113,7 +112,8 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   isSelectMode,
   itemSelected,
   transferProgress,
-  learningBoredDocument,
+  accessibleDescription,
+  status,
   setLoading,
   toggleSelection,
   handleGroupBooks,
@@ -129,14 +129,19 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   const { envConfig, appService } = useEnv();
   const { settings } = useSettingsStore();
   const { updateBook } = useLibraryStore();
-  const learningBoredStatus =
-    'format' in item ? getLearningBoredLibraryStatusLabels(learningBoredDocument ?? null, _) : null;
-  const accessibleName =
-    'format' in item && learningBoredStatus
-      ? `${item.title}. ${learningBoredStatus.accessibleLabel}`
-      : 'format' in item
-        ? item.title
-        : item.name;
+  const itemName = 'format' in item ? item.title : item.name;
+  const accessibleName = accessibleDescription ? `${itemName}. ${accessibleDescription}` : itemName;
+  const primaryActionName = isSelectMode
+    ? `${
+        'format' in item
+          ? itemSelected
+            ? _('Deselect Book')
+            : _('Select Book')
+          : itemSelected
+            ? _('Deselect Group')
+            : _('Select Group')
+      }: ${accessibleName}`
+    : accessibleName;
 
   const showBookDetailsModal = useCallback(async (book: Book) => {
     handleShowDetailsBook(book);
@@ -388,11 +393,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
     [isSelectMode, handleSelectItem, handleOpenItem, handleContextMenu],
   );
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      handleOpenItem();
-    }
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
       handleContextMenu();
@@ -402,24 +403,31 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   return (
     <div className={clsx(mode === 'grid' ? 'h-full' : 'sm:hover:bg-base-300/50 px-4 sm:px-6')}>
       <div
+        role='group'
+        aria-label={accessibleName}
         className={clsx(
-          'visible-focus-inset-2 group',
+          'group relative',
           mode === 'grid' &&
             'sm:hover:bg-base-300/50 flex h-full flex-col px-0 py-2 sm:rounded-md sm:px-4 sm:py-4',
           mode === 'list' && 'border-base-300 flex flex-col border-b py-2',
           appService?.isMobileApp && 'no-context-menu',
           pressing && mode === 'grid' ? 'not-eink:scale-95' : 'scale-100',
         )}
-        role='button'
-        tabIndex={0}
-        aria-label={accessibleName}
         style={{
           transition: 'transform 0.2s',
         }}
-        onKeyDown={handleKeyDown}
-        {...handlers}
       >
-        <div className='flex h-full flex-col justify-end'>
+        <button
+          type='button'
+          className='visible-focus-inset-2 absolute inset-0 z-0 h-full w-full rounded-[inherit] text-left'
+          aria-label={primaryActionName}
+          aria-pressed={isSelectMode ? itemSelected : undefined}
+          onKeyDown={handleKeyDown}
+          {...handlers}
+        >
+          <span className='sr-only'>{primaryActionName}</span>
+        </button>
+        <div className='pointer-events-none relative z-10 flex h-full flex-col justify-end'>
           {'format' in item ? (
             <BookItem
               mode={mode}
@@ -428,7 +436,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
               isSelectMode={isSelectMode}
               bookSelected={itemSelected}
               transferProgress={transferProgress}
-              learningBoredDocument={learningBoredDocument}
+              status={status}
               handleBookUpload={handleBookUpload}
               handleBookDownload={handleBookDownload}
               showBookDetailsModal={showBookDetailsModal}
@@ -439,6 +447,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
               group={item}
               isSelectMode={isSelectMode}
               groupSelected={itemSelected}
+              stripInteractionHandlers={handlers}
             />
           )}
         </div>

@@ -1,0 +1,394 @@
+.surface {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(18rem, 0.88fr) minmax(28rem, 1.12fr);
+  grid-template-areas: 'context task';
+  min-height: 100vh;
+  min-height: 100dvh;
+  overflow: auto;
+  isolation: isolate;
+}
+
+.backControl {
+  position: absolute;
+  z-index: 2;
+  top: var(--lb-space-5);
+  left: var(--lb-space-5);
+  display: inline-flex;
+  min-width: var(--lb-touch-target);
+  min-height: var(--lb-touch-target);
+  align-items: center;
+  justify-content: center;
+  gap: var(--lb-space-2);
+  padding: 0 var(--lb-space-3);
+  border: var(--lb-seam) solid var(--lb-color-field-muted);
+  border-radius: var(--lb-radius-control);
+  background: transparent;
+  color: var(--lb-color-field-ink);
+  font: 650 0.875rem/1 var(--lb-font-product);
+  cursor: pointer;
+  transition:
+    background-color var(--lb-motion-fast) var(--lb-ease-out),
+    border-color var(--lb-motion-fast) var(--lb-ease-out);
+}
+
+.backControl svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.backControl:hover {
+  border-color: var(--lb-color-field-ink);
+}
+
+.backControl:focus-visible {
+  outline: 2px solid var(--lb-color-field-ink);
+  outline-offset: 3px;
+}
+
+.windowControls {
+  position: absolute;
+  z-index: 3;
+  top: var(--lb-space-3);
+  right: var(--lb-space-3);
+}
+
+.contextRail {
+  grid-area: context;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: var(--lb-space-8);
+  padding: clamp(6.5rem, 13vh, 9rem) clamp(2rem, 5vw, 5rem) var(--lb-space-7);
+  border-right: var(--lb-seam) solid var(--lb-color-seam-strong);
+  background: var(--lb-color-field);
+  color: var(--lb-color-field-ink);
+}
+
+.brandLockup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--lb-space-3) var(--lb-space-4);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lb-space-3);
+  color: inherit;
+  font: 750 1rem/1 var(--lb-font-product);
+}
+
+.betaStatus {
+  padding: var(--lb-space-2) var(--lb-space-3);
+  border: var(--lb-seam) solid var(--lb-color-field-muted);
+  border-radius: var(--lb-radius-control);
+  color: var(--lb-color-field-muted);
+  font: 700 0.75rem/1.2 var(--lb-font-product);
+}
+
+.foldMark {
+  width: 2rem;
+  height: 2rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.25;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.contextCopy {
+  max-width: 30rem;
+}
+
+.contextCopy h2 {
+  margin: 0;
+  max-width: 11ch;
+  color: var(--lb-color-field-ink);
+  font: 650 clamp(2rem, 4vw, 3.8rem) / 0.98 var(--lb-font-product);
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.contextCopy p {
+  max-width: 43ch;
+  margin: var(--lb-space-5) 0 0;
+  color: var(--lb-color-field-muted);
+  font: 400 1rem/1.6 var(--lb-font-product);
+}
+
+.resumeLedger {
+  display: grid;
+  margin: 0;
+  border-top: var(--lb-seam) solid var(--lb-color-field-muted);
+}
+
+.resumeLedger > div {
+  display: grid;
+  grid-template-columns: minmax(5rem, 0.65fr) minmax(8rem, 1fr);
+  gap: var(--lb-space-4);
+  padding: var(--lb-space-3) 0;
+  border-bottom: var(--lb-seam) solid var(--lb-color-field-muted);
+}
+
+.resumeLedger dt,
+.resumeLedger dd {
+  margin: 0;
+}
+
+.resumeLedger dt {
+  color: var(--lb-color-field-ink);
+  font: 700 0.8125rem/1.35 var(--lb-font-product);
+}
+
+.resumeLedger dd {
+  color: var(--lb-color-field-muted);
+  font: 400 0.8125rem/1.35 var(--lb-font-product);
+}
+
+.taskPlane {
+  grid-area: task;
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  padding: clamp(5rem, 11vh, 8rem) var(--lb-gutter) var(--lb-space-7);
+  background: var(--lb-color-canvas);
+}
+
+.taskFrame {
+  width: min(100%, 31rem);
+}
+
+.taskHeader {
+  padding-bottom: var(--lb-space-6);
+  border-bottom: var(--lb-seam) solid var(--lb-color-seam);
+}
+
+.taskHeader h1 {
+  margin: 0;
+  color: var(--lb-color-ink);
+  font: 650 clamp(2rem, 3.2vw, 2.75rem) / 1.02 var(--lb-font-product);
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+.taskHeader p {
+  max-width: 42ch;
+  margin: var(--lb-space-4) 0 0;
+  color: var(--lb-color-ink-muted);
+  font: 400 1rem/1.55 var(--lb-font-product);
+}
+
+.authForm {
+  padding: var(--lb-space-6) 0;
+}
+
+.authForm :global(.supabase-auth-ui_ui-container) {
+  gap: var(--lb-space-4);
+  margin: 0;
+}
+
+.authForm :global(.supabase-auth-ui_ui-label) {
+  margin-bottom: var(--lb-space-2);
+  color: var(--lb-color-ink);
+  font-family: var(--lb-font-product);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.authForm :global(.supabase-auth-ui_ui-input) {
+  min-height: var(--lb-touch-target);
+  padding: 0 var(--lb-space-3);
+  border: var(--lb-seam) solid var(--lb-color-seam-strong);
+  border-radius: var(--lb-radius-control);
+  background: var(--lb-color-plane-raised);
+  color: var(--lb-color-ink);
+  font-family: var(--lb-font-product);
+  font-size: 1rem;
+  transition:
+    border-color var(--lb-motion-fast) var(--lb-ease-out),
+    outline-color var(--lb-motion-fast) var(--lb-ease-out);
+}
+
+.authForm :global(.supabase-auth-ui_ui-input)::placeholder {
+  color: var(--lb-color-ink-muted);
+  opacity: 1;
+}
+
+.authForm :global(.supabase-auth-ui_ui-input):hover {
+  border-color: var(--lb-color-action);
+}
+
+.authForm :global(.supabase-auth-ui_ui-input):focus-visible {
+  border-color: var(--lb-color-action);
+  outline: 2px solid var(--lb-color-action);
+  outline-offset: 2px;
+}
+
+.authForm :global(.supabase-auth-ui_ui-button) {
+  min-height: 3.15rem;
+  padding: var(--lb-space-3) var(--lb-space-4);
+  border: var(--lb-seam) solid var(--lb-color-action);
+  border-radius: var(--lb-radius-control);
+  background: var(--lb-color-action);
+  color: var(--lb-color-action-ink);
+  font-family: var(--lb-font-product);
+  font-size: 1rem;
+  font-weight: 700;
+  transition:
+    background-color var(--lb-motion-fast) var(--lb-ease-out),
+    border-color var(--lb-motion-fast) var(--lb-ease-out);
+}
+
+.authForm :global(.supabase-auth-ui_ui-button):hover:not(:disabled) {
+  border-color: var(--lb-color-action-hover);
+  background: var(--lb-color-action-hover);
+}
+
+.authForm :global(.supabase-auth-ui_ui-button):focus-visible,
+.authForm :global(.supabase-auth-ui_ui-anchor):focus-visible {
+  outline: 2px solid var(--lb-color-action);
+  outline-offset: 3px;
+}
+
+.authForm :global(.supabase-auth-ui_ui-button):disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.authForm :global(.supabase-auth-ui_ui-anchor) {
+  min-height: var(--lb-touch-target);
+  color: var(--lb-color-action);
+  font-family: var(--lb-font-product);
+  text-underline-offset: 0.18em;
+}
+
+.authForm :global(.supabase-auth-ui_ui-message) {
+  border: var(--lb-seam) solid var(--lb-color-seam-strong);
+  border-radius: var(--lb-radius-control);
+  background: var(--lb-color-plane-recessed);
+  color: var(--lb-color-ink);
+  font-family: var(--lb-font-product);
+  line-height: 1.45;
+}
+
+.privacyNote {
+  margin: 0;
+  padding-top: var(--lb-space-4);
+  border-top: var(--lb-seam) solid var(--lb-color-seam);
+  color: var(--lb-color-ink-muted);
+  font: 400 0.875rem/1.5 var(--lb-font-product);
+}
+
+@media (max-width: 760px) {
+  .surface {
+    display: flex;
+    flex-direction: column;
+    min-height: 100dvh;
+  }
+
+  .backControl {
+    position: static;
+    align-self: flex-start;
+    margin: var(--lb-space-4) var(--lb-space-4) 0;
+    border-color: var(--lb-color-seam-strong);
+    color: var(--lb-color-ink);
+  }
+
+  .backControl:hover {
+    background: var(--lb-color-plane-recessed);
+  }
+
+  .backControl:focus-visible {
+    outline-color: var(--lb-color-action);
+  }
+
+  .windowControls {
+    top: var(--lb-space-2);
+    right: var(--lb-space-2);
+  }
+
+  .taskPlane {
+    order: 1;
+    display: block;
+    padding: var(--lb-space-7) var(--lb-space-4) var(--lb-space-8);
+  }
+
+  .taskFrame {
+    margin: 0 auto;
+  }
+
+  .taskHeader h1 {
+    font-size: 2.25rem;
+  }
+
+  .contextRail {
+    order: 2;
+    gap: var(--lb-space-7);
+    padding: var(--lb-space-6) var(--lb-space-4);
+    border-top: var(--lb-seam) solid var(--lb-color-seam-strong);
+    border-right: 0;
+  }
+
+  .contextCopy h2 {
+    max-width: 18ch;
+    font-size: 2rem;
+  }
+
+  .resumeLedger > div {
+    grid-template-columns: minmax(5rem, 0.55fr) minmax(9rem, 1fr);
+  }
+}
+
+@media (max-width: 390px) {
+  .taskPlane {
+    padding-top: var(--lb-space-6);
+  }
+
+  .taskHeader h1 {
+    font-size: 2rem;
+  }
+
+  .authForm {
+    padding: var(--lb-space-5) 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .backControl,
+  .authForm :global(.supabase-auth-ui_ui-button),
+  .authForm :global(.supabase-auth-ui_ui-input) {
+    transition-duration: 0.01ms;
+  }
+}
+
+@media (forced-colors: active) {
+  .surface,
+  .contextRail,
+  .taskPlane {
+    forced-color-adjust: auto;
+  }
+
+  .contextRail {
+    border-color: CanvasText;
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  .brand,
+  .contextCopy h2,
+  .contextCopy p,
+  .betaStatus,
+  .resumeLedger dt,
+  .resumeLedger dd,
+  .backControl {
+    color: CanvasText;
+  }
+}

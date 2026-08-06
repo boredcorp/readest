@@ -130,6 +130,13 @@ function createClient(
 ): LearningBoredClient {
   const answer = revealedAnswer();
   return {
+    getCredits: vi.fn(async () => ({
+      availableChalk: 0,
+      reservedChalk: 0,
+      lifetimeGranted: 0,
+      lifetimeSpent: 0,
+      recent: [],
+    })),
     listDocuments: vi.fn(async () => ({ documents: [] })),
     getDocument: vi.fn(async () => {
       throw new Error('Not used by review tests.');

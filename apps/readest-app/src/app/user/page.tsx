@@ -55,23 +55,13 @@ type CheckoutState = {
   planName: string;
 };
 
-const AccountRouteController = () => {
-  const _ = useTranslation();
+const useAccountRouteSession = () => {
   const router = useRouter();
   const { appService } = useEnv();
   const { token, user, refresh } = useAuth();
   const { safeAreaInsets, isRoundedWindow } = useThemeStore();
-
-  const [loading, setLoading] = useState(false);
-  const [showEmbeddedCheckout, setShowEmbeddedCheckout] = useState(false);
-  const [showStorageManager, setShowStorageManager] = useState(false);
-  const [checkoutState, setCheckoutState] = useState<CheckoutState>({
-    clientSecret: '',
-    sessionId: '',
-    planName: '',
-  });
-
   const [mounted, setMounted] = useState(false);
+
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
@@ -88,6 +78,32 @@ const AccountRouteController = () => {
   }, [mounted, user, token, appService, router]);
 
   useTheme({ systemUIVisible: false });
+
+  return {
+    router,
+    appService,
+    token,
+    user,
+    refresh,
+    safeAreaInsets,
+    isRoundedWindow,
+    mounted,
+  };
+};
+
+export const ReadestAccountRouteController = () => {
+  const _ = useTranslation();
+  const { router, appService, token, user, refresh, safeAreaInsets, isRoundedWindow, mounted } =
+    useAccountRouteSession();
+
+  const [loading, setLoading] = useState(false);
+  const [showEmbeddedCheckout, setShowEmbeddedCheckout] = useState(false);
+  const [showStorageManager, setShowStorageManager] = useState(false);
+  const [checkoutState, setCheckoutState] = useState<CheckoutState>({
+    clientSecret: '',
+    sessionId: '',
+    planName: '',
+  });
 
   const { quotas, userProfilePlan = 'free' } = useQuotaStats();
   const { handleLogout, handleResetPassword, handleUpdateEmail, handleConfirmDelete } =
@@ -348,16 +364,58 @@ const AccountRouteController = () => {
   );
 };
 
+const LearningBoredAccountRouteController = () => {
+  const _ = useTranslation();
+  const { appService, token, user, refresh, safeAreaInsets, isRoundedWindow, mounted, router } =
+    useAccountRouteSession();
+  const [showStorageManager, setShowStorageManager] = useState(false);
+  const { handleLogout, handleResetPassword, handleUpdateEmail } = useUserActions();
+
+  const handleGoBack = () => {
+    if (showStorageManager) {
+      setShowStorageManager(false);
+      refresh();
+      return;
+    }
+    navigateToLibrary(router);
+  };
+
+  const handleToggleStorage = () => {
+    if (showStorageManager) refresh();
+    setShowStorageManager(!showStorageManager);
+  };
+
+  const ready = Boolean(mounted && user && token && appService);
+
+  return (
+    <>
+      <LearningBoredAccountPresentation
+        status={ready ? 'ready' : 'loading'}
+        userFullName={
+          ready ? user?.user_metadata?.['full_name'] || _('LearningBored learner') : undefined
+        }
+        userEmail={ready ? user?.email || '' : undefined}
+        safeAreaTop={safeAreaInsets?.top || 0}
+        roundedWindow={Boolean(appService?.hasRoundedWindow && isRoundedWindow)}
+        storageOpen={showStorageManager}
+        storageContent={showStorageManager ? <StorageManager /> : undefined}
+        onBack={handleGoBack}
+        onToggleStorage={handleToggleStorage}
+        onResetPassword={handleResetPassword}
+        onUpdateEmail={handleUpdateEmail}
+        onSignOut={handleLogout}
+      />
+      <Toast />
+    </>
+  );
+};
+
 const ProfilePage = () => {
   return (
     <SelectedRoutePresentation
       presentation={routePresentation}
-      readest={<AccountRouteController />}
-      learningbored={
-        <LearningBoredAccountPresentation>
-          <AccountRouteController />
-        </LearningBoredAccountPresentation>
-      }
+      readest={<ReadestAccountRouteController />}
+      learningbored={<LearningBoredAccountRouteController />}
     />
   );
 };

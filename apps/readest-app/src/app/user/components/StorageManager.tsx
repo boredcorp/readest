@@ -324,6 +324,7 @@ const StorageManager = () => {
           <div className='flex flex-col gap-2 sm:flex-row'>
             <input
               type='text'
+              aria-label={_('Search files')}
               placeholder={_('Search files...')}
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
@@ -332,6 +333,7 @@ const StorageManager = () => {
             />
 
             <select
+              aria-label={_('Sort files')}
               value={`${sortBy}-${sortOrder}`}
               onChange={(e) => {
                 const [newSortBy, newSortOrder] = e.target.value.split('-');
@@ -374,13 +376,16 @@ const StorageManager = () => {
               <tr>
                 <th className='w-12'>
                   <div className='flex items-center'>
-                    <input
-                      type='checkbox'
-                      checked={isAllSelected}
-                      onChange={(e) => handleSelectAll(e.target.checked)}
-                      className='checkbox checkbox-sm'
-                      disabled={!filesLoaded || loading}
-                    />
+                    <label className='inline-flex min-h-11 min-w-11 items-center justify-center'>
+                      <span className='sr-only'>{_('Select all files')}</span>
+                      <input
+                        type='checkbox'
+                        checked={isAllSelected}
+                        onChange={(e) => handleSelectAll(e.target.checked)}
+                        className='checkbox checkbox-sm'
+                        disabled={!filesLoaded || loading}
+                      />
+                    </label>
                   </div>
                 </th>
                 <th className='!ps-0'>{_('File Name')}</th>
@@ -435,20 +440,38 @@ const StorageManager = () => {
                       <tr className='hover'>
                         <td>
                           <div className='flex items-center gap-1'>
-                            <input
-                              type='checkbox'
-                              checked={bookSelected}
-                              ref={(el) => {
-                                if (el) el.indeterminate = bookPartiallySelected;
-                              }}
-                              onChange={(e) => handleSelectBook(bookFiles, e.target.checked)}
-                              disabled={loading}
-                              className='checkbox checkbox-sm'
-                            />
+                            <label className='inline-flex min-h-11 min-w-11 items-center justify-center'>
+                              <span className='sr-only'>
+                                {_('Select all files for {{name}}', {
+                                  name: getFileName(mainFile.file_key),
+                                })}
+                              </span>
+                              <input
+                                type='checkbox'
+                                checked={bookSelected}
+                                ref={(el) => {
+                                  if (el) el.indeterminate = bookPartiallySelected;
+                                }}
+                                onChange={(e) => handleSelectBook(bookFiles, e.target.checked)}
+                                disabled={loading}
+                                className='checkbox checkbox-sm'
+                              />
+                            </label>
                             {hasMultipleFiles && (
                               <button
+                                type='button'
+                                aria-expanded={isExpanded}
+                                aria-label={
+                                  isExpanded
+                                    ? _('Collapse files for {{name}}', {
+                                        name: getFileName(mainFile.file_key),
+                                      })
+                                    : _('Expand files for {{name}}', {
+                                        name: getFileName(mainFile.file_key),
+                                      })
+                                }
                                 onClick={() => toggleBookExpansion(bookHash)}
-                                className='btn btn-ghost btn-xs'
+                                className='btn btn-ghost min-h-11 min-w-11'
                               >
                                 {isExpanded ? '−' : '+'}
                               </button>
@@ -487,15 +510,20 @@ const StorageManager = () => {
                           <tr key={file.file_key} className='hover bg-base-200/50'>
                             <td>
                               <div className='pl-4'>
-                                <input
-                                  type='checkbox'
-                                  checked={selectedFiles.has(file.file_key)}
-                                  onChange={(e) =>
-                                    handleSelectFile(file.file_key, e.target.checked)
-                                  }
-                                  disabled={loading}
-                                  className='checkbox checkbox-sm'
-                                />
+                                <label className='inline-flex min-h-11 min-w-11 items-center justify-center'>
+                                  <span className='sr-only'>
+                                    {_('Select {{name}}', { name: getFileName(file.file_key) })}
+                                  </span>
+                                  <input
+                                    type='checkbox'
+                                    checked={selectedFiles.has(file.file_key)}
+                                    onChange={(e) =>
+                                      handleSelectFile(file.file_key, e.target.checked)
+                                    }
+                                    disabled={loading}
+                                    className='checkbox checkbox-sm'
+                                  />
+                                </label>
                               </div>
                             </td>
                             <td className='max-w-0 !ps-0 sm:w-[80%]'>

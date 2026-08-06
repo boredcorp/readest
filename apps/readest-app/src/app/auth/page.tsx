@@ -49,6 +49,8 @@ interface ProviderLoginProp {
   label: string;
 }
 
+type AuthRoutePresentation = 'readest' | 'learningbored';
+
 const WEB_AUTH_CALLBACK = `${getBaseUrl()}/auth/callback`;
 const DEEPLINK_CALLBACK = 'readest://auth-callback';
 const USE_APPLE_SIGN_IN = process.env['NEXT_PUBLIC_USE_APPLE_SIGN_IN'] === 'true';
@@ -68,7 +70,7 @@ const ProviderLogin: React.FC<ProviderLoginProp> = ({ provider, handleSignIn, Ic
   );
 };
 
-function AuthRouteController() {
+function AuthRouteController({ presentation }: { presentation: AuthRoutePresentation }) {
   const _ = useTranslation();
   const router = useRouter();
   const { login } = useAuth();
@@ -350,122 +352,154 @@ function AuthRouteController() {
     return null;
   }
 
+  const renderAuthForm = (redirectTo: string, providers: OAuthProvider[]) => (
+    <Auth
+      supabaseClient={supabase}
+      appearance={{ theme: ThemeSupa }}
+      theme={isDarkMode ? 'dark' : 'light'}
+      magicLink={true}
+      providers={providers}
+      view={privateBetaPolicy.active ? 'sign_in' : undefined}
+      showLinks={privateBetaPolicy.allowSignUpLinks}
+      redirectTo={redirectTo}
+      localization={getAuthLocalization()}
+    />
+  );
+
   // For tauri app development, use a custom OAuth server to handle the OAuth callback
   // For tauri app production, use deeplink to handle the OAuth callback
   // For web app, use the built-in OAuth callback page /auth/callback
-  return isTauriAppPlatform() ? (
-    <div
-      className={clsx(
-        'bg-base-100 full-height inset-0 flex select-none flex-col items-center overflow-hidden',
-        appService?.hasRoundedWindow && isRoundedWindow && 'window-border rounded-window',
-      )}
-    >
+  if (isTauriAppPlatform()) {
+    if (presentation === 'learningbored') {
+      return (
+        <LearningBoredAuthPresentation
+          backLabel={_('Go Back')}
+          onBack={handleGoBack}
+          windowControls={
+            appService?.hasWindowBar ? (
+              <div ref={headerRef}>
+                <WindowButtons
+                  headerRef={headerRef}
+                  showMinimize={!isTrafficLightVisible}
+                  showMaximize={!isTrafficLightVisible}
+                  showClose={!isTrafficLightVisible}
+                  onClose={handleGoBack}
+                />
+              </div>
+            ) : undefined
+          }
+        >
+          {renderAuthForm(getTauriRedirectTo(false), [])}
+        </LearningBoredAuthPresentation>
+      );
+    }
+
+    return (
       <div
-        className={clsx('flex h-full w-full flex-col items-center overflow-y-auto')}
-        style={{
-          paddingTop: `${safeAreaInsets?.top || 0}px`,
-        }}
+        className={clsx(
+          'bg-base-100 full-height inset-0 flex select-none flex-col items-center overflow-hidden',
+          appService?.hasRoundedWindow && isRoundedWindow && 'window-border rounded-window',
+        )}
       >
         <div
-          ref={headerRef}
-          className={clsx(
-            'fixed z-10 flex w-full items-center justify-between py-2 pe-6 ps-4',
-            appService?.hasTrafficLight && 'pt-11',
-          )}
+          className={clsx('flex h-full w-full flex-col items-center overflow-y-auto')}
+          style={{
+            paddingTop: `${safeAreaInsets?.top || 0}px`,
+          }}
         >
-          <button
-            aria-label={_('Go Back')}
-            onClick={handleGoBack}
-            className={clsx('btn btn-ghost h-12 min-h-12 w-12 p-0 sm:h-8 sm:min-h-8 sm:w-8')}
+          <div
+            ref={headerRef}
+            className={clsx(
+              'fixed z-10 flex w-full items-center justify-between py-2 pe-6 ps-4',
+              appService?.hasTrafficLight && 'pt-11',
+            )}
           >
-            <IoArrowBack className='text-base-content' />
-          </button>
+            <button
+              aria-label={_('Go Back')}
+              onClick={handleGoBack}
+              className={clsx('btn btn-ghost h-12 min-h-12 w-12 p-0 sm:h-8 sm:min-h-8 sm:w-8')}
+            >
+              <IoArrowBack className='text-base-content' />
+            </button>
 
-          {appService?.hasWindowBar && (
-            <WindowButtons
-              headerRef={headerRef}
-              showMinimize={!isTrafficLightVisible}
-              showMaximize={!isTrafficLightVisible}
-              showClose={!isTrafficLightVisible}
-              onClose={handleGoBack}
-            />
-          )}
-        </div>
-        <div
-          className={clsx(
-            'z-20 flex flex-col items-center pb-8',
-            appService?.hasTrafficLight ? 'mt-24' : 'mt-12',
-          )}
-          style={{ maxWidth: '420px' }}
-        >
-          {privateBetaPolicy.allowSocialOAuth && (
-            <>
-              <ProviderLogin
-                provider='google'
-                handleSignIn={tauriSignIn}
-                Icon={FcGoogle}
-                label={_('Sign in with {{provider}}', { provider: 'Google' })}
+            {appService?.hasWindowBar && (
+              <WindowButtons
+                headerRef={headerRef}
+                showMinimize={!isTrafficLightVisible}
+                showMaximize={!isTrafficLightVisible}
+                showClose={!isTrafficLightVisible}
+                onClose={handleGoBack}
               />
-              <ProviderLogin
-                provider='apple'
-                handleSignIn={
-                  appService?.isIOSApp || USE_APPLE_SIGN_IN ? tauriSignInApple : tauriSignIn
-                }
-                Icon={FaApple}
-                label={_('Sign in with {{provider}}', { provider: 'Apple' })}
-              />
-              <ProviderLogin
-                provider='github'
-                handleSignIn={tauriSignIn}
-                Icon={FaGithub}
-                label={_('Sign in with {{provider}}', { provider: 'GitHub' })}
-              />
-              <ProviderLogin
-                provider='discord'
-                handleSignIn={tauriSignIn}
-                Icon={FaDiscord}
-                label={_('Sign in with {{provider}}', { provider: 'Discord' })}
-              />
-              <hr aria-hidden='true' className='border-base-300 my-3 mt-6 w-64 border-t' />
-            </>
-          )}
-          <div className='w-full'>
-            <Auth
-              supabaseClient={supabase}
-              appearance={{ theme: ThemeSupa }}
-              theme={isDarkMode ? 'dark' : 'light'}
-              magicLink={true}
-              providers={[]}
-              view={privateBetaPolicy.active ? 'sign_in' : undefined}
-              showLinks={privateBetaPolicy.allowSignUpLinks}
-              redirectTo={getTauriRedirectTo(false)}
-              localization={getAuthLocalization()}
-            />
+            )}
+          </div>
+          <div
+            className={clsx(
+              'z-20 flex flex-col items-center pb-8',
+              appService?.hasTrafficLight ? 'mt-24' : 'mt-12',
+            )}
+            style={{ maxWidth: '420px' }}
+          >
+            {privateBetaPolicy.allowSocialOAuth && (
+              <>
+                <ProviderLogin
+                  provider='google'
+                  handleSignIn={tauriSignIn}
+                  Icon={FcGoogle}
+                  label={_('Sign in with {{provider}}', { provider: 'Google' })}
+                />
+                <ProviderLogin
+                  provider='apple'
+                  handleSignIn={
+                    appService?.isIOSApp || USE_APPLE_SIGN_IN ? tauriSignInApple : tauriSignIn
+                  }
+                  Icon={FaApple}
+                  label={_('Sign in with {{provider}}', { provider: 'Apple' })}
+                />
+                <ProviderLogin
+                  provider='github'
+                  handleSignIn={tauriSignIn}
+                  Icon={FaGithub}
+                  label={_('Sign in with {{provider}}', { provider: 'GitHub' })}
+                />
+                <ProviderLogin
+                  provider='discord'
+                  handleSignIn={tauriSignIn}
+                  Icon={FaDiscord}
+                  label={_('Sign in with {{provider}}', { provider: 'Discord' })}
+                />
+                <hr aria-hidden='true' className='border-base-300 my-3 mt-6 w-64 border-t' />
+              </>
+            )}
+            <div className='w-full'>{renderAuthForm(getTauriRedirectTo(false), [])}</div>
           </div>
         </div>
       </div>
-    </div>
-  ) : (
+    );
+  }
+
+  const webAuth = renderAuthForm(
+    getWebRedirectTo(),
+    privateBetaPolicy.allowSocialOAuth ? ['google', 'apple', 'github', 'discord'] : [],
+  );
+
+  if (presentation === 'learningbored') {
+    return (
+      <LearningBoredAuthPresentation backLabel={_('Go Back')} onBack={handleGoBack}>
+        {webAuth}
+      </LearningBoredAuthPresentation>
+    );
+  }
+
+  return (
     <div style={{ maxWidth: '420px', margin: 'auto', padding: '2rem', paddingTop: '4rem' }}>
       <button
+        aria-label={_('Go Back')}
         onClick={handleGoBack}
-        className='btn btn-ghost fixed left-6 top-6 h-8 min-h-8 w-8 p-0'
+        className='btn btn-ghost fixed left-6 top-6 h-11 min-h-11 w-11 p-0'
       >
         <IoArrowBack className='text-base-content' />
       </button>
-      <Auth
-        supabaseClient={supabase}
-        appearance={{ theme: ThemeSupa }}
-        theme={isDarkMode ? 'dark' : 'light'}
-        magicLink={true}
-        providers={
-          privateBetaPolicy.allowSocialOAuth ? ['google', 'apple', 'github', 'discord'] : []
-        }
-        view={privateBetaPolicy.active ? 'sign_in' : undefined}
-        showLinks={privateBetaPolicy.allowSignUpLinks}
-        redirectTo={getWebRedirectTo()}
-        localization={getAuthLocalization()}
-      />
+      {webAuth}
     </div>
   );
 }
@@ -474,12 +508,8 @@ export default function AuthPage() {
   return (
     <SelectedRoutePresentation
       presentation={routePresentation}
-      readest={<AuthRouteController />}
-      learningbored={
-        <LearningBoredAuthPresentation>
-          <AuthRouteController />
-        </LearningBoredAuthPresentation>
-      }
+      readest={<AuthRouteController presentation='readest' />}
+      learningbored={<AuthRouteController presentation='learningbored' />}
     />
   );
 }

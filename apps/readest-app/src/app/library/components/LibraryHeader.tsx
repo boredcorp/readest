@@ -116,6 +116,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
             </span>
             <input
               type='text'
+              aria-label={_('Search library')}
               value={searchQuery}
               placeholder={
                 currentBooksCount > 1
@@ -143,7 +144,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
                   setSearchQuery('');
                   debouncedUpdateQueryParam('');
                 }}
-                className='text-base-content/40 hover:text-base-content/60 pe-1'
+                className='text-base-content/40 hover:text-base-content/60 inline-flex h-11 min-h-11 w-11 items-center justify-center sm:h-8 sm:min-h-8 sm:w-8'
                 aria-label={_('Clear Search')}
               >
                 <IoMdCloseCircle className='h-4 w-4' />
@@ -155,7 +156,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
               className={clsx(
                 'exclude-title-bar-mousedown dropdown-bottom dropdown-center cursor-pointer',
               )}
-              buttonClassName='p-0 h-6 min-h-6 w-6 flex touch-target items-center justify-center !bg-transparent'
+              buttonClassName='p-0 h-11 min-h-11 w-11 sm:h-6 sm:min-h-6 sm:w-6 flex items-center justify-center !bg-transparent'
               toggleButton={<PiPlus role='none' className='m-0.5 h-5 w-5' />}
             >
               <ImportMenu
@@ -202,7 +203,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
             <Dropdown
               label={_('View Menu')}
               className='exclude-title-bar-mousedown dropdown-bottom dropdown-end'
-              buttonClassName='btn btn-ghost h-8 min-h-8 w-8 p-0'
+              buttonClassName='btn btn-ghost h-11 min-h-11 w-11 p-0 sm:h-8 sm:min-h-8 sm:w-8'
               toggleButton={<PiDotsThreeCircle role='none' size={iconSize18} />}
             >
               <ViewMenu />
@@ -210,7 +211,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
             <Dropdown
               label={_('Settings Menu')}
               className='exclude-title-bar-mousedown dropdown-bottom dropdown-end'
-              buttonClassName='btn btn-ghost h-8 min-h-8 w-8 p-0'
+              buttonClassName='btn btn-ghost h-11 min-h-11 w-11 p-0 sm:h-8 sm:min-h-8 sm:w-8'
               toggleButton={<MdOutlineMenu role='none' size={iconSize18} />}
             >
               <SettingsMenu onPullLibrary={onPullLibrary} />

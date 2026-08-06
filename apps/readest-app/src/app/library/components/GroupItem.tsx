@@ -7,15 +7,34 @@ import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { BooksGroup } from '@/types/book';
 import { LibraryViewModeType } from '@/types/settings';
 import BookCover from '@/components/BookCover';
+import { getBookshelfScrollBehavior } from './bookshelfPresentation';
+
+type GroupStripInteractionHandlers = Pick<
+  React.HTMLAttributes<HTMLDivElement>,
+  | 'onPointerDown'
+  | 'onPointerUp'
+  | 'onPointerMove'
+  | 'onPointerCancel'
+  | 'onPointerLeave'
+  | 'onClick'
+  | 'onContextMenu'
+>;
 
 interface GroupItemProps {
   mode: LibraryViewModeType;
   group: BooksGroup;
   isSelectMode: boolean;
   groupSelected: boolean;
+  stripInteractionHandlers?: GroupStripInteractionHandlers;
 }
 
-const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupSelected }) => {
+const GroupItem: React.FC<GroupItemProps> = ({
+  mode,
+  group,
+  isSelectMode,
+  groupSelected,
+  stripInteractionHandlers,
+}) => {
   const _ = useTranslation();
   const { appService } = useEnv();
   const iconSize15 = useResponsiveSize(15);
@@ -59,13 +78,19 @@ const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupS
     checkScrollArrows();
   };
 
+  const scrollBehavior = (): ScrollBehavior =>
+    getBookshelfScrollBehavior(
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+      document.documentElement.dataset['eink'] === 'true',
+    );
+
   const scrollLeft = () => {
     if (scrollContainerRef.current) {
       const container = scrollContainerRef.current;
       const scrollAmount = container.clientWidth * 0.5;
       const currentScroll = container.scrollLeft;
       const targetScroll = Math.max(0, currentScroll - scrollAmount);
-      container.scrollTo({ left: targetScroll, behavior: 'smooth' });
+      container.scrollTo({ left: targetScroll, behavior: scrollBehavior() });
     }
   };
 
@@ -76,7 +101,7 @@ const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupS
       const currentScroll = container.scrollLeft;
       const maxScroll = container.scrollWidth - container.clientWidth;
       const targetScroll = Math.min(maxScroll, currentScroll + scrollAmount);
-      container.scrollTo({ left: targetScroll, behavior: 'smooth' });
+      container.scrollTo({ left: targetScroll, behavior: scrollBehavior() });
     }
   };
 
@@ -117,6 +142,7 @@ const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupS
             className={clsx(
               mode === 'grid' && 'grid w-full grid-cols-2 grid-rows-2 gap-1 overflow-hidden',
               mode === 'list' && 'flex h-28 gap-2 overflow-x-auto overflow-y-hidden',
+              mode === 'list' && 'pointer-events-auto relative z-20',
               mode === 'list' ? 'library-list-item' : 'library-grid-item',
             )}
             style={
@@ -131,6 +157,7 @@ const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupS
                 : undefined
             }
             onScroll={mode === 'list' ? handleScroll : undefined}
+            {...(mode === 'list' ? stripInteractionHandlers : {})}
           >
             {group.books.slice(0, mode === 'grid' ? 4 : undefined).map((book) => (
               <div
@@ -156,7 +183,7 @@ const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupS
                 onPointerMove={(e) => stopEvent(e)}
                 onPointerCancel={(e) => stopEvent(e)}
                 onPointerLeave={(e) => stopEvent(e)}
-                className='absolute left-2 top-1/2 -translate-y-1/2 transition-all duration-200 hover:scale-110'
+                className='pointer-events-auto absolute left-0 top-1/2 z-30 inline-flex h-11 min-h-11 w-11 -translate-y-1/2 items-center justify-center transition-all duration-200 hover:scale-110 sm:left-2 sm:h-8 sm:min-h-8 sm:w-8'
               >
                 <div className='bg-base-100 border-base-content/10 hover:border-base-content/30 rounded-full border p-1 shadow-sm transition-colors duration-200'>
                   <MdChevronLeft
@@ -178,7 +205,7 @@ const GroupItem: React.FC<GroupItemProps> = ({ mode, group, isSelectMode, groupS
                 onPointerMove={(e) => stopEvent(e)}
                 onPointerCancel={(e) => stopEvent(e)}
                 onPointerLeave={(e) => stopEvent(e)}
-                className='absolute right-2 top-1/2 -translate-y-1/2 transition-all duration-200 hover:scale-110'
+                className='pointer-events-auto absolute right-0 top-1/2 z-30 inline-flex h-11 min-h-11 w-11 -translate-y-1/2 items-center justify-center transition-all duration-200 hover:scale-110 sm:right-2 sm:h-8 sm:min-h-8 sm:w-8'
               >
                 <div className='bg-base-100 border-base-content/10 hover:border-base-content/30 rounded-full border p-1 shadow-sm transition-colors duration-200'>
                   <MdChevronRight

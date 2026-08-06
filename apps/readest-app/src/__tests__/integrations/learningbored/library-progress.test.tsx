@@ -1,8 +1,14 @@
-import { cleanup, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/hooks/useTranslation', () => ({
-  useTranslation: () => (message: string) => message,
+  useTranslation: () => (message: string, values?: Record<string, string | number>) => {
+    if (!values) return message;
+    return Object.entries(values).reduce(
+      (result, [key, value]) => result.replace(`{{${key}}}`, String(value)),
+      message,
+    );
+  },
 }));
 
 vi.mock('@/context/EnvContext', () => ({
@@ -22,21 +28,34 @@ vi.mock('@/hooks/useAppRouter', () => ({
 }));
 
 vi.mock('@/hooks/useLongPress', () => ({
-  useLongPress: () => ({ pressing: false, handlers: {} }),
+  useLongPress: ({ onTap }: { onTap?: () => void }) => ({
+    pressing: false,
+    handlers: { onClick: onTap },
+  }),
+}));
+
+const navigateToReader = vi.fn();
+
+vi.mock('@/utils/nav', () => ({
+  navigateToReader: (...args: unknown[]) => navigateToReader(...args),
+  showReaderWindow: vi.fn(),
 }));
 
 vi.mock('@/app/library/components/BookItem', () => ({
-  default: () => <span>Fictional book row</span>,
+  default: ({ book, showBookDetailsModal }: { book: Book; showBookDetailsModal: () => void }) => (
+    <div>
+      <span>Fictional book row</span>
+      <button type='button' onClick={showBookDetailsModal}>
+        Show Book Details: {book.title}
+      </button>
+    </div>
+  ),
 }));
 
 import BookshelfItem from '@/app/library/components/BookshelfItem';
-import LearningBoredLibraryStatus from '@/integrations/learningbored/LearningBoredLibraryStatus';
-import {
-  getLearningBoredDocumentForBook,
-  sortLearningBoredLibraryItemsByAttention,
-} from '@/integrations/learningbored/library';
+import LearningBoredLibraryStatus from '@/integrations/learningbored/presentation/LearningBoredLibraryStatus';
 import type { LearningBoredDocumentSummary } from '@/integrations/learningbored/client';
-import type { Book, BooksGroup } from '@/types/book';
+import type { Book } from '@/types/book';
 
 function book(hash: string, title: string): Book {
   return { hash, title, format: 'EPUB', updatedAt: 1 } as Book;
@@ -64,41 +83,12 @@ function document(readerBookId: string, dueCount: number): LearningBoredDocument
 afterEach(() => cleanup());
 
 describe('LearningBored library progress', () => {
-  it('stably brings due books and groups forward by attention', () => {
-    const quiet = book('book-quiet', 'Quiet book');
-    const urgent = book('book-urgent', 'Urgent book');
-    const medium = book('book-medium', 'Medium book');
-    const group = {
-      id: 'group-1',
-      name: 'Fictional group',
-      displayName: 'Fictional group',
-      books: [quiet, medium],
-      updatedAt: 1,
-    } as BooksGroup;
-    const documents = new Map([
-      ['book-quiet', document('book-quiet', 0)],
-      ['book-urgent', document('book-urgent', 5)],
-      ['book-medium', document('book-medium', 2)],
-    ]);
-
-    const sorted = sortLearningBoredLibraryItemsByAttention([quiet, group, urgent], documents);
-    expect(sorted.map((item) => ('format' in item ? item.hash : item.id))).toEqual([
-      'book-urgent',
-      'group-1',
-      'book-quiet',
-    ]);
-    expect((sorted[1] as BooksGroup).books.map((item) => item.hash)).toEqual([
-      'book-medium',
-      'book-quiet',
-    ]);
-    expect(getLearningBoredDocumentForBook(urgent, documents)?.dueCount).toBe(5);
-  });
-
   it('shows explicit due and zero states while leaving unmapped books blank', () => {
     const due = document('book-due', 3);
     const { rerender } = render(<LearningBoredLibraryStatus document={due} />);
     expect(screen.getByText('3 due')).toBeTruthy();
     expect(screen.getByText('2 Boards')).toBeTruthy();
+    expect(screen.getByText('5 recall items')).toBeTruthy();
 
     rerender(<LearningBoredLibraryStatus document={{ ...due, dueCount: 0 }} />);
     expect(screen.getByText('Nothing due')).toBeTruthy();
@@ -107,8 +97,8 @@ describe('LearningBored library progress', () => {
     expect(screen.queryByText('Nothing due')).toBeNull();
   });
 
-  it('includes due and Board status in the outer bookshelf control accessible name', () => {
-    const due = document('book-due', 3);
+  it('keeps the native open target separate from sibling item actions', async () => {
+    const showDetails = vi.fn();
     render(
       <BookshelfItem
         mode='list'
@@ -117,7 +107,51 @@ describe('LearningBored library progress', () => {
         isSelectMode={false}
         itemSelected={false}
         transferProgress={null}
-        learningBoredDocument={due}
+        accessibleDescription='3 due. 2 Boards. 5 recall items'
+        setLoading={vi.fn()}
+        toggleSelection={vi.fn()}
+        handleGroupBooks={vi.fn()}
+        handleBookDownload={vi.fn(async () => true)}
+        handleBookUpload={vi.fn(async () => true)}
+        handleBookDelete={vi.fn(async () => true)}
+        handleSetSelectMode={vi.fn()}
+        handleShowDetailsBook={showDetails}
+        handleLibraryNavigation={vi.fn()}
+        handleUpdateReadingStatus={vi.fn()}
+      />,
+    );
+
+    const openTarget = screen.getByRole('button', {
+      name: 'Fictional operations guide. 3 due. 2 Boards. 5 recall items',
+    });
+    const detailsTarget = screen.getByRole('button', {
+      name: 'Show Book Details: Fictional operations guide',
+    });
+    const itemGroup = screen.getByRole('group', {
+      name: 'Fictional operations guide. 3 due. 2 Boards. 5 recall items',
+    });
+
+    expect(openTarget.tagName).toBe('BUTTON');
+    expect(itemGroup.contains(openTarget)).toBe(true);
+    expect(openTarget.contains(detailsTarget)).toBe(false);
+
+    fireEvent.click(detailsTarget);
+    expect(showDetails).toHaveBeenCalledTimes(1);
+    expect(navigateToReader).not.toHaveBeenCalled();
+
+    fireEvent.click(openTarget);
+    await waitFor(() => expect(navigateToReader).toHaveBeenCalledTimes(1));
+  });
+
+  it('announces selection intent and state on the native item control', () => {
+    const { rerender } = render(
+      <BookshelfItem
+        mode='list'
+        item={book('book-select', 'Fictional field notes')}
+        coverFit='crop'
+        isSelectMode
+        itemSelected={false}
+        transferProgress={null}
         setLoading={vi.fn()}
         toggleSelection={vi.fn()}
         handleGroupBooks={vi.fn()}
@@ -132,9 +166,36 @@ describe('LearningBored library progress', () => {
     );
 
     expect(
-      screen.getByRole('button', {
-        name: 'Fictional operations guide. 3 due. 2 Boards',
-      }),
-    ).toBeTruthy();
+      screen
+        .getByRole('button', { name: 'Select Book: Fictional field notes' })
+        .getAttribute('aria-pressed'),
+    ).toBe('false');
+
+    rerender(
+      <BookshelfItem
+        mode='list'
+        item={book('book-select', 'Fictional field notes')}
+        coverFit='crop'
+        isSelectMode
+        itemSelected
+        transferProgress={null}
+        setLoading={vi.fn()}
+        toggleSelection={vi.fn()}
+        handleGroupBooks={vi.fn()}
+        handleBookDownload={vi.fn(async () => true)}
+        handleBookUpload={vi.fn(async () => true)}
+        handleBookDelete={vi.fn(async () => true)}
+        handleSetSelectMode={vi.fn()}
+        handleShowDetailsBook={vi.fn()}
+        handleLibraryNavigation={vi.fn()}
+        handleUpdateReadingStatus={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByRole('button', { name: 'Deselect Book: Fictional field notes' })
+        .getAttribute('aria-pressed'),
+    ).toBe('true');
   });
 });

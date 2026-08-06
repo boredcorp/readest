@@ -41,12 +41,6 @@ import {
   compareSortValues,
 } from '../utils/libraryUtils';
 import { eventDispatcher } from '@/utils/event';
-import {
-  getLearningBoredDocumentForBook,
-  sortLearningBoredLibraryItemsByAttention,
-  useLearningBoredLibraryDocuments,
-} from '@/integrations/learningbored/library';
-
 import { useSpatialNavigation } from '../hooks/useSpatialNavigation';
 import Alert from '@/components/Alert';
 import Spinner from '@/components/Spinner';
@@ -55,6 +49,7 @@ import BookshelfItem, { generateBookshelfItems } from './BookshelfItem';
 import SelectModeActions from './SelectModeActions';
 import GroupingModal from './GroupingModal';
 import SetStatusAlert from './SetStatusAlert';
+import type { BookshelfPresentation } from './bookshelfPresentation';
 
 interface BookshelfProps {
   libraryBooks: Book[];
@@ -74,6 +69,8 @@ interface BookshelfProps {
   handleLibraryNavigation: (targetGroup: string) => void;
   handlePushLibrary: () => Promise<void>;
   booksTransferProgress: { [key: string]: number | null };
+  presentation?: BookshelfPresentation;
+  landmarkRole?: 'main' | 'region';
 }
 
 /**
@@ -146,6 +143,8 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   handleLibraryNavigation,
   handlePushLibrary,
   booksTransferProgress,
+  presentation,
+  landmarkRole = 'main',
 }) => {
   const _ = useTranslation();
   const router = useRouter();
@@ -153,7 +152,6 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   const { envConfig, appService } = useEnv();
   const { settings } = useSettingsStore();
   const { safeAreaInsets } = useThemeStore();
-  const { documentsByReaderBookId } = useLearningBoredLibraryDocuments();
 
   const groupId = searchParams?.get('group') || '';
   const queryTerm = searchParams?.get('q') || null;
@@ -314,10 +312,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     return allItems;
   }, [sortOrder, sortBy, groupBy, groupId, uiLanguage, currentBookshelfItems]);
 
-  const attentionSortedBookshelfItems = useMemo(
-    () => sortLearningBoredLibraryItemsByAttention(sortedBookshelfItems, documentsByReaderBookId),
-    [documentsByReaderBookId, sortedBookshelfItems],
-  );
+  const presentedBookshelfItems = sortedBookshelfItems;
 
   useEffect(() => {
     if (isImportingBook.current) return;
@@ -509,11 +504,11 @@ const Bookshelf: React.FC<BookshelfProps> = ({
 
   const selectedBooks = getSelectedBooks();
   const isGridMode = viewMode === 'grid';
-  const hasItems = attentionSortedBookshelfItems.length > 0;
+  const hasItems = presentedBookshelfItems.length > 0;
   // In grid mode the Import-Books "+" tile is rendered as an extra grid cell
   // after all books. We represent it to Virtuoso as an extra index past the
   // last book; list mode doesn't have an import tile.
-  const gridTotalCount = hasItems ? attentionSortedBookshelfItems.length + 1 : 0;
+  const gridTotalCount = hasItems ? presentedBookshelfItems.length + 1 : 0;
 
   const listContext = useMemo<BookshelfListContext>(
     () => ({
@@ -525,7 +520,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
 
   const renderBookshelfItem = useCallback(
     (index: number) => {
-      if (isGridMode && index === attentionSortedBookshelfItems.length) {
+      if (isGridMode && index === presentedBookshelfItems.length) {
         return (
           <div
             className={clsx('bookshelf-import-item mx-0 my-2 sm:mx-4 sm:my-4')}
@@ -551,8 +546,9 @@ const Bookshelf: React.FC<BookshelfProps> = ({
           </div>
         );
       }
-      const item = attentionSortedBookshelfItems[index];
+      const item = presentedBookshelfItems[index];
       if (!item) return null;
+      const itemPresentation = presentation?.presentItem?.(item);
       const itemSelected =
         'hash' in item ? selectedBooks.includes(item.hash) : selectedBooks.includes(item.id);
       return (
@@ -575,18 +571,15 @@ const Bookshelf: React.FC<BookshelfProps> = ({
           transferProgress={
             'hash' in item ? booksTransferProgress[(item as Book).hash] || null : null
           }
-          learningBoredDocument={
-            'format' in item
-              ? getLearningBoredDocumentForBook(item, documentsByReaderBookId)
-              : undefined
-          }
+          accessibleDescription={itemPresentation?.accessibleDescription}
+          status={itemPresentation?.status}
         />
       );
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [
-      attentionSortedBookshelfItems,
-      documentsByReaderBookId,
+      presentedBookshelfItems,
+      presentation,
       selectedBooks,
       isGridMode,
       viewMode,
@@ -608,23 +601,23 @@ const Bookshelf: React.FC<BookshelfProps> = ({
 
   const computeItemKey = useCallback(
     (index: number) => {
-      if (isGridMode && index === attentionSortedBookshelfItems.length) {
+      if (isGridMode && index === presentedBookshelfItems.length) {
         return 'library-import-tile';
       }
-      const item = attentionSortedBookshelfItems[index];
+      const item = presentedBookshelfItems[index];
       if (!item) return `library-item-${index}`;
       return `library-item-${'hash' in item ? item.hash : item.id}`;
     },
-    [attentionSortedBookshelfItems, isGridMode],
+    [presentedBookshelfItems, isGridMode],
   );
 
   return (
     <div
       ref={autofocusRef}
       tabIndex={-1}
-      role='main'
+      role={landmarkRole}
       aria-label={_('Bookshelf')}
-      className='bookshelf min-h-0 flex-grow focus:outline-none'
+      className='bookshelf relative min-h-0 flex-grow focus:outline-none'
     >
       <div ref={osRootRef} data-overlayscrollbars-initialize='' className='h-full'>
         {hasItems && isGridMode && (
@@ -641,7 +634,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
         {hasItems && !isGridMode && (
           <Virtuoso
             overscan={200}
-            totalCount={attentionSortedBookshelfItems.length}
+            totalCount={presentedBookshelfItems.length}
             components={LIST_VIRTUOSO_COMPONENTS}
             computeItemKey={computeItemKey}
             itemContent={renderBookshelfItem}
@@ -650,7 +643,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
         )}
       </div>
       {loading && (
-        <div className='fixed inset-0 z-50 flex items-center justify-center'>
+        <div className='bg-base-100/80 absolute inset-0 z-30 flex items-center justify-center'>
           <Spinner loading />
         </div>
       )}
@@ -666,6 +659,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
           onCancel={() => handleSetSelectMode(false)}
         />
       )}
+      {!hasItems && presentation?.emptyResult}
       {showGroupingModal && selectedBooks.length > 0 && (
         <ModalPortal>
           <GroupingModal

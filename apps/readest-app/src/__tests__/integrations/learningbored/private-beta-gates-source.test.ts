@@ -49,8 +49,9 @@ describe('LearningBored private-beta source gates', () => {
     expect(source).toContain("view={privateBetaPolicy.active ? 'sign_in' : undefined}");
     expect(source).toContain('showLinks={privateBetaPolicy.allowSignUpLinks}');
     expect(source).toContain('privateBetaPolicy.allowSocialOAuth &&');
+    expect(source).toContain('providers={providers}');
     expect(source).toMatch(
-      /providers=\{\s*privateBetaPolicy\.allowSocialOAuth\s*\?\s*\['google',\s*'apple',\s*'github',\s*'discord'\]\s*:\s*\[\]\s*\}/u,
+      /privateBetaPolicy\.allowSocialOAuth\s*\?\s*\['google',\s*'apple',\s*'github',\s*'discord'\]\s*:\s*\[\]/u,
     );
   });
 
@@ -98,7 +99,9 @@ describe('LearningBored private-beta source gates', () => {
     expect(legalLinks).toContain('https://learningbored.com/privacy');
     expect(legalLinks).toContain('https://learningbored.com/cookies');
     expect(accountLayout).toContain("getSelectedReaderRouteMetadata('user')");
-    expect(presentationMetadata).toContain("title: 'LearningBored account'");
+    expect(presentationMetadata).toContain("'LearningBored account'");
+    expect(presentationMetadata).toContain('manifest: null');
+    expect(presentationMetadata).toContain('icons: null');
     expect(presentationMetadata).toContain("title: 'Account & Sign In'");
   });
 

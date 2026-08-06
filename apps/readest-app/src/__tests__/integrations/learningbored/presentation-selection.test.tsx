@@ -5,9 +5,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
 import { getLearningBoredRoutePresentation } from '@/integrations/learningbored/presentation/selection';
 import { getSelectedReaderRouteMetadata } from '@/integrations/learningbored/presentation/metadata';
-import LearningBoredAccountPresentation from '@/integrations/learningbored/presentation/LearningBoredAccountPresentation';
-import LearningBoredAuthPresentation from '@/integrations/learningbored/presentation/LearningBoredAuthPresentation';
-import LearningBoredLibraryPresentation from '@/integrations/learningbored/presentation/LearningBoredLibraryPresentation';
 
 const deploymentProfileKey = 'NEXT_PUBLIC_LEARNINGBORED_DEPLOYMENT_PROFILE';
 const enabledKey = 'NEXT_PUBLIC_LEARNINGBORED_ENABLED';
@@ -111,39 +108,36 @@ describe('LearningBored Reader presentation selection', () => {
     });
   });
 
-  it.each([
-    { Presentation: LearningBoredAuthPresentation, surface: 'auth' },
-    { Presentation: LearningBoredLibraryPresentation, surface: 'library' },
-    { Presentation: LearningBoredAccountPresentation, surface: 'account' },
-  ])(
-    'scopes the $surface token adapter to the selected presentation',
-    ({ Presentation, surface }) => {
-      render(
-        <Presentation>
-          <span>Selected route content</span>
-        </Presentation>,
-      );
-
-      const boundary = screen.getByText('Selected route content').closest('.lb-presentation');
-      expect(boundary).toBeTruthy();
-      expect(boundary?.getAttribute('data-lb-presentation')).toBe(surface);
-    },
-  );
-
   it('provides LearningBored metadata for each selected route', () => {
     setPresentationEnvironment({ deploymentProfile: 'private_beta' });
 
-    expect(getSelectedReaderRouteMetadata('auth')).toEqual({
-      title: 'Sign in to LearningBored',
+    expect(getSelectedReaderRouteMetadata('auth')).toMatchObject({
+      title: { absolute: 'Sign in to LearningBored' },
       description: 'Sign in to the LearningBored private beta.',
+      applicationName: 'LearningBored',
+      manifest: null,
+      icons: null,
+      robots: { index: false, follow: false, nocache: true },
+      openGraph: {
+        siteName: 'LearningBored',
+        title: 'Sign in to LearningBored',
+        images: [],
+      },
+      twitter: { title: 'Sign in to LearningBored', images: [] },
     });
-    expect(getSelectedReaderRouteMetadata('library')).toEqual({
-      title: 'LearningBored library',
+    expect(getSelectedReaderRouteMetadata('library')).toMatchObject({
+      title: { absolute: 'LearningBored library' },
       description: 'Import and open books in your private LearningBored library.',
+      applicationName: 'LearningBored',
+      manifest: null,
+      icons: null,
     });
-    expect(getSelectedReaderRouteMetadata('user')).toEqual({
-      title: 'LearningBored account',
+    expect(getSelectedReaderRouteMetadata('user')).toMatchObject({
+      title: { absolute: 'LearningBored account' },
       description: 'Sign in to your LearningBored private-beta account or manage its settings.',
+      applicationName: 'LearningBored',
+      manifest: null,
+      icons: null,
     });
   });
 });
