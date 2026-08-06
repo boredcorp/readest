@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { UserPlan } from '@/types/quota';
 
 interface DeleteConfirmationModalProps {
   show: boolean;
@@ -46,7 +45,7 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
 };
 
 interface AccountActionsProps {
-  userPlan: UserPlan;
+  billingCustomerExists: boolean;
   iapAvailable: boolean;
   onLogout: () => void;
   onResetPassword: () => void;
@@ -58,7 +57,7 @@ interface AccountActionsProps {
 }
 
 const AccountActions: React.FC<AccountActionsProps> = ({
-  userPlan,
+  billingCustomerExists,
   iapAvailable,
   onLogout,
   onResetPassword,
@@ -98,16 +97,15 @@ const AccountActions: React.FC<AccountActionsProps> = ({
           >
             {_('Restore Purchase')}
           </button>
-        ) : (
-          userPlan !== 'free' && (
-            <button
-              onClick={onManageSubscription}
-              className='w-full rounded-lg bg-blue-100 px-6 py-3 font-medium text-blue-600 transition-colors hover:bg-blue-200 md:w-auto'
-            >
-              {_('Manage Subscription')}
-            </button>
-          )
-        )}
+        ) : null}
+        {billingCustomerExists && !appService?.hasIAP ? (
+          <button
+            onClick={onManageSubscription}
+            className='w-full rounded-lg bg-blue-100 px-6 py-3 font-medium text-blue-600 transition-colors hover:bg-blue-200 md:w-auto'
+          >
+            {_('Manage Subscription')}
+          </button>
+        ) : null}
         {onManageStorage && (
           <button
             onClick={onManageStorage}

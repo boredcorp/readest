@@ -1,54 +1,70 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AvailablePlan, PlanType, UserPlan } from '@/types/quota';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  BillingCatalogItem,
+  BillingCatalogItemKey,
+  BillingInterval,
+  StoryBoredPlan,
+} from '@/libs/payment/stripe/client';
 import { useEnv } from '@/context/EnvContext';
+import { useTranslation } from '@/hooks/useTranslation';
 import { debounce } from '@/utils/debounce';
-import { getPlanDetails } from '../utils/plan';
+import { getInkTopUpDetails, getPlanDetails, type BillingSurface } from '../utils/plan';
 import PlanNavigation from './PlanNavigation';
 import PlanCard from './PlanCard';
 import PlanIndicators from './PlanIndicators';
 
+const PLAN_CODES: StoryBoredPlan[] = ['reader', 'author', 'publisher'];
+
 interface PlansComparisonProps {
-  availablePlans: AvailablePlan[];
-  userPlan: UserPlan;
-  onSubscribe: (priceId?: string, planType?: PlanType) => void;
+  catalog: BillingCatalogItem[];
+  currentPlan?: StoryBoredPlan;
+  currentSubscriptionInterval?: BillingInterval;
+  hasActiveSubscription: boolean;
+  billingInterval: BillingInterval;
+  onBillingIntervalChange: (interval: BillingInterval) => void;
+  onCheckout: (catalogItemKey: BillingCatalogItemKey) => void;
+  onManageSubscription: () => void;
 }
 
 const PlansComparison: React.FC<PlansComparisonProps> = ({
-  availablePlans,
-  userPlan,
-  onSubscribe,
+  catalog,
+  currentPlan,
+  currentSubscriptionInterval,
+  hasActiveSubscription,
+  billingInterval,
+  onBillingIntervalChange,
+  onCheckout,
+  onManageSubscription,
 }) => {
+  const _ = useTranslation();
   const { appService } = useEnv();
   const [currentPlanIndex, setCurrentPlanIndex] = useState(0);
-  const [userPlanIndex, setUserPlanIndex] = useState(0);
   const plansScrollRef = useRef<HTMLDivElement>(null);
 
-  const userPlans: UserPlan[] = ['free', 'plus', 'pro', 'purchase'];
-
-  const allPlans = userPlans.map((plan) => ({
-    ...getPlanDetails(plan, availablePlans),
-  }));
+  const allPlans = useMemo(
+    () => [
+      ...PLAN_CODES.map((plan) => getPlanDetails(plan, catalog, billingInterval)),
+      getInkTopUpDetails(catalog),
+    ],
+    [billingInterval, catalog],
+  );
 
   useEffect(() => {
-    if (userPlan) {
-      const initialPlanIndex = userPlans.indexOf(userPlan);
-      setCurrentPlanIndex(Math.max(0, initialPlanIndex));
-      setUserPlanIndex(Math.max(0, initialPlanIndex));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [userPlan]);
+    if (!currentPlan) return;
+    const initialPlanIndex = PLAN_CODES.indexOf(currentPlan);
+    setCurrentPlanIndex(Math.max(0, initialPlanIndex));
+  }, [currentPlan]);
 
   const handlePlanSwipe = (direction: 'left' | 'right') => {
-    if (direction === 'left' && currentPlanIndex < allPlans.length - 1) {
-      setCurrentPlanIndex(currentPlanIndex + 1);
-    } else if (direction === 'right' && currentPlanIndex > 0) {
-      setCurrentPlanIndex(currentPlanIndex - 1);
-    }
+    setCurrentPlanIndex((currentIndex) => {
+      if (direction === 'left') return Math.min(currentIndex + 1, allPlans.length - 1);
+      return Math.max(currentIndex - 1, 0);
+    });
   };
 
-  const handleTouchStart = (e: React.TouchEvent) => {
-    const touchStartX = e.touches[0]!.clientX;
-    const touchStartY = e.touches[0]!.clientY;
+  const handleTouchStart = (event: React.TouchEvent) => {
+    const touchStartX = event.touches[0]!.clientX;
+    const touchStartY = event.touches[0]!.clientY;
     const handleTouchMove = (moveEvent: TouchEvent) => {
       const touchEndX = moveEvent.touches[0]!.clientX;
       const touchEndY = moveEvent.touches[0]!.clientY;
@@ -56,11 +72,7 @@ const PlansComparison: React.FC<PlansComparisonProps> = ({
       const diffY = touchStartY - touchEndY;
 
       if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 50) {
-        if (diffX > 0) {
-          handlePlanSwipe('left');
-        } else {
-          handlePlanSwipe('right');
-        }
+        handlePlanSwipe(diffX > 0 ? 'left' : 'right');
         document.removeEventListener('touchmove', handleTouchMove);
       }
     };
@@ -70,74 +82,87 @@ const PlansComparison: React.FC<PlansComparisonProps> = ({
       document.removeEventListener('touchend', handleTouchEnd);
     };
 
-    document.addEventListener('touchmove', handleTouchMove);
-    document.addEventListener('touchend', handleTouchEnd);
+    document.addEventListener('touchmove', handleTouchMove, { passive: true });
+    document.addEventListener('touchend', handleTouchEnd, { passive: true });
   };
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const handleScroll = useCallback(
-    debounce(() => {
-      if (plansScrollRef.current) {
+  const handleScroll = useMemo(
+    () =>
+      debounce(() => {
         const container = plansScrollRef.current;
-        const scrollLeft = container.scrollLeft;
-        const containerWidth = container.clientWidth;
-        const scrollWidth = container.scrollWidth;
+        if (!container) return;
 
-        const cardWidth = scrollWidth / allPlans.length;
-        const viewportCenter = scrollLeft + containerWidth / 2;
+        const cardWidth = container.scrollWidth / allPlans.length;
+        const viewportCenter = container.scrollLeft + container.clientWidth / 2;
         const newIndex = Math.floor(viewportCenter / cardWidth);
         const clampedIndex = Math.max(0, Math.min(newIndex, allPlans.length - 1));
-
-        if (currentPlanIndex === 0 && scrollLeft < 10) {
-          return;
-        }
-        if (clampedIndex !== currentPlanIndex) {
-          setCurrentPlanIndex(clampedIndex);
-        }
-      }
-    }, 100),
-    [currentPlanIndex],
+        setCurrentPlanIndex((currentIndex) =>
+          currentIndex === clampedIndex ? currentIndex : clampedIndex,
+        );
+      }, 100),
+    [allPlans.length],
   );
 
   useEffect(() => {
-    if (!plansScrollRef.current) return;
-
     const container = plansScrollRef.current;
-    container.addEventListener('scroll', handleScroll);
-    return () => {
-      container.removeEventListener('scroll', handleScroll);
-    };
-  }, [currentPlanIndex, handleScroll]);
+    if (!container) return;
+
+    container.addEventListener('scroll', handleScroll, { passive: true });
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [handleScroll]);
 
   useEffect(() => {
-    if (plansScrollRef.current) {
-      const container = plansScrollRef.current;
-      const planWidth = (container.scrollWidth - 208 * 0) / allPlans.length;
-      const cardCenter = 208 * 0 + currentPlanIndex * planWidth + planWidth / 2;
-      const scrollPosition = cardCenter - container.clientWidth / 2;
+    const container = plansScrollRef.current;
+    if (!container) return;
 
-      container.scrollTo({
-        left: scrollPosition,
-        behavior: 'smooth',
-      });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPlanIndex]);
+    const planWidth = container.scrollWidth / allPlans.length;
+    const cardCenter = currentPlanIndex * planWidth + planWidth / 2;
+    container.scrollTo({
+      left: cardCenter - container.clientWidth / 2,
+      behavior: 'smooth',
+    });
+  }, [allPlans.length, currentPlanIndex]);
 
-  const handleSelectPlan = (plan: UserPlan) => {
-    const index = userPlans.indexOf(plan);
-    if (index !== -1) {
-      setCurrentPlanIndex(index);
-    }
-  };
+  const handleSelectPlan = useCallback(
+    (plan: BillingSurface) => {
+      const index = allPlans.findIndex((candidate) => candidate.plan === plan);
+      if (index !== -1) setCurrentPlanIndex(index);
+    },
+    [allPlans],
+  );
 
   return (
     <div className='bg-base-100 border-base-200 overflow-hidden rounded-xl border shadow-sm'>
       <PlanNavigation
-        allPlans={allPlans.filter((plan) => plan.plan !== 'free')}
-        currentPlan={userPlans[currentPlanIndex]!}
+        allPlans={allPlans}
+        currentPlan={currentPlan ? (allPlans[currentPlanIndex]?.plan ?? currentPlan) : undefined}
         onSelectPlan={handleSelectPlan}
       />
+
+      <div className='border-base-200 flex justify-center gap-1 border-b px-6 py-3'>
+        <button
+          onClick={() => onBillingIntervalChange('month')}
+          aria-pressed={billingInterval === 'month'}
+          className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+            billingInterval === 'month'
+              ? 'bg-violet-600 text-white'
+              : 'bg-base-200 text-base-content hover:bg-base-300'
+          }`}
+        >
+          {_('Monthly')}
+        </button>
+        <button
+          onClick={() => onBillingIntervalChange('year')}
+          aria-pressed={billingInterval === 'year'}
+          className={`rounded-full px-4 py-2 text-sm font-semibold transition-colors ${
+            billingInterval === 'year'
+              ? 'bg-violet-600 text-white'
+              : 'bg-base-200 text-base-content hover:bg-base-300'
+          }`}
+        >
+          {_('Yearly')}
+        </button>
+      </div>
 
       <div
         ref={plansScrollRef}
@@ -151,14 +176,15 @@ const PlansComparison: React.FC<PlansComparisonProps> = ({
       >
         {allPlans.map((plan, index) => (
           <PlanCard
-            key={`plan-${plan.plan}-${index}`}
+            key={`plan-${plan.plan}`}
             plan={plan}
-            comingSoon={false}
-            isUserPlan={plan.plan === userPlan}
-            upgradable={index > 0 && (index > userPlanIndex || userPlan === 'purchase')}
+            currentPlan={currentPlan}
+            currentSubscriptionInterval={currentSubscriptionInterval}
+            hasActiveSubscription={hasActiveSubscription}
             index={index}
-            currentPlanIndex={currentPlanIndex}
-            onSubscribe={onSubscribe}
+            currentPlanIndex={currentPlan ? currentPlanIndex : -1}
+            onCheckout={onCheckout}
+            onManageSubscription={onManageSubscription}
             onSelectPlan={setCurrentPlanIndex}
           />
         ))}

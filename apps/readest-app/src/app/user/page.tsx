@@ -1,52 +1,55 @@
 'use client';
 
 import clsx from 'clsx';
-import { useState, useEffect, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useEnv } from '@/context/EnvContext';
+import { Toast } from '@/components/Toast';
+import LegalLinks from '@/components/LegalLinks';
+import Spinner from '@/components/Spinner';
 import { useAuth } from '@/context/AuthContext';
-import { useTheme } from '@/hooks/useTheme';
-import { useThemeStore } from '@/store/themeStore';
+import { useEnv } from '@/context/EnvContext';
+import { useAvailablePlans } from '@/hooks/useAvailablePlans';
 import { useQuotaStats } from '@/hooks/useQuotaStats';
+import { useTheme } from '@/hooks/useTheme';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useUserActions } from '@/hooks/useUserActions';
-import { useAvailablePlans } from '@/hooks/useAvailablePlans';
-import type { PlanType } from '@/types/quota';
-import { navigateToLibrary } from '@/utils/nav';
-import { eventDispatcher } from '@/utils/event';
-import { isTauriAppPlatform } from '@/services/environment';
-import { getPlanDetails } from './utils/plan';
-import { Toast } from '@/components/Toast';
 import {
+  fetchAndTransformIAPPlans,
+  getSubscriptionSuccessUrl as getIAPSubscriptionSuccessUrl,
+  isIAPAvailable,
   purchaseIAPProduct,
   restoreIAPPurchases,
-  getSubscriptionSuccessUrl as getIAPSubscriptionSuccessUrl,
 } from '@/libs/payment/iap/client';
 import { isPurchaseProduct } from '@/libs/payment/iap/utils';
 import {
-  createStripeCheckoutSession,
-  redirectToStripeCheckout,
-  createStripePortalSession,
-  redirectToStripePortal,
-  handleStripeCheckoutError,
-  getSubscriptionSuccessUrl as getStripeSubscriptionSuccessUrl,
-  type StripeAvailablePlan,
+  createBillingCheckoutSession,
+  createBillingPortalSession,
+  handleBillingCheckoutError,
+  redirectToHostedBilling,
+  type BillingCatalogItemKey,
+  type BillingInterval,
 } from '@/libs/payment/stripe/client';
-import LegalLinks from '@/components/LegalLinks';
-import Spinner from '@/components/Spinner';
-import ProfileHeader from './components/Header';
-import UserInfo from './components/UserInfo';
-import UsageStats from './components/UsageStats';
-import PlansComparison from './components/PlansComparison';
+import { useThemeStore } from '@/store/themeStore';
+import { eventDispatcher } from '@/utils/event';
+import { navigateToLibrary } from '@/utils/nav';
+import type { AvailablePlan } from '@/types/quota';
 import AccountActions from './components/AccountActions';
+import BillingPlanChooser, { type NativeIAPStatus } from './components/BillingPlanChooser';
+import ProfileHeader from './components/Header';
+import PlansComparison from './components/PlansComparison';
 import StorageManager from './components/StorageManager';
-import Checkout from './components/Checkout';
+import UsageStats from './components/UsageStats';
+import UserInfo from './components/UserInfo';
+import { getNativePlanBadgeDetails, getPlanDetails } from './utils/plan';
 
-type CheckoutState = {
-  clientSecret: string;
-  sessionId: string;
-  planName: string;
-};
+const IAP_PRODUCT_IDS = [
+  'com.bilingify.readest.monthly.plus',
+  'com.bilingify.readest.monthly.pro',
+  'com.bilingify.readest.storage.1gb.purchase',
+  'com.bilingify.readest.storage.2gb.purchase',
+  'com.bilingify.readest.storage.5gb.purchase',
+  'com.bilingify.readest.storage.10gb.purchase',
+];
 
 const ProfilePage = () => {
   const _ = useTranslation();
@@ -56,15 +59,13 @@ const ProfilePage = () => {
   const { safeAreaInsets, isRoundedWindow } = useThemeStore();
 
   const [loading, setLoading] = useState(false);
-  const [showEmbeddedCheckout, setShowEmbeddedCheckout] = useState(false);
   const [showStorageManager, setShowStorageManager] = useState(false);
-  const [checkoutState, setCheckoutState] = useState<CheckoutState>({
-    clientSecret: '',
-    sessionId: '',
-    planName: '',
-  });
-
+  const [billingInterval, setBillingInterval] = useState<BillingInterval>('month');
+  const [iapStatus, setIapStatus] = useState<NativeIAPStatus>('idle');
+  const [iapPlans, setIapPlans] = useState<AvailablePlan[]>([]);
+  const iapRequestSequence = useRef(0);
   const [mounted, setMounted] = useState(false);
+
   useEffect(() => setMounted(true), []);
 
   useEffect(() => {
@@ -78,7 +79,49 @@ const ProfilePage = () => {
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [mounted, user, token, appService, router]);
+  }, [appService, mounted, router, token, user]);
+
+  const refreshIAPPlans = useCallback(async () => {
+    if (!appService?.hasIAP) return;
+
+    const requestId = ++iapRequestSequence.current;
+    setIapStatus('loading');
+
+    try {
+      const available = await isIAPAvailable();
+      if (!available) throw new Error('Native IAP is unavailable.');
+
+      const plans = await fetchAndTransformIAPPlans(IAP_PRODUCT_IDS);
+      if (plans.length === 0) throw new Error('Native IAP returned no products.');
+      if (requestId !== iapRequestSequence.current) return;
+
+      setIapPlans(plans);
+      setIapStatus('available');
+    } catch (error) {
+      if (requestId !== iapRequestSequence.current) return;
+      console.error('Failed to load IAP plans:', error);
+      setIapPlans([]);
+      setIapStatus('unavailable');
+      eventDispatcher.dispatch('toast', {
+        type: 'info',
+        message: _('Failed to load subscription plans.'),
+      });
+    }
+  }, [_, appService?.hasIAP]);
+
+  useEffect(() => {
+    if (!appService?.hasIAP) {
+      iapRequestSequence.current += 1;
+      setIapPlans([]);
+      setIapStatus('idle');
+      return;
+    }
+
+    void refreshIAPPlans();
+    return () => {
+      iapRequestSequence.current += 1;
+    };
+  }, [appService?.hasIAP, refreshIAPPlans]);
 
   useTheme({ systemUIVisible: false });
 
@@ -86,63 +129,51 @@ const ProfilePage = () => {
   const { handleLogout, handleResetPassword, handleUpdateEmail, handleConfirmDelete } =
     useUserActions();
 
-  const { availablePlans, iapAvailable } = useAvailablePlans({
-    hasIAP: appService?.hasIAP || false,
-    onError: useCallback(
-      (message: string) => {
-        eventDispatcher.dispatch('toast', {
-          type: 'info',
-          message: _(message),
-        });
-      },
-      [_],
-    ),
+  const handleBillingLoadError = useCallback(
+    (message: string) => {
+      eventDispatcher.dispatch('toast', {
+        type: 'info',
+        message: _(message),
+      });
+    },
+    [_],
+  );
+
+  const {
+    availablePlans,
+    billingAccount,
+    error: billingError,
+    loading: billingLoading,
+    refreshBilling,
+  } = useAvailablePlans({
+    enabled: Boolean(user && token),
+    identityKey: user && token ? `${user.id}:${token}` : null,
+    onError: handleBillingLoadError,
   });
+  const subscribedInterval = billingAccount?.subscription?.interval;
+
+  useEffect(() => {
+    if (subscribedInterval) {
+      setBillingInterval(subscribedInterval);
+    }
+  }, [subscribedInterval]);
 
   const handleGoBack = () => {
-    if (showEmbeddedCheckout) {
-      setShowEmbeddedCheckout(false);
-    } else if (showStorageManager) {
+    if (showStorageManager) {
       setShowStorageManager(false);
       refresh();
-    } else {
-      navigateToLibrary(router);
+      return;
     }
+    navigateToLibrary(router);
   };
 
-  const handleStripeSubscribe = async (productId?: string, planType: PlanType = 'subscription') => {
-    if (!productId) return;
-
+  const handleBillingCheckout = async (catalogItemKey: BillingCatalogItemKey) => {
     setLoading(true);
     try {
-      const { sessionId, clientSecret, url } = await createStripeCheckoutSession(
-        productId,
-        planType,
-      );
-
-      const foundPlan = availablePlans.find((plan) => plan.productId === productId);
-
-      if (!foundPlan) {
-        throw new Error(`Plan not found for product ID: ${productId}`);
-      }
-
-      const selectedPlan = foundPlan as StripeAvailablePlan;
-      const planName = selectedPlan.product?.name || selectedPlan.productName;
-
-      const isEmbeddedCheckout = isTauriAppPlatform();
-      if (isEmbeddedCheckout && sessionId && clientSecret) {
-        setShowEmbeddedCheckout(true);
-        setCheckoutState({
-          planName,
-          clientSecret,
-          sessionId,
-        });
-      } else {
-        await redirectToStripeCheckout(url);
-      }
+      const { checkoutUrl } = await createBillingCheckoutSession(catalogItemKey);
+      await redirectToHostedBilling(checkoutUrl);
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      handleStripeCheckoutError(errorMessage);
+      handleBillingCheckoutError(error);
       eventDispatcher.dispatch('toast', {
         type: 'info',
         message: _('Failed to create checkout session'),
@@ -152,17 +183,37 @@ const ProfilePage = () => {
     }
   };
 
-  const handleCheckoutSuccess = useCallback(
-    (sessionId: string) => {
-      setShowEmbeddedCheckout(false);
-      router.push(getStripeSubscriptionSuccessUrl(sessionId));
-    },
-    [router],
-  );
+  const handleIAPRestorePurchase = async () => {
+    setLoading(true);
+    try {
+      const purchases = await restoreIAPPurchases();
+      const purchase = purchases
+        .filter((candidate) => !isPurchaseProduct(candidate.productId))
+        .sort(
+          (left, right) =>
+            new Date(right.purchaseDate).getTime() - new Date(left.purchaseDate).getTime(),
+        )[0];
 
-  const handleIAPSubscribe = async (productId?: string) => {
-    if (!productId) return;
+      if (!purchase) {
+        eventDispatcher.dispatch('toast', {
+          type: 'info',
+          message: _('No purchases found to restore.'),
+        });
+        return;
+      }
+      router.push(getIAPSubscriptionSuccessUrl(purchase));
+    } catch (error) {
+      console.error('Failed to restore purchases:', error);
+      eventDispatcher.dispatch('toast', {
+        type: 'info',
+        message: _('Failed to restore purchases.'),
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  const handleIAPPurchase = async (productId: string) => {
     setLoading(true);
     try {
       const purchase = await purchaseIAPProduct(productId);
@@ -171,46 +222,20 @@ const ProfilePage = () => {
       }
     } catch (error) {
       console.error('IAP purchase error:', error);
+      eventDispatcher.dispatch('toast', {
+        type: 'info',
+        message: _('Failed to complete purchase.'),
+      });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleIAPRestorePurchase = async () => {
-    setLoading(true);
-    try {
-      const purchases = await restoreIAPPurchases();
-      if (purchases.length > 0) {
-        const restoredSubscriptions = purchases
-          .filter((p) => !isPurchaseProduct(p.productId))
-          .sort((a, b) => new Date(b.purchaseDate).getTime() - new Date(a.purchaseDate).getTime());
-        const purchase = restoredSubscriptions[0];
-
-        if (!purchase) {
-          throw new Error('No subscription found in restored purchases');
-        }
-        router.push(getIAPSubscriptionSuccessUrl(purchase));
-      } else {
-        eventDispatcher.dispatch('toast', {
-          type: 'info',
-          message: _('No purchases found to restore.'),
-        });
-      }
-    } catch (error) {
-      console.error('Failed to restore purchases:', error);
-      eventDispatcher.dispatch('toast', {
-        type: 'info',
-        message: _('Failed to restore purchases.'),
-      });
-    }
-    setLoading(false);
-  };
-
   const handleManageSubscription = async () => {
     setLoading(true);
     try {
-      const url = await createStripePortalSession();
-      await redirectToStripePortal(url);
+      const { portalUrl } = await createBillingPortalSession();
+      await redirectToHostedBilling(portalUrl);
     } catch (error) {
       console.error('Error creating portal session:', error);
       eventDispatcher.dispatch('toast', {
@@ -226,13 +251,7 @@ const ProfilePage = () => {
     handleConfirmDelete(_('Failed to delete user. Please try again later.'));
   };
 
-  const handleManageStorage = () => {
-    setShowStorageManager(true);
-  };
-
-  if (!mounted) {
-    return null;
-  }
+  if (!mounted) return null;
 
   if (!user || !token || !appService) {
     return (
@@ -246,92 +265,114 @@ const ProfilePage = () => {
     );
   }
 
-  const avatarUrl = user?.user_metadata?.['picture'] || user?.user_metadata?.['avatar_url'];
-  const userFullName = user?.user_metadata?.['full_name'] || '-';
-  const userEmail = user?.email || '';
-  const userPlanDetails =
-    getPlanDetails(userProfilePlan, availablePlans) || getPlanDetails('free', availablePlans);
+  const avatarUrl = user.user_metadata?.['picture'] || user.user_metadata?.['avatar_url'];
+  const userFullName = user.user_metadata?.['full_name'] || '-';
+  const userEmail = user.email || '';
+  const currentPlan = billingAccount?.ink.plan.name;
+  const currentPlanInterval = subscribedInterval ?? billingInterval;
+  const iapAvailable = iapStatus === 'available';
+  const iapLoading = appService.hasIAP && (iapStatus === 'idle' || iapStatus === 'loading');
+  const usesNativeIAPBilling = appService.hasIAP;
+  const userPlanDetails = usesNativeIAPBilling
+    ? getNativePlanBadgeDetails(userProfilePlan)
+    : currentPlan
+      ? getPlanDetails(currentPlan, availablePlans, currentPlanInterval)
+      : undefined;
 
   return (
     <div
       className={clsx(
         'bg-base-100 full-height inset-0 select-none overflow-hidden',
-        appService?.hasRoundedWindow && isRoundedWindow && 'window-border rounded-window',
+        appService.hasRoundedWindow && isRoundedWindow && 'window-border rounded-window',
       )}
     >
       <div
-        className={clsx('flex h-full w-full flex-col items-center overflow-y-auto')}
-        style={{
-          paddingTop: `${safeAreaInsets?.top || 0}px`,
-        }}
+        className='flex h-full w-full flex-col items-center overflow-y-auto'
+        style={{ paddingTop: `${safeAreaInsets?.top || 0}px` }}
       >
         <ProfileHeader onGoBack={handleGoBack} />
         <div className='w-full min-w-60 max-w-4xl py-10'>
-          {loading && (
+          {loading || billingLoading || iapLoading ? (
             <div className='fixed inset-0 z-50 flex items-center justify-center'>
               <Spinner loading className='text-gray-900' />
             </div>
-          )}
-          {showEmbeddedCheckout ? (
-            <div className='bg-base-100 rounded-lg p-4'>
-              <Checkout
-                clientSecret={checkoutState.clientSecret}
-                sessionId={checkoutState.sessionId}
-                planName={checkoutState.planName}
-                onSuccess={handleCheckoutSuccess}
-              />
-            </div>
-          ) : (
-            <div className='sm:bg-base-200 overflow-hidden rounded-lg sm:p-6 sm:shadow-md'>
-              <div className='flex flex-col gap-y-8'>
-                <div className='flex flex-col gap-y-8 px-6'>
-                  <UserInfo
-                    avatarUrl={avatarUrl}
-                    userFullName={userFullName}
-                    userEmail={userEmail}
-                    planDetails={userPlanDetails}
+          ) : null}
+
+          <div className='sm:bg-base-200 overflow-hidden rounded-lg sm:p-6 sm:shadow-md'>
+            <div className='flex flex-col gap-y-8'>
+              <div className='flex flex-col gap-y-8 px-6'>
+                <UserInfo
+                  avatarUrl={avatarUrl}
+                  userFullName={userFullName}
+                  userEmail={userEmail}
+                  planDetails={userPlanDetails}
+                />
+
+                {!showStorageManager ? (
+                  <UsageStats
+                    quotas={quotas}
+                    billing={billingAccount ?? undefined}
+                    billingError={billingError}
+                    onRetryBilling={() => void refreshBilling()}
                   />
-
-                  {!showStorageManager && <UsageStats quotas={quotas} />}
-                </div>
-
-                {showStorageManager ? (
-                  <div className='flex flex-col gap-y-8 px-6'>
-                    <StorageManager />
-                  </div>
-                ) : (
-                  <>
-                    <div className='flex flex-col gap-y-8 sm:px-6'>
-                      <PlansComparison
-                        availablePlans={availablePlans}
-                        userPlan={userProfilePlan}
-                        onSubscribe={
-                          appService.hasIAP && iapAvailable
-                            ? handleIAPSubscribe
-                            : handleStripeSubscribe
-                        }
-                      />
-                    </div>
-                    <div className='flex flex-col gap-y-8 px-6'>
-                      <AccountActions
-                        userPlan={userProfilePlan}
-                        iapAvailable={iapAvailable}
-                        onLogout={handleLogout}
-                        onResetPassword={handleResetPassword}
-                        onUpdateEmail={handleUpdateEmail}
-                        onConfirmDelete={handleDeleteWithMessage}
-                        onRestorePurchase={handleIAPRestorePurchase}
-                        onManageSubscription={handleManageSubscription}
-                        onManageStorage={handleManageStorage}
-                      />
-                    </div>
-                  </>
-                )}
-
-                <LegalLinks />
+                ) : null}
               </div>
+
+              {showStorageManager ? (
+                <div className='flex flex-col gap-y-8 px-6'>
+                  <StorageManager />
+                </div>
+              ) : (
+                <>
+                  <div className='flex flex-col gap-y-3 sm:px-6'>
+                    <BillingPlanChooser
+                      hasNativeIAP={appService.hasIAP}
+                      nativeIAPStatus={iapStatus}
+                      nativePlans={iapPlans}
+                      currentNativePlan={userProfilePlan}
+                      onNativePurchase={handleIAPPurchase}
+                      onRetryNativeIAP={() => void refreshIAPPlans()}
+                      stripeContent={
+                        <>
+                          <div className='mx-4 rounded-lg bg-amber-100 px-4 py-3 text-center text-sm font-medium text-amber-900 sm:mx-0'>
+                            {_('Stripe sandbox · No real charges during the private beta')}
+                          </div>
+                          <PlansComparison
+                            catalog={availablePlans}
+                            currentPlan={currentPlan}
+                            currentSubscriptionInterval={subscribedInterval}
+                            hasActiveSubscription={
+                              billingAccount?.subscription !== null &&
+                              billingAccount?.subscription !== undefined
+                            }
+                            billingInterval={billingInterval}
+                            onBillingIntervalChange={setBillingInterval}
+                            onCheckout={handleBillingCheckout}
+                            onManageSubscription={handleManageSubscription}
+                          />
+                        </>
+                      }
+                    />
+                  </div>
+                  <div className='flex flex-col gap-y-8 px-6'>
+                    <AccountActions
+                      billingCustomerExists={billingAccount?.customer.exists ?? false}
+                      iapAvailable={iapAvailable}
+                      onLogout={handleLogout}
+                      onResetPassword={handleResetPassword}
+                      onUpdateEmail={handleUpdateEmail}
+                      onConfirmDelete={handleDeleteWithMessage}
+                      onRestorePurchase={handleIAPRestorePurchase}
+                      onManageSubscription={handleManageSubscription}
+                      onManageStorage={() => setShowStorageManager(true)}
+                    />
+                  </div>
+                </>
+              )}
+
+              <LegalLinks />
             </div>
-          )}
+          </div>
         </div>
         <Toast />
       </div>

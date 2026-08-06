@@ -2,6 +2,12 @@ import { StoryBoredClient } from '../../../../../../packages/storybored-sdk/dist
 import type {
   StoryBoredFeedbackRequest,
   StoryBoredFeedbackResponse,
+  StoryBoredBillingCatalogResponse,
+  StoryBoredBillingCheckoutRequest,
+  StoryBoredBillingCheckoutResponse,
+  StoryBoredBillingCheckoutStatusResponse,
+  StoryBoredBillingPortalResponse,
+  StoryBoredMeBillingResponse,
   StoryBoredOwnedLibrary,
   StoryBoredOwnedLibraryContent,
   StoryBoredOwnedLibraryScenePack,
@@ -13,7 +19,7 @@ const STORYBORED_ENABLED_FLAG = process.env['NEXT_PUBLIC_STORYBORED_ENABLED'];
 const STORYBORED_API_BASE_URL = process.env['NEXT_PUBLIC_STORYBORED_API_BASE_URL'];
 const DEFAULT_LOCAL_API_BASE_URL = 'https://api.storybored.localhost';
 
-function getStoryBoredApiBaseUrl(): string {
+export function getStoryBoredApiBaseUrl(): string {
   if (STORYBORED_API_BASE_URL) return STORYBORED_API_BASE_URL.replace(/\/$/, '');
   return process.env.NODE_ENV === 'development' ? DEFAULT_LOCAL_API_BASE_URL : '';
 }
@@ -60,6 +66,33 @@ export class StoryBoredReaderClient {
   async getSceneGeneration(id: string): Promise<StoryBoredSceneGeneration> {
     this.#assertProtectedRequestReady();
     return await this.#sdk.getSceneGeneration(id);
+  }
+
+  async getBillingCatalog(): Promise<StoryBoredBillingCatalogResponse> {
+    this.#assertProtectedRequestReady();
+    return await this.#sdk.getBillingCatalog();
+  }
+
+  async getMeBilling(): Promise<StoryBoredMeBillingResponse> {
+    this.#assertProtectedRequestReady();
+    return await this.#sdk.getMeBilling();
+  }
+
+  async createBillingCheckout(
+    input: StoryBoredBillingCheckoutRequest,
+  ): Promise<StoryBoredBillingCheckoutResponse> {
+    this.#assertProtectedRequestReady();
+    return await this.#sdk.createBillingCheckout(input);
+  }
+
+  async createBillingPortal(): Promise<StoryBoredBillingPortalResponse> {
+    this.#assertProtectedRequestReady();
+    return await this.#sdk.createBillingPortal();
+  }
+
+  async getBillingCheckout(sessionId: string): Promise<StoryBoredBillingCheckoutStatusResponse> {
+    this.#assertProtectedRequestReady();
+    return await this.#sdk.getBillingCheckout(sessionId);
   }
 
   async listBookSceneGenerations(bookId: string): Promise<StoryBoredSceneGeneration[]> {

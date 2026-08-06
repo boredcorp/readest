@@ -1,305 +1,162 @@
-import { describe, it, expect } from 'vitest';
-import { getPlanDetails } from '@/app/user/utils/plan';
-import { AvailablePlan, UserPlan, PlanInterval, QuotaFeature } from '@/types/quota';
-import { StripeProductMetadata } from '@/types/payment';
+import { describe, expect, it } from 'vitest';
+import {
+  getInkTopUpDetails,
+  getNativePlanBadgeDetails,
+  getPlanDetails,
+} from '@/app/user/utils/plan';
+import type { BillingCatalogItem } from '@/libs/payment/stripe/client';
 
-// getPlanDetails expects (AvailablePlan & StripeAvailablePlan)[].
-// StripeAvailablePlan = AvailablePlan & { metadata?: StripeProductMetadata; product?: Stripe.Product }
-// We build the exact shape needed to satisfy the type.
+const catalog: BillingCatalogItem[] = [
+  {
+    key: 'author_monthly',
+    kind: 'subscription',
+    name: 'Author Monthly',
+    description: 'Author plan billed monthly',
+    amountCents: 999,
+    currency: 'usd',
+    plan: 'author',
+    interval: 'month',
+    monthlyInk: 100,
+  },
+  {
+    key: 'author_yearly',
+    kind: 'subscription',
+    name: 'Author Yearly',
+    description: 'Author plan billed yearly',
+    amountCents: 8999,
+    currency: 'usd',
+    plan: 'author',
+    interval: 'year',
+    monthlyInk: 100,
+  },
+  {
+    key: 'publisher_monthly',
+    kind: 'subscription',
+    name: 'Publisher Monthly',
+    description: 'Publisher plan billed monthly',
+    amountCents: 2999,
+    currency: 'usd',
+    plan: 'publisher',
+    interval: 'month',
+    monthlyInk: 500,
+  },
+  {
+    key: 'publisher_yearly',
+    kind: 'subscription',
+    name: 'Publisher Yearly',
+    description: 'Publisher plan billed yearly',
+    amountCents: 29999,
+    currency: 'usd',
+    plan: 'publisher',
+    interval: 'year',
+    monthlyInk: 500,
+  },
+  {
+    key: 'ink_100',
+    kind: 'ink_top_up',
+    name: '100 Ink',
+    description: 'One hundred permanent Ink',
+    amountCents: 1299,
+    currency: 'usd',
+    inkAmount: 100,
+  },
+  {
+    key: 'ink_25',
+    kind: 'ink_top_up',
+    name: '25 Ink',
+    description: 'Twenty-five permanent Ink',
+    amountCents: 399,
+    currency: 'usd',
+    inkAmount: 25,
+  },
+];
 
-type TestPlan = AvailablePlan & {
-  metadata?: StripeProductMetadata;
-};
+describe('StoryBored billing plan details', () => {
+  it('describes Reader as the free 10-Ink plan', () => {
+    const plan = getPlanDetails('reader', catalog);
 
-function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
-  return {
-    plan: 'free' as UserPlan,
-    productId: 'prod_test',
-    price: 0,
-    currency: 'USD',
-    interval: 'month' as PlanInterval,
-    productName: 'Test Plan',
-    ...overrides,
-  };
-}
-
-describe('getPlanDetails', () => {
-  describe('free plan', () => {
-    it('should return free plan details with no available plans', () => {
-      const result = getPlanDetails('free', []);
-      expect(result.name).toBe('Free Plan');
-      expect(result.plan).toBe('free');
-      expect(result.type).toBe('subscription');
-      expect(result.price).toBe(0);
-      expect(result.currency).toBe('USD');
-    });
-
-    it('should use currency from available plans', () => {
-      const plans = [makePlan({ plan: 'free', currency: 'EUR' })];
-      const result = getPlanDetails('free', plans);
-      expect(result.currency).toBe('EUR');
-    });
-
-    it('should include features array', () => {
-      const result = getPlanDetails('free', []);
-      expect(result.features.length).toBeGreaterThan(0);
-      const labels = result.features.map((f) => f.label);
-      expect(labels).toContain('Cross-Platform Sync');
-      expect(labels).toContain('AI Read Aloud');
-    });
-
-    it('should include limits', () => {
-      const result = getPlanDetails('free', []);
-      expect(result.limits).toBeDefined();
-      expect(Object.keys(result.limits!).length).toBeGreaterThan(0);
-    });
-
-    it('should use month interval label by default', () => {
-      const result = getPlanDetails('free', []);
-      expect(result.interval).toBe('month');
-    });
-
-    it('should use year interval label when specified', () => {
-      const result = getPlanDetails('free', [], 'year');
-      expect(result.interval).toBe('year');
-    });
-
-    it('should set productId from matching available plan', () => {
-      const plans = [makePlan({ plan: 'free', productId: 'prod_free_123' })];
-      const result = getPlanDetails('free', plans);
-      expect(result.productId).toBe('prod_free_123');
-    });
+    expect(plan.name).toBe('Reader Plan');
+    expect(plan.price).toBe(0);
+    expect(plan.limits?.['Monthly Ink']).toBe(10);
+    expect(plan.catalogItemKey).toBeUndefined();
   });
 
-  describe('plus plan', () => {
-    it('should return plus plan details', () => {
-      const plans = [makePlan({ plan: 'plus', price: 499 })];
-      const result = getPlanDetails('plus', plans);
-      expect(result.name).toBe('Plus Plan');
-      expect(result.plan).toBe('plus');
-      expect(result.type).toBe('subscription');
-      expect(result.price).toBe(499);
-    });
+  it('selects the exact monthly and yearly Author catalog entries', () => {
+    const monthly = getPlanDetails('author', catalog, 'month');
+    const yearly = getPlanDetails('author', catalog, 'year');
 
-    it('should use default price when no matching plan found', () => {
-      const result = getPlanDetails('plus', []);
-      expect(result.price).toBe(499);
+    expect(monthly).toMatchObject({
+      price: 999,
+      catalogItemKey: 'author_monthly',
+      interval: 'month',
     });
-
-    it('should include expected features', () => {
-      const result = getPlanDetails('plus', []);
-      const labels = result.features.map((f) => f.label);
-      expect(labels).toContain('Includes All Free Plan Benefits');
-      expect(labels).toContain('Unlimited AI Read Aloud Hours');
-      expect(labels).toContain('Priority Support');
+    expect(yearly).toMatchObject({
+      price: 8999,
+      catalogItemKey: 'author_yearly',
+      interval: 'year',
     });
-
-    it('should include limits with storage and translation', () => {
-      const result = getPlanDetails('plus', []);
-      expect(result.limits).toBeDefined();
-      const limitKeys = Object.keys(result.limits!);
-      expect(limitKeys.some((k) => k.includes('Storage'))).toBe(true);
-      expect(limitKeys.some((k) => k.includes('Translation'))).toBe(true);
-    });
-
-    it('should match correct plan by interval', () => {
-      const plans = [
-        makePlan({ plan: 'plus', price: 499, interval: 'month' }),
-        makePlan({ plan: 'plus', price: 3999, interval: 'year' }),
-      ];
-      const monthResult = getPlanDetails('plus', plans, 'month');
-      expect(monthResult.price).toBe(499);
-
-      const yearResult = getPlanDetails('plus', plans, 'year');
-      expect(yearResult.price).toBe(3999);
-    });
+    expect(yearly.limits?.['Monthly Ink']).toBe(100);
   });
 
-  describe('pro plan', () => {
-    it('should return pro plan details', () => {
-      const plans = [makePlan({ plan: 'pro', price: 999 })];
-      const result = getPlanDetails('pro', plans);
-      expect(result.name).toBe('Pro Plan');
-      expect(result.plan).toBe('pro');
-      expect(result.type).toBe('subscription');
-      expect(result.price).toBe(999);
+  it('selects the exact monthly and yearly Publisher catalog entries', () => {
+    const monthly = getPlanDetails('publisher', catalog, 'month');
+    const yearly = getPlanDetails('publisher', catalog, 'year');
+
+    expect(monthly).toMatchObject({
+      price: 2999,
+      catalogItemKey: 'publisher_monthly',
     });
-
-    it('should use default price when no matching plan found', () => {
-      const result = getPlanDetails('pro', []);
-      expect(result.price).toBe(999);
+    expect(yearly).toMatchObject({
+      price: 29999,
+      catalogItemKey: 'publisher_yearly',
     });
-
-    it('should include expected features', () => {
-      const result = getPlanDetails('pro', []);
-      const labels = result.features.map((f) => f.label);
-      expect(labels).toContain('Includes All Plus Plan Benefits');
-      expect(labels).toContain('Early Feature Access');
-      expect(labels).toContain('Advanced AI Tools');
-    });
-
-    it('should have higher storage limit than plus', () => {
-      const proResult = getPlanDetails('pro', []);
-      const plusResult = getPlanDetails('plus', []);
-
-      // Both should have limits
-      expect(proResult.limits).toBeDefined();
-      expect(plusResult.limits).toBeDefined();
-
-      // Find storage limit values
-      const proStorageKey = Object.keys(proResult.limits!).find((k) => k.includes('Storage'));
-      const plusStorageKey = Object.keys(plusResult.limits!).find((k) => k.includes('Storage'));
-      expect(proStorageKey).toBeDefined();
-      expect(plusStorageKey).toBeDefined();
-
-      // Pro should have 20 GB, Plus should have 5 GB
-      expect(proResult.limits![proStorageKey!]).toBe('20 GB');
-      expect(plusResult.limits![plusStorageKey!]).toBe('5 GB');
-    });
+    expect(yearly.limits?.['Monthly Ink']).toBe(500);
   });
 
-  describe('purchase plan', () => {
-    it('should return purchase plan details', () => {
-      const plans = [makePlan({ plan: 'purchase', price: 1999 })];
-      const result = getPlanDetails('purchase', plans);
-      expect(result.name).toBe('Lifetime Plan');
-      expect(result.plan).toBe('purchase');
-      expect(result.type).toBe('purchase');
-      expect(result.interval).toBe('lifetime');
-    });
+  it('does not enable checkout when the API catalog entry is missing', () => {
+    const plan = getPlanDetails('author', [], 'month');
 
-    it('should use default price when no matching plan found', () => {
-      const result = getPlanDetails('purchase', []);
-      expect(result.price).toBe(1999);
-    });
-
-    it('should include products sorted by price', () => {
-      const plans = [
-        makePlan({
-          plan: 'purchase',
-          productId: 'prod_expensive',
-          price: 5000,
-          productName: 'Expensive',
-        }),
-        makePlan({ plan: 'purchase', productId: 'prod_cheap', price: 1000, productName: 'Cheap' }),
-        makePlan({ plan: 'purchase', productId: 'prod_mid', price: 3000, productName: 'Mid' }),
-      ];
-      const result = getPlanDetails('purchase', plans);
-      expect(result.products).toBeDefined();
-      expect(result.products).toHaveLength(3);
-      expect(result.products![0]!.price).toBe(1000);
-      expect(result.products![1]!.price).toBe(3000);
-      expect(result.products![2]!.price).toBe(5000);
-    });
-
-    it('should derive feature from productId when metadata.feature is missing', () => {
-      const plans = [
-        makePlan({
-          plan: 'purchase',
-          productId: 'prod_storage_100gb',
-          price: 1000,
-          productName: 'Storage',
-        }),
-        makePlan({
-          plan: 'purchase',
-          productId: 'prod_translation_pack',
-          price: 500,
-          productName: 'Translation',
-        }),
-        makePlan({
-          plan: 'purchase',
-          productId: 'prod_tokens_bundle',
-          price: 2000,
-          productName: 'Tokens',
-        }),
-        makePlan({
-          plan: 'purchase',
-          productId: 'prod_customization_pro',
-          price: 1500,
-          productName: 'Custom',
-        }),
-      ];
-      const result = getPlanDetails('purchase', plans);
-      expect(result.products![0]!.feature).toBe('translation');
-      expect(result.products![1]!.feature).toBe('storage');
-      expect(result.products![2]!.feature).toBe('customization');
-      expect(result.products![3]!.feature).toBe('tokens');
-    });
-
-    it('should use metadata.feature when present', () => {
-      const plans = [
-        makePlan({
-          plan: 'purchase',
-          productId: 'prod_xyz',
-          price: 1000,
-          productName: 'XYZ',
-          metadata: { plan: 'purchase', feature: 'storage' as QuotaFeature },
-        }),
-      ];
-      const result = getPlanDetails('purchase', plans);
-      expect(result.products![0]!.feature).toBe('storage');
-    });
-
-    it('should fall back to generic when productId does not match any feature', () => {
-      const plans = [
-        makePlan({
-          plan: 'purchase',
-          productId: 'prod_unknown_thing',
-          price: 1000,
-          productName: 'Unknown',
-        }),
-      ];
-      const result = getPlanDetails('purchase', plans);
-      expect(result.products![0]!.feature).toBe('generic');
-    });
-
-    it('should include expected features', () => {
-      const result = getPlanDetails('purchase', []);
-      const labels = result.features.map((f) => f.label);
-      expect(labels).toContain('One-Time Payment');
-      expect(labels).toContain('Expand Cloud Sync Storage');
-    });
+    expect(plan.price).toBe(999);
+    expect(plan.catalogItemKey).toBeUndefined();
   });
 
-  describe('default / unknown plan', () => {
-    it('should fall back to free plan for unknown plan code', () => {
-      const result = getPlanDetails('unknown_plan' as UserPlan, []);
-      expect(result.plan).toBe('free');
-      expect(result.name).toBe('Free Plan');
+  it('builds ordered, non-expiring 25 and 100 Ink packs', () => {
+    const toSortedDescriptor = Object.getOwnPropertyDescriptor(Array.prototype, 'toSorted');
+    Object.defineProperty(Array.prototype, 'toSorted', {
+      configurable: true,
+      value: undefined,
+      writable: true,
     });
-  });
 
-  describe('plan color and hintColor', () => {
-    it('should assign distinct colors per plan', () => {
-      const colors: Record<string, string> = {};
-      const planCodes: UserPlan[] = ['free', 'plus', 'pro', 'purchase'];
-      for (const code of planCodes) {
-        const details = getPlanDetails(code, []);
-        colors[code] = details.color;
+    let topUps: ReturnType<typeof getInkTopUpDetails>;
+    try {
+      topUps = getInkTopUpDetails(catalog);
+    } finally {
+      if (toSortedDescriptor) {
+        Object.defineProperty(Array.prototype, 'toSorted', toSortedDescriptor);
+      } else {
+        delete (Array.prototype as { toSorted?: unknown }).toSorted;
       }
-      // Each plan should have a unique color
-      const uniqueColors = new Set(Object.values(colors));
-      expect(uniqueColors.size).toBe(4);
-    });
+    }
 
-    it('should provide hintColor for all plans', () => {
-      const planCodes: UserPlan[] = ['free', 'plus', 'pro', 'purchase'];
-      for (const code of planCodes) {
-        const details = getPlanDetails(code, []);
-        expect(details.hintColor).toBeTruthy();
-      }
-    });
+    expect(topUps.type).toBe('ink_top_up');
+    expect(topUps.products?.map((product) => [product.key, product.price])).toEqual([
+      ['ink_25', 399],
+      ['ink_100', 1299],
+    ]);
+    expect(topUps.features.map((feature) => feature.label)).toContain(
+      'Purchased Ink never expires',
+    );
   });
 
-  describe('plan without interval match', () => {
-    it('should handle plan with no interval specified', () => {
-      // A plan with no interval should match any interval request
-      const plans = [
-        makePlan({ plan: 'purchase', price: 1999, interval: undefined as unknown as PlanInterval }),
-      ];
-      // When interval is not set on available plan, it should still be found
-      const result = getPlanDetails('purchase', plans);
-      expect(result.price).toBe(1999);
+  it('preserves the native IAP plan identity in the profile badge', () => {
+    expect(getNativePlanBadgeDetails('plus')).toEqual({
+      name: 'Plus Plan',
+      color: 'bg-blue-200 text-blue-800',
+    });
+    expect(getNativePlanBadgeDetails('pro')).toEqual({
+      name: 'Pro Plan',
+      color: 'bg-purple-200 text-purple-800',
     });
   });
 });

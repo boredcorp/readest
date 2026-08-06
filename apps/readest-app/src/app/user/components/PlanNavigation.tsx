@@ -1,11 +1,10 @@
 import { useTranslation } from '@/hooks/useTranslation';
-import { UserPlan } from '@/types/quota';
-import { PlanDetails } from '../utils/plan';
+import type { BillingSurface, PlanDetails } from '../utils/plan';
 
 interface PlanNavigationProps {
   allPlans: PlanDetails[];
-  currentPlan: UserPlan;
-  onSelectPlan: (plan: UserPlan) => void;
+  currentPlan?: BillingSurface;
+  onSelectPlan: (plan: BillingSurface) => void;
 }
 
 const PlanNavigation: React.FC<PlanNavigationProps> = ({ allPlans, currentPlan, onSelectPlan }) => {

@@ -1,30 +1,36 @@
 import { IoCheckmark } from 'react-icons/io5';
 import { useTranslation } from '@/hooks/useTranslation';
 import { getLocale } from '@/utils/misc';
-import { PlanDetails } from '../utils/plan';
-import { PlanType } from '@/types/quota';
+import type {
+  BillingCatalogItemKey,
+  BillingInterval,
+  StoryBoredPlan,
+} from '@/libs/payment/stripe/client';
+import type { PlanDetails } from '../utils/plan';
 import PlanActionButton from './PlanActionButton';
 import PurchaseCallToActions from './PurchaseCallToActions';
 
 interface PlanCardProps {
   plan: PlanDetails;
-  isUserPlan: boolean;
-  comingSoon?: boolean;
-  upgradable?: boolean;
+  currentPlan?: StoryBoredPlan;
+  currentSubscriptionInterval?: BillingInterval;
+  hasActiveSubscription: boolean;
   index: number;
   currentPlanIndex: number;
-  onSubscribe: (priceId?: string, planType?: PlanType) => void;
+  onCheckout: (catalogItemKey: BillingCatalogItemKey) => void;
+  onManageSubscription: () => void;
   onSelectPlan: (index: number) => void;
 }
 
 const PlanCard: React.FC<PlanCardProps> = ({
   plan,
-  isUserPlan,
-  comingSoon,
-  upgradable,
+  currentPlan,
+  currentSubscriptionInterval,
+  hasActiveSubscription,
   index,
   currentPlanIndex,
-  onSubscribe,
+  onCheckout,
+  onManageSubscription,
   onSelectPlan,
 }) => {
   const _ = useTranslation();
@@ -46,13 +52,13 @@ const PlanCard: React.FC<PlanCardProps> = ({
         <div className='mb-6 text-center'>
           <h4 className='mb-2 text-2xl font-bold'>{_(plan.name)}</h4>
           <div className='text-3xl font-bold'>
-            {plan.plan !== 'purchase' ? (
+            {plan.type === 'subscription' ? (
               <>
                 {formattedPrice}
                 <span className='text-lg font-normal'>/{_(plan.interval)}</span>
               </>
             ) : (
-              <span className='text-lg font-normal'>{_('On-Demand Purchase')}</span>
+              <span className='text-lg font-normal'>{_('One-time Ink packs')}</span>
             )}
           </div>
         </div>
@@ -91,17 +97,18 @@ const PlanCard: React.FC<PlanCardProps> = ({
           </div>
         )}
 
-        {plan.plan === 'purchase' && (
-          <PurchaseCallToActions plan={plan} onSubscribe={onSubscribe} />
+        {plan.type === 'ink_top_up' && (
+          <PurchaseCallToActions plan={plan} onCheckout={onCheckout} />
         )}
 
-        {plan.plan !== 'purchase' && (
+        {plan.type === 'subscription' && (
           <PlanActionButton
             plan={plan}
-            comingSoon={comingSoon}
-            upgradable={upgradable}
-            isUserPlan={isUserPlan}
-            onSubscribe={onSubscribe}
+            currentPlan={currentPlan}
+            currentSubscriptionInterval={currentSubscriptionInterval}
+            hasActiveSubscription={hasActiveSubscription}
+            onCheckout={onCheckout}
+            onManageSubscription={onManageSubscription}
             onSelectPlan={onSelectPlan}
           />
         )}

@@ -1,18 +1,38 @@
 'use client';
-import Stripe from 'stripe';
 import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/hooks/useTranslation';
-import { getAPIBaseUrl, getNodeAPIBaseUrl } from '@/services/environment';
+import { getNodeAPIBaseUrl } from '@/services/environment';
 import { getAccessToken } from '@/utils/access';
 import { PlanType } from '@/types/quota';
 import { VerifiedIAP } from '@/libs/payment/iap/types';
+import {
+  fetchBillingCheckoutStatus,
+  type BillingCatalogItemKey,
+  type BillingCheckoutStatus,
+} from '@/libs/payment/stripe/client';
 import Spinner from '@/components/Spinner';
+import type { CheckoutFailureRecovery } from './CheckoutFailureActions';
+import CheckoutFailureContent from './CheckoutFailureContent';
+import {
+  getBillingCheckoutDisplayStatus,
+  getBillingCheckoutFailureRecovery,
+  isStripeCheckoutReturn,
+} from './checkout-status';
 
-const STRIPE_CHECK_URL = `${getAPIBaseUrl()}/stripe/check`;
 const APPLE_IAP_VERIFY_URL = `${getNodeAPIBaseUrl()}/apple/iap-verify`;
 const ANDROID_IAP_VERIFY_URL = `${getNodeAPIBaseUrl()}/google/iap-verify`;
+const MAX_CHECKOUT_STATUS_POLLS = 15;
+
+const billingItemNames: Record<BillingCatalogItemKey, string> = {
+  author_monthly: 'Author Plan (Monthly)',
+  author_yearly: 'Author Plan (Yearly)',
+  publisher_monthly: 'Publisher Plan (Monthly)',
+  publisher_yearly: 'Publisher Plan (Yearly)',
+  ink_25: '25 Ink',
+  ink_100: '100 Ink',
+};
 
 interface SessionStatus {
   status: 'loading' | 'completed' | 'failed' | 'processing';
@@ -22,6 +42,8 @@ interface SessionStatus {
   planType: PlanType;
   amount?: number; // in cents
   currency?: string;
+  failureRecovery?: CheckoutFailureRecovery;
+  billingStatus?: BillingCheckoutStatus;
 }
 
 const SuccessPageWithSearchParams = () => {
@@ -53,44 +75,36 @@ const SuccessPageWithSearchParams = () => {
   useEffect(() => setMounted(true), []);
 
   const updateStripeSessionStatus = async () => {
+    if (!sessionId) {
+      setSessionStatus((previous) => ({
+        ...previous,
+        status: 'failed',
+        failureRecovery: 'return_to_billing',
+      }));
+      return;
+    }
+
     try {
-      const token = await getAccessToken();
-      const response = await fetch(STRIPE_CHECK_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ sessionId }),
-      });
+      const checkout = await fetchBillingCheckoutStatus(sessionId);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const { session: stripeCheckoutSession, error } = await response.json();
-
-      if (error) {
-        setSessionStatus((prev) => ({ ...prev, status: 'failed' }));
-        console.error('Session check error:', error);
-        return;
-      }
-
-      const session = stripeCheckoutSession as Stripe.Checkout.Session;
+      const status = getBillingCheckoutDisplayStatus(checkout);
+      const failureRecovery = getBillingCheckoutFailureRecovery(checkout);
       setSessionStatus({
-        status: session.payment_status === 'paid' ? 'completed' : 'failed',
-        customerEmail: session.customer_email || session.customer_details?.email || '',
-        orderId: (session.subscription || session.payment_intent || '') as string,
-        planName: session.line_items?.data?.[0]?.description || '',
-        planType: session.mode === 'payment' ? 'purchase' : 'subscription',
-        amount: session.amount_total || undefined,
-        currency: session.currency || undefined,
+        status,
+        customerEmail: '',
+        orderId: checkout.checkoutSessionId,
+        planName: billingItemNames[checkout.catalogItemKey],
+        planType: checkout.kind === 'ink_top_up' ? 'purchase' : 'subscription',
+        billingStatus: checkout.status,
+        ...(failureRecovery ? { failureRecovery } : {}),
       });
-
-      refresh();
     } catch (error) {
       console.error('Failed to fetch session status:', error);
-      setSessionStatus((prev) => ({ ...prev, status: 'failed' }));
+      setSessionStatus((previous) => ({
+        ...previous,
+        status: 'failed',
+        failureRecovery: 'retry',
+      }));
     }
   };
 
@@ -214,7 +228,7 @@ const SuccessPageWithSearchParams = () => {
   };
 
   const updateSessionStatus = async () => {
-    if (payment === 'stripe' && sessionId) {
+    if (isStripeCheckoutReturn(payment, sessionId)) {
       await updateStripeSessionStatus();
     } else if (payment === 'iap') {
       await updateIAPSessionStatus();
@@ -243,7 +257,7 @@ const SuccessPageWithSearchParams = () => {
   }, [sessionId, originalTransactionId, router]);
 
   useEffect(() => {
-    if (sessionStatus.status === 'processing' && retryCount < 3) {
+    if (sessionStatus.status === 'processing' && retryCount < MAX_CHECKOUT_STATUS_POLLS) {
       const timer = setTimeout(() => {
         setRetryCount((prev) => prev + 1);
         updateSessionStatus();
@@ -277,6 +291,7 @@ const SuccessPageWithSearchParams = () => {
 
   // Processing state (payment still being processed)
   if (sessionStatus.status === 'processing') {
+    const autoPollingStopped = retryCount >= MAX_CHECKOUT_STATUS_POLLS;
     return (
       <div className='flex min-h-screen items-center justify-center bg-gray-50'>
         <div className='max-w-md text-center'>
@@ -297,8 +312,28 @@ const SuccessPageWithSearchParams = () => {
           </div>
           <h2 className='mb-2 text-xl font-semibold text-gray-800'>{_('Payment Processing')}</h2>
           <p className='mb-4 text-gray-600'>
-            {_('Your payment is being processed. This usually takes a few moments.')}
+            {autoPollingStopped
+              ? _(
+                  'Confirmation is taking longer than expected. You can check again or return to your profile.',
+                )
+              : _('Your payment is being processed. This usually takes a few moments.')}
           </p>
+          {autoPollingStopped ? (
+            <div className='space-y-3'>
+              <button
+                onClick={handleRetry}
+                className='w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition-colors duration-200 hover:bg-blue-700'
+              >
+                {_('Check again')}
+              </button>
+              <button
+                onClick={handleGoToProfile}
+                className='w-full rounded-lg bg-gray-200 px-4 py-2 font-medium text-gray-800 transition-colors duration-200 hover:bg-gray-300'
+              >
+                {_('Back to Profile')}
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
     );
@@ -324,26 +359,13 @@ const SuccessPageWithSearchParams = () => {
               />
             </svg>
           </div>
-          <h2 className='mb-2 text-xl font-semibold text-gray-800'>{_('Payment Failed')}</h2>
-          <p className='mb-6 text-gray-600'>
-            {_(
-              "We couldn't process your subscription. Please try again or contact support if the issue persists.",
-            )}
-          </p>
-          <div className='space-y-3'>
-            <button
-              onClick={handleRetry}
-              className='w-full rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition-colors duration-200 hover:bg-blue-700'
-            >
-              {_('Try Again')}
-            </button>
-            <button
-              onClick={handleGoToProfile}
-              className='w-full rounded-lg bg-gray-200 px-4 py-2 font-medium text-gray-800 transition-colors duration-200 hover:bg-gray-300'
-            >
-              {_('Back to Profile')}
-            </button>
-          </div>
+          <CheckoutFailureContent
+            planType={sessionStatus.planType}
+            billingStatus={sessionStatus.billingStatus}
+            recovery={sessionStatus.failureRecovery ?? 'retry'}
+            onRetry={handleRetry}
+            onReturnToBilling={handleGoToProfile}
+          />
         </div>
       </div>
     );
