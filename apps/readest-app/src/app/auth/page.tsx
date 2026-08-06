@@ -28,8 +28,12 @@ import { getAppleIdAuth, Scope } from './utils/appleIdAuth';
 import { authWithCustomTab, authWithSafari } from './utils/nativeAuth';
 import WindowButtons from '@/components/WindowButtons';
 import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+import LearningBoredAuthPresentation from '@/integrations/learningbored/presentation/LearningBoredAuthPresentation';
+import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
+import { getLearningBoredRoutePresentation } from '@/integrations/learningbored/presentation/selection';
 
 const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+const routePresentation = getLearningBoredRoutePresentation();
 
 type OAuthProvider = 'google' | 'apple' | 'azure' | 'github' | 'discord';
 
@@ -64,7 +68,7 @@ const ProviderLogin: React.FC<ProviderLoginProp> = ({ provider, handleSignIn, Ic
   );
 };
 
-export default function AuthPage() {
+function AuthRouteController() {
   const _ = useTranslation();
   const router = useRouter();
   const { login } = useAuth();
@@ -463,5 +467,19 @@ export default function AuthPage() {
         localization={getAuthLocalization()}
       />
     </div>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <SelectedRoutePresentation
+      presentation={routePresentation}
+      readest={<AuthRouteController />}
+      learningbored={
+        <LearningBoredAuthPresentation>
+          <AuthRouteController />
+        </LearningBoredAuthPresentation>
+      }
+    />
   );
 }

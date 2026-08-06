@@ -80,6 +80,11 @@ import DropIndicator from '@/components/DropIndicator';
 import SettingsDialog from '@/components/settings/SettingsDialog';
 import ModalPortal from '@/components/ModalPortal';
 import TransferQueuePanel from './components/TransferQueuePanel';
+import LearningBoredLibraryPresentation from '@/integrations/learningbored/presentation/LearningBoredLibraryPresentation';
+import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
+import { getLearningBoredRoutePresentation } from '@/integrations/learningbored/presentation/selection';
+
+const routePresentation = getLearningBoredRoutePresentation();
 
 const LibraryPageWithSearchParams = () => {
   const searchParams = useSearchParams();
@@ -1032,11 +1037,25 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   );
 };
 
-const LibraryPage = () => {
+const LibraryRouteController = () => {
   return (
     <Suspense fallback={<div className='full-height' />}>
       <LibraryPageWithSearchParams />
     </Suspense>
+  );
+};
+
+const LibraryPage = () => {
+  return (
+    <SelectedRoutePresentation
+      presentation={routePresentation}
+      readest={<LibraryRouteController />}
+      learningbored={
+        <LearningBoredLibraryPresentation>
+          <LibraryRouteController />
+        </LearningBoredLibraryPresentation>
+      }
+    />
   );
 };
 

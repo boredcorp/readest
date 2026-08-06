@@ -205,6 +205,20 @@ function sanitizeBoardSvg(svg?: string | null): string | null {
   });
 }
 
+function useDesktopBoardVisual(): boolean {
+  const [matches, setMatches] = useState(false);
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 640px)');
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  return matches;
+}
+
 function sourceSpanFromElement(target: EventTarget | null): LearningBoredSourceSpan | null {
   if (!(target instanceof Element)) return null;
   const anchor = target.closest<HTMLElement>('[data-source-start][data-source-end]');
@@ -215,21 +229,6 @@ function sourceSpanFromElement(target: EventTarget | null): LearningBoredSourceS
   return Number.isInteger(sourceStart) && Number.isInteger(sourceEnd) && sourceEnd > sourceStart
     ? { sourceStart, sourceEnd }
     : null;
-}
-
-function clampNormalized(value: number): number {
-  return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
-}
-
-function safeFigureUrl(value?: string | null): string | null {
-  if (!value || typeof window === 'undefined') return null;
-  if (/^data:image\/(?:png|webp);base64,[a-z\d+/]+=*$/i.test(value)) return value;
-  try {
-    const parsed = new URL(value, window.location.origin);
-    return ['http:', 'https:', 'blob:'].includes(parsed.protocol) ? parsed.href : null;
-  } catch {
-    return null;
-  }
 }
 
 interface FigureRegenerationDraft {
@@ -313,51 +312,32 @@ function SourceInteractionButton({
 
 function BoardFigure({
   figure,
-  onSourceSpanEnter,
-  onSourceSpanLeave,
   onReplace,
   replaceDisabled,
 }: {
   figure: LearningBoredBoardFigure;
-  onSourceSpanEnter?: (span: LearningBoredSourceSpan) => void;
-  onSourceSpanLeave?: () => void;
   onReplace: () => void;
   replaceDisabled: boolean;
 }) {
-  const imageUrl = safeFigureUrl(figure.imageUrl);
+  const projectionSvg = useMemo(
+    () => sanitizeBoardSvg(figure.projectionSvg),
+    [figure.projectionSvg],
+  );
 
-  if (!imageUrl || figure.failed) {
+  if (!projectionSvg) {
     return (
       <div className='border-base-300 space-y-3 border-s-2 ps-3 text-sm leading-6'>
-        <p className='text-base-content/80'>
+        <p className='text-base-content/80' aria-hidden='true'>
           <span className='font-semibold'>Figure unavailable:</span> {figure.description}
         </p>
-        {figure.labels.length > 0 && (
-          <ol className='space-y-1' aria-label='Figure labels'>
-            {figure.labels.map((label, index) => (
-              <li key={label.id}>
-                <SourceInteractionButton
-                  span={label.sourceSpan}
-                  onEnter={onSourceSpanEnter}
-                  onLeave={onSourceSpanLeave}
-                  className='focus-visible:ring-primary rounded text-left focus:outline-none focus-visible:ring-2'
-                >
-                  <strong>
-                    {index + 1}. {label.text}:
-                  </strong>{' '}
-                  {label.description}
-                </SourceInteractionButton>
-              </li>
-            ))}
-          </ol>
-        )}
         <button
           type='button'
-          className='btn btn-outline btn-sm min-h-10'
+          className='btn btn-outline btn-sm min-h-11'
+          aria-label='Replace figure'
           disabled={replaceDisabled}
           onClick={onReplace}
         >
-          <RefreshCw className='size-4' />
+          <RefreshCw className='size-4' aria-hidden='true' />
           Replace figure
         </button>
       </div>
@@ -365,45 +345,25 @@ function BoardFigure({
   }
 
   return (
-    <figure className='border-base-300 bg-base-200 overflow-hidden rounded-lg border'>
-      <div className='relative min-h-40 overflow-hidden'>
-        {/* Dynamic, short-lived private figure URLs cannot be declared in Next image config. */}
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src={imageUrl}
-          alt={figure.description}
-          className='max-h-[min(52vh,480px)] min-h-40 w-full object-contain'
-        />
-        {figure.labels.map((label) => (
-          <SourceInteractionButton
-            key={label.id}
-            span={label.sourceSpan}
-            onEnter={onSourceSpanEnter}
-            onLeave={onSourceSpanLeave}
-            className='learningbored-figure-label absolute max-w-[45%] -translate-x-1/2 -translate-y-1/2 rounded-md border px-2 py-1 text-left text-xs font-semibold shadow-sm focus:outline-none'
-            style={{
-              left: `${clampNormalized(label.at.x) * 100}%`,
-              top: `${clampNormalized(label.at.y) * 100}%`,
-            }}
-          >
-            <span>{label.text}</span>
-            <span className='sr-only'> — {label.description}</span>
-          </SourceInteractionButton>
-        ))}
-      </div>
-      <figcaption className='border-base-300 bg-base-100 flex flex-wrap items-center justify-between gap-3 border-t p-3 text-sm leading-6'>
-        <span>{figure.caption || figure.description}</span>
+    <div className='border-base-300 bg-base-200 overflow-hidden rounded-lg border'>
+      <div
+        className='learningbored-figure-projection overflow-hidden'
+        aria-hidden='true'
+        dangerouslySetInnerHTML={{ __html: projectionSvg }}
+      />
+      <div className='border-base-300 bg-base-100 flex justify-end border-t p-3'>
         <button
           type='button'
-          className='btn btn-outline btn-sm min-h-10'
+          className='btn btn-outline btn-sm min-h-11'
+          aria-label='Replace figure'
           disabled={replaceDisabled}
           onClick={onReplace}
         >
-          <RefreshCw className='size-4' />
+          <RefreshCw className='size-4' aria-hidden='true' />
           Replace figure
         </button>
-      </figcaption>
-    </figure>
+      </div>
+    </div>
   );
 }
 
@@ -432,26 +392,35 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
     useState<LearningBoredFigureRegenerationSnapshot | null>(null);
   const [figureRegenerationError, setFigureRegenerationError] = useState<string | null>(null);
   const [figureRegenerationSubmitting, setFigureRegenerationSubmitting] = useState(false);
+  const [showScaffold, setShowScaffold] = useState(session.showScaffold);
   const createAttemptRef = useRef<string | null>(null);
   const operationControllerRef = useRef<AbortController | null>(null);
   const latestSessionRef = useRef(session);
   latestSessionRef.current = session;
+  const desktopBoardVisual = useDesktopBoardVisual();
+
+  useEffect(() => {
+    setShowScaffold(session.showScaffold);
+  }, [session.bookId, session.showScaffold]);
 
   const selectedKind = session.kind ?? machine.board?.kind ?? null;
-  const sanitizedSvg = useMemo(() => sanitizeBoardSvg(machine.board?.svg), [machine.board?.svg]);
+  const sanitizedSvg = useMemo(
+    () => sanitizeBoardSvg(showScaffold ? machine.board?.svg : machine.board?.svgWithoutScaffold),
+    [machine.board?.svg, machine.board?.svgWithoutScaffold, showScaffold],
+  );
   const visibleOutline = useMemo(
     () =>
       (machine.board?.outline ?? []).filter(
-        (item) => session.showScaffold || item.provenance !== 'scaffold',
+        (item) => showScaffold || item.provenance !== 'scaffold',
       ),
-    [machine.board?.outline, session.showScaffold],
+    [machine.board?.outline, showScaffold],
   );
   const visibleFigures = useMemo(
     () =>
       (machine.board?.figures ?? []).filter(
-        (figure) => session.showScaffold || figure.provenance !== 'scaffold',
+        (figure) => showScaffold || figure.provenance !== 'scaffold',
       ),
-    [machine.board?.figures, session.showScaffold],
+    [machine.board?.figures, showScaffold],
   );
 
   const applySnapshot = useCallback(
@@ -464,7 +433,7 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
           boardId,
           {
             ...(latestSessionRef.current.kind ? { kind: latestSessionRef.current.kind } : {}),
-            includeScaffold: latestSessionRef.current.showScaffold,
+            includeScaffold: true,
           },
           { signal },
         );
@@ -493,7 +462,7 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
 
       const board = await client.rerenderBoard(
         boardId,
-        { kind, includeScaffold: latestSession.showScaffold },
+        { kind, includeScaffold: true },
         { signal },
       );
       dispatch({ type: 'board_received', board });
@@ -593,6 +562,8 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
   ]);
 
   const figureRegenerationActive = isActiveFigureRegeneration(figureRegeneration);
+  const figureReplacementDisabled =
+    !client || figureRegenerationActive || figureRegenerationSubmitting;
   useEffect(() => {
     if (!client || !figureRegeneration?.id || !figureRegenerationActive) return;
 
@@ -677,7 +648,7 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
     try {
       const board = await client.rerenderBoard(boardId, {
         kind,
-        includeScaffold: latestSessionRef.current.showScaffold,
+        includeScaffold: true,
       });
       dispatch({ type: 'board_received', board });
       onSessionPatch({ boardId: board.id, kind: board.kind });
@@ -689,29 +660,9 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
     }
   };
 
-  const handleScaffoldChange = async (includeScaffold: boolean) => {
-    const boardId = machine.generation?.boardId ?? machine.board?.id ?? session.boardId;
-    const kind = latestSessionRef.current.kind ?? machine.board?.kind;
-    if (!client || !boardId || !machine.board || !kind) {
-      onSessionPatch({ showScaffold: includeScaffold });
-      return;
-    }
-
-    dispatch({ type: 'operation_started', operation: 'rerendering' });
-    try {
-      const board = await client.rerenderBoard(boardId, { kind, includeScaffold });
-      dispatch({ type: 'board_received', board });
-      onSessionPatch({
-        boardId: board.id,
-        kind: board.kind,
-        showScaffold: includeScaffold,
-      });
-    } catch {
-      dispatch({
-        type: 'operation_failed',
-        message: _('The scaffold view could not be changed. Your current Board is unchanged.'),
-      });
-    }
+  const handleScaffoldChange = (includeScaffold: boolean) => {
+    setShowScaffold(includeScaffold);
+    onSessionPatch({ showScaffold: includeScaffold });
   };
 
   const openFigureRegeneration = (figure: LearningBoredBoardFigure) => {
@@ -795,14 +746,11 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
           background: var(--lb-paper);
           color: var(--lb-ink);
         }
-        .learningbored-figure-label {
-          border-color: var(--lb-border);
-          background: rgba(254, 253, 251, 0.88);
-          color: var(--lb-ink);
-        }
-        .learningbored-figure-label:focus-visible {
-          outline: 2px solid var(--lb-focus);
-          outline-offset: 2px;
+        .learningbored-figure-projection svg {
+          display: block;
+          width: 100%;
+          height: auto;
+          max-height: min(52vh, 480px);
         }
         .learningbored-svg svg {
           display: block;
@@ -1018,9 +966,8 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
                   <input
                     type='checkbox'
                     className='toggle toggle-sm toggle-primary'
-                    checked={session.showScaffold}
-                    disabled={machine.operation === 'rerendering'}
-                    onChange={(event) => void handleScaffoldChange(event.target.checked)}
+                    checked={showScaffold}
+                    onChange={(event) => handleScaffoldChange(event.target.checked)}
                   />
                   {_('Added help')}
                 </label>
@@ -1031,14 +978,23 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
                   role='status'
                 >
                   <Clock3 className='size-3' aria-hidden='true' />
-                  {_('Updating the Board view…')}
+                  {_('Changing the Board shape…')}
                 </p>
               )}
             </section>
 
             <section className='border-base-300 border-b p-4'>
-              <h3 className='text-lg font-semibold leading-7'>{machine.board.title}</h3>
-              {sanitizedSvg && (
+              <h3 className='text-lg font-semibold leading-7'>
+                <SourceInteractionButton
+                  span={machine.board.titleSourceSpan}
+                  onEnter={onSourceSpanEnter}
+                  onLeave={onSourceSpanLeave}
+                  className='focus-visible:ring-primary rounded text-left focus:outline-none focus-visible:ring-2'
+                >
+                  {machine.board.title}
+                </SourceInteractionButton>
+              </h3>
+              {desktopBoardVisual && sanitizedSvg && (
                 <div
                   className='learningbored-svg bg-base-100 border-base-300 mt-4 hidden overflow-auto rounded-lg border p-2 sm:block'
                   onMouseOver={(event) => {
@@ -1086,6 +1042,11 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
                       <span className='text-base-content/80 mt-1 block text-sm leading-6'>
                         {item.description}
                       </span>
+                      {item.caption && (
+                        <span className='text-base-content/70 mt-2 block text-xs leading-5'>
+                          <strong>{_('Figure caption:')}</strong> {item.caption}
+                        </span>
+                      )}
                       {item.analogyLimit && (
                         <span className='border-base-300 mt-2 block border-t pt-2 text-xs leading-5'>
                           <strong>{_('Where the analogy stops:')}</strong> {item.analogyLimit}
@@ -1129,22 +1090,47 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
               </ol>
             </section>
 
-            {visibleFigures.length > 0 && (
+            {desktopBoardVisual && visibleFigures.length > 0 && (
+              <div
+                className='border-base-300 flex flex-wrap justify-end gap-2 border-b px-4 py-3'
+                role='group'
+                aria-label={_('Figure actions')}
+              >
+                {visibleFigures.map((figure) => (
+                  <button
+                    key={figure.id}
+                    type='button'
+                    className='btn btn-outline btn-sm min-h-11'
+                    aria-label={_('Replace figure')}
+                    disabled={figureReplacementDisabled}
+                    onClick={() => openFigureRegeneration(figure)}
+                  >
+                    <RefreshCw className='size-4' aria-hidden='true' />
+                    {_('Replace figure')}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {!desktopBoardVisual && visibleFigures.length > 0 && (
               <section className='border-base-300 space-y-4 border-b p-4'>
                 <h3 className='text-sm font-semibold'>{_('Figures')}</h3>
                 {visibleFigures.map((figure) => (
                   <BoardFigure
                     key={figure.id}
                     figure={figure}
-                    onSourceSpanEnter={onSourceSpanEnter}
-                    onSourceSpanLeave={onSourceSpanLeave}
                     onReplace={() => openFigureRegeneration(figure)}
-                    replaceDisabled={
-                      !client || figureRegenerationActive || figureRegenerationSubmitting
-                    }
+                    replaceDisabled={figureReplacementDisabled}
                   />
                 ))}
+              </section>
+            )}
 
+            {(figureRegenerationDraft || figureRegeneration || figureRegenerationError) && (
+              <section
+                className='border-base-300 space-y-4 border-b p-4'
+                aria-label={_('Figure replacement')}
+              >
                 {figureRegenerationDraft && (
                   <div
                     className='border-primary/30 bg-base-100 space-y-3 rounded-lg border p-4'

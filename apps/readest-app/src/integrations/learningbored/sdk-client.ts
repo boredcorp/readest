@@ -120,6 +120,46 @@ function hydratedFigureUrls(svg: string): Map<string, string> {
   return urls;
 }
 
+function parseSvgDocument(svg: string): XMLDocument | null {
+  if (typeof DOMParser === 'undefined') return null;
+  const document = new DOMParser().parseFromString(svg, 'image/svg+xml');
+  return document.querySelector('parsererror') ? null : document;
+}
+
+function serializeSvgElement(element: Element): string | null {
+  return typeof XMLSerializer === 'undefined'
+    ? null
+    : new XMLSerializer().serializeToString(element);
+}
+
+function svgWithoutScaffold(board: SdkBoard, svg: string): string | null {
+  const document = parseSvgDocument(svg);
+  if (!document) return null;
+
+  const root = document.documentElement;
+  const scaffoldNodeIds = new Set(
+    board.spec.nodes.filter((node) => node.provenance === 'scaffold').map((node) => node.id),
+  );
+  const incidentEdgeIds = new Set(
+    board.spec.edges
+      .filter((edge) => scaffoldNodeIds.has(edge.fromNodeId) || scaffoldNodeIds.has(edge.toNodeId))
+      .map((edge) => edge.id),
+  );
+
+  for (const element of Array.from(root.querySelectorAll('[data-provenance="scaffold"]'))) {
+    element.remove();
+  }
+  for (const element of Array.from(root.querySelectorAll('[data-scaffold-connector]'))) {
+    element.remove();
+  }
+  for (const element of Array.from(root.querySelectorAll('[data-edge-id]'))) {
+    const edgeId = element.getAttribute('data-edge-id');
+    if (edgeId && incidentEdgeIds.has(edgeId)) element.remove();
+  }
+
+  return serializeSvgElement(root);
+}
+
 function mapOutline(board: SdkBoard, rendered: SdkRenderedBoard): LearningBoredBoardOutlineItem[] {
   const nodes: LearningBoredBoardOutlineItem[] = rendered.outline.nodes.map((node) => {
     const specNode = board.spec.nodes.find((candidate) => candidate.id === node.id);
@@ -144,6 +184,7 @@ function mapOutline(board: SdkBoard, rendered: SdkRenderedBoard): LearningBoredB
       ...optionalSourceSpan(node.sourceSpan ?? undefined),
       ...(node.scaffoldForm === null ? {} : { scaffoldForm: node.scaffoldForm }),
       ...(node.analogyLimit === null ? {} : { analogyLimit: node.analogyLimit }),
+      ...(node.caption === null ? {} : { caption: node.caption }),
       undefined: node.undefined,
       undefinedConceptIds: [...node.undefinedConceptIds],
       figureFailed: node.figureFailed,
@@ -200,6 +241,7 @@ function mapFigures(board: SdkBoard, rendered: SdkRenderedBoard): LearningBoredB
           provenance: label.provenance,
           ...optionalSourceSpan(label.sourceSpan ?? undefined),
         })),
+        projectionSvg: rendered.figureProjections[figure.id]?.svg ?? null,
         failed: missingFigures.has(figure.id) || failedNodes.has(figure.nodeId),
       },
     ];
@@ -212,7 +254,9 @@ function mapBoard(board: SdkBoard, rendered: SdkRenderedBoard): LearningBoredBoa
     documentId: board.documentId,
     kind: rendered.effectiveKind,
     title: board.title,
+    titleSourceSpan: rendered.outline.titleSourceSpan,
     svg: rendered.svg,
+    svgWithoutScaffold: svgWithoutScaffold(board, rendered.svg),
     outline: mapOutline(board, rendered),
     figures: mapFigures(board, rendered),
     recallQuestions: board.recallPreview.map((item) => ({
@@ -403,11 +447,13 @@ export function createLearningBoredSdkClient(
   ): Promise<LearningBoredBoardResult> => {
     const sdk = createSdk(options, requestOptions?.signal);
     const board = await withAbort(() => sdk.getBoard(boardId), requestOptions);
+    // Retain one full authorized projection in memory. Reader display choices are
+    // derived from it synchronously, so Added help remains reversible offline.
     const rendered = await withAbort(
       () =>
         sdk.rerenderBoard(boardId, {
           kind: input.kind ?? board.kind,
-          includeScaffold: input.includeScaffold,
+          includeScaffold: true,
         }),
       requestOptions,
     );

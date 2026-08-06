@@ -97,6 +97,7 @@ export interface LearningBoredBoardOutlineItem {
   undefined?: boolean;
   undefinedConceptIds?: string[];
   figureFailed?: boolean;
+  caption?: string | null;
   labels?: LearningBoredFigureLabel[];
 }
 
@@ -118,6 +119,8 @@ export interface LearningBoredBoardFigure {
   provenance: 'anchored' | 'scaffold';
   sourceSpan?: LearningBoredSourceSpan;
   labels: LearningBoredFigureLabel[];
+  /** Canonical renderer-owned, noninteractive visual projection for the mobile Figure surface. */
+  projectionSvg?: string | null;
   failed?: boolean;
 }
 
@@ -163,8 +166,11 @@ export interface LearningBoredBoardResult {
   documentId: string;
   kind: LearningBoredBoardKind;
   title: string;
+  titleSourceSpan: LearningBoredSourceSpan;
   /** Sanitized again at the reader boundary before being inserted into the DOM. */
   svg?: string | null;
+  /** In-memory anchored-only projection derived from the retained canonical SVG. */
+  svgWithoutScaffold?: string | null;
   outline: LearningBoredBoardOutlineItem[];
   figures: LearningBoredBoardFigure[];
   recallQuestions: LearningBoredRecallQuestionPreview[];

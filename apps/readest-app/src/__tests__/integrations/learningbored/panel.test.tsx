@@ -60,6 +60,7 @@ function createBoard(overrides: Partial<LearningBoredBoardResult> = {}): Learnin
     documentId: 'document-1',
     kind: 'process_flow',
     title: 'How the fictional signal moves',
+    titleSourceSpan: { sourceStart: 0, sourceEnd: 31 },
     svg: null,
     outline: [
       {
@@ -101,6 +102,10 @@ function createBoard(overrides: Partial<LearningBoredBoardResult> = {}): Learnin
     ],
     ...overrides,
   };
+}
+
+function createFigureProjection(figureId: string, imageUrl: string): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" data-figure-projection="${figureId}" focusable="false" viewBox="0 0 320 240" width="320" height="240"><g data-node-id="node-figure-private"><rect x="0" y="0" width="320" height="240"/><image data-figure-id="${figureId}" href="${imageUrl}" preserveAspectRatio="xMidYMid meet" x="10" y="10" width="300" height="180"/></g></svg>`;
 }
 
 function createClient(overrides: Partial<LearningBoredClient> = {}): LearningBoredClient {
@@ -260,6 +265,7 @@ describe('LearningBored reader result panel', () => {
   afterEach(() => {
     cleanup();
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('starts a new generation through the injected client and shows real stages', async () => {
@@ -406,7 +412,7 @@ describe('LearningBored reader result panel', () => {
     expect(screen.getByText('What order do the three fictional stages follow?')).toBeTruthy();
   });
 
-  it('persists display choices, switches kind without regenerating, and highlights anchors', async () => {
+  it('filters Added help immediately without a request and keeps it hidden across kind changes', async () => {
     vi.useFakeTimers();
     const board = createBoard();
     const rerendered = createBoard({ kind: 'timeline', title: 'Signal timeline' });
@@ -423,7 +429,7 @@ describe('LearningBored reader result panel', () => {
     const onSessionPatch = vi.fn();
     const onSourceSpanEnter = vi.fn();
     const onSourceSpanLeave = vi.fn();
-    const rendered = renderPanel({
+    renderPanel({
       client,
       onSessionPatch,
       onSourceSpanEnter,
@@ -442,59 +448,99 @@ describe('LearningBored reader result panel', () => {
       fireEvent.click(scaffoldToggle);
       await Promise.resolve();
     });
-    expect(rerenderBoard).toHaveBeenNthCalledWith(1, board.id, {
-      kind: 'process_flow',
-      includeScaffold: false,
-    });
-    expect(onSessionPatch).toHaveBeenCalledWith({
-      boardId: board.id,
-      kind: 'timeline',
-      showScaffold: false,
-    });
-    rendered.rerender(
-      <LearningBoredCapturePanel
-        {...rendered.props}
-        session={createSession({ boardId: board.id, showScaffold: false, kind: 'process_flow' })}
-      />,
-    );
+    expect(rerenderBoard).not.toHaveBeenCalled();
+    expect(onSessionPatch).toHaveBeenCalledWith({ showScaffold: false });
     expect(screen.queryByText('Helpful bridge')).toBeNull();
+    expect(screen.queryByText('Updating the Board view…')).toBeNull();
 
     await act(async () => {
       fireEvent.change(screen.getByLabelText('Board shape'), { target: { value: 'timeline' } });
       await Promise.resolve();
     });
-    expect(rerenderBoard).toHaveBeenCalledTimes(2);
-    expect(rerenderBoard).toHaveBeenNthCalledWith(2, board.id, {
+    expect(rerenderBoard).toHaveBeenCalledTimes(1);
+    expect(rerenderBoard).toHaveBeenCalledWith(board.id, {
       kind: 'timeline',
-      includeScaffold: false,
+      includeScaffold: true,
     });
     expect(onSessionPatch).toHaveBeenCalledWith({ kind: 'timeline' });
     expect(screen.getByRole('heading', { name: 'Signal timeline' })).toBeTruthy();
+    expect(screen.queryByText('Helpful bridge')).toBeNull();
   });
 
-  it('accepts only private raster data URLs and falls back structurally for other data', async () => {
+  it('restores Added help from the retained Board while offline', async () => {
     vi.useFakeTimers();
+    const board = createBoard();
+    const rerenderBoard = vi.fn(async () => {
+      throw new Error('offline');
+    });
+    renderPanel({
+      session: createSession({ showScaffold: false }),
+      client: createClient({
+        rerenderBoard,
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    expect(screen.queryByText('Helpful bridge')).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Added help' }));
+    expect(screen.getByText('Helpful bridge')).toBeTruthy();
+    expect(rerenderBoard).not.toHaveBeenCalled();
+  });
+
+  it('uses the canonical mobile Figure projection and exposes its text once through the outline', async () => {
+    vi.useFakeTimers();
+    const projectionSvg = `<svg xmlns="http://www.w3.org/2000/svg" aria-hidden="true" data-figure-projection="figure-private" focusable="false" viewBox="12 24 320 240" width="320" height="240"><g data-node-id="node-figure-private"><rect x="12" y="24" width="320" height="240"/><image data-figure-id="figure-private" href="data:image/png;base64,AA==" preserveAspectRatio="xMidYMid meet" x="20" y="40" width="300" height="160"/><text>A quiet canonical caption.</text><g data-callout-index="1"><circle cx="120" cy="100" r="10"/></g><g data-legend-for="label-rotor"><text>1 Rotor — the moving part.</text></g></g></svg>`;
     const board = createBoard({
+      outline: [
+        {
+          id: 'node-figure-private',
+          kind: 'figure',
+          label: 'Rotor arrangement',
+          description: 'A private hydrated raster.',
+          provenance: 'anchored',
+          sourceSpan: { sourceStart: 17, sourceEnd: 31 },
+          caption: 'A quiet canonical caption.',
+          labels: [
+            {
+              id: 'label-rotor',
+              text: 'Rotor',
+              description: 'The moving part.',
+              at: { x: 0.5, y: 0.5 },
+              provenance: 'anchored',
+              sourceSpan: { sourceStart: 17, sourceEnd: 31 },
+            },
+          ],
+        },
+      ],
       figures: [
         {
           id: 'figure-private',
           nodeId: 'node-figure-private',
           description: 'A private hydrated raster.',
+          caption: 'A quiet canonical caption.',
           imageUrl: 'data:image/png;base64,AA==',
           provenance: 'anchored',
-          labels: [],
-        },
-        {
-          id: 'figure-unsafe',
-          nodeId: 'node-figure-unsafe',
-          description: 'An unsupported embedded vector.',
-          imageUrl: 'data:image/svg+xml;base64,PHN2Zy8+',
-          provenance: 'anchored',
-          labels: [],
+          labels: [
+            {
+              id: 'label-rotor',
+              text: 'Rotor',
+              description: 'The moving part.',
+              at: { x: 0.5, y: 0.5 },
+              provenance: 'anchored',
+              sourceSpan: { sourceStart: 17, sourceEnd: 31 },
+            },
+          ],
+          projectionSvg,
         },
       ],
     });
-    renderPanel({
+    const rendered = renderPanel({
       client: createClient({
         getGeneration: vi.fn(async () => ({
           id: 'generation-1',
@@ -506,11 +552,67 @@ describe('LearningBored reader result panel', () => {
     });
     await advancePoll();
 
+    const projection = rendered.container.querySelector(
+      '[data-figure-projection="figure-private"]',
+    );
+    expect(projection?.getAttribute('viewBox')).toBe('12 24 320 240');
+    expect(projection?.querySelector('[data-callout-index="1"]')).toBeTruthy();
+    expect(projection?.querySelector('[data-legend-for="label-rotor"]')).toBeTruthy();
+    expect(projection?.getAttribute('aria-hidden')).toBe('true');
     expect(
-      screen.getByRole('img', { name: 'A private hydrated raster.' }).getAttribute('src'),
-    ).toBe('data:image/png;base64,AA==');
-    expect(screen.queryByRole('img', { name: 'An unsupported embedded vector.' })).toBeNull();
-    expect(screen.getByText('An unsupported embedded vector.', { exact: false })).toBeTruthy();
+      projection?.querySelector('[tabindex], [role], [aria-label], [aria-labelledby]'),
+    ).toBeNull();
+    expect(screen.queryByRole('img', { name: 'A private hydrated raster.' })).toBeNull();
+    expect(screen.getAllByRole('button', { name: /1\. Rotor.*The moving part/ })).toHaveLength(1);
+    expect(
+      screen.getAllByRole('button', { name: /Figure caption: A quiet canonical caption\./ }),
+    ).toHaveLength(1);
+
+    const title = screen.getByRole('button', { name: board.title });
+    fireEvent.focus(title);
+    expect(rendered.onSourceSpanEnter).toHaveBeenCalledWith(board.titleSourceSpan);
+  });
+
+  it('keeps Figure replacement operable without duplicating the canonical desktop Board', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query) =>
+        ({
+          matches: query === '(min-width: 640px)',
+          media: query,
+          onchange: null,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          dispatchEvent: vi.fn(() => false),
+        }) as MediaQueryList,
+    );
+    const board = createBoard({
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240"><g data-figure-id="figure-1"><image href="data:image/png;base64,AA=="/></g></svg>',
+    });
+    const rendered = renderPanel({
+      client: createClient({
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rendered.container.querySelector('.learningbored-svg')).toBeTruthy();
+    expect(rendered.container.querySelector('.learningbored-figure-projection')).toBeNull();
+    expect(screen.queryByRole('heading', { name: 'Figures' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace figure' }));
+    expect(screen.getByRole('heading', { name: 'Replace this figure?' })).toBeTruthy();
+    expect(screen.getByText(/This uses 1 Chalk/u)).toBeTruthy();
   });
 
   it('launches a document-scoped review from a completed Board recall preview', async () => {
@@ -618,6 +720,7 @@ describe('LearningBored reader result panel', () => {
           description: 'A private hydrated raster.',
           caption: 'The current accepted figure.',
           imageUrl: 'data:image/png;base64,AA==',
+          projectionSvg: createFigureProjection('figure-private', 'data:image/png;base64,AA=='),
           provenance: 'anchored',
           sourceSpan: { sourceStart: 17, sourceEnd: 31 },
           labels: [],
@@ -631,6 +734,7 @@ describe('LearningBored reader result panel', () => {
         {
           ...board.figures[0]!,
           imageUrl: 'data:image/png;base64,AQ==',
+          projectionSvg: createFigureProjection('figure-private', 'data:image/png;base64,AQ=='),
           caption: 'The checked replacement figure.',
         },
       ],
@@ -671,7 +775,7 @@ describe('LearningBored reader result panel', () => {
       getFigureRegeneration,
       rerenderBoard,
     });
-    renderPanel({ client });
+    const rendered = renderPanel({ client });
     await advancePoll();
 
     fireEvent.click(screen.getByRole('button', { name: 'Replace figure' }));
@@ -694,7 +798,9 @@ describe('LearningBored reader result panel', () => {
       }),
     );
     expect(
-      screen.getByRole('img', { name: 'A private hydrated raster.' }).getAttribute('src'),
+      rendered.container
+        .querySelector('[data-figure-projection="figure-private"] image')
+        ?.getAttribute('href'),
     ).toBe('data:image/png;base64,AA==');
     expect(screen.getByText('Waiting to replace the figure')).toBeTruthy();
 
@@ -720,6 +826,7 @@ describe('LearningBored reader result panel', () => {
           nodeId: 'node-figure-private',
           description: 'A private hydrated raster.',
           imageUrl: 'data:image/png;base64,AA==',
+          projectionSvg: createFigureProjection('figure-private', 'data:image/png;base64,AA=='),
           provenance: 'anchored',
           labels: [],
         },
@@ -746,7 +853,7 @@ describe('LearningBored reader result panel', () => {
       })),
       getFigureRegeneration,
     });
-    renderPanel({ client });
+    const rendered = renderPanel({ client });
     await advancePoll();
 
     fireEvent.click(screen.getByRole('button', { name: 'Replace figure' }));
@@ -760,7 +867,9 @@ describe('LearningBored reader result panel', () => {
       screen.getByText(/Your Chalk was refunded. The previous figure is unchanged./u),
     ).toBeTruthy();
     expect(
-      screen.getByRole('img', { name: 'A private hydrated raster.' }).getAttribute('src'),
+      rendered.container
+        .querySelector('[data-figure-projection="figure-private"] image')
+        ?.getAttribute('href'),
     ).toBe('data:image/png;base64,AA==');
   });
 

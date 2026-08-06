@@ -89,13 +89,39 @@ describe('LearningBored private-beta source gates', () => {
     expect(subscriptionSuccess).toContain('if (!privateBetaPolicy.allowPayments)');
   });
 
-  it('uses LearningBored legal links and account metadata in the private-beta profile', () => {
+  it('uses LearningBored legal links and selected account metadata in the private-beta profile', () => {
     const legalLinks = readSource('components/LegalLinks.tsx');
     const accountLayout = readSource('app/user/layout.tsx');
+    const presentationMetadata = readSource('integrations/learningbored/presentation/metadata.ts');
 
     expect(legalLinks).toContain('https://learningbored.com/terms');
     expect(legalLinks).toContain('https://learningbored.com/privacy');
     expect(legalLinks).toContain('https://learningbored.com/cookies');
-    expect(accountLayout).toContain("privateBetaPolicy.active ? 'LearningBored account' :");
+    expect(accountLayout).toContain("getSelectedReaderRouteMetadata('user')");
+    expect(presentationMetadata).toContain("title: 'LearningBored account'");
+    expect(presentationMetadata).toContain("title: 'Account & Sign In'");
+  });
+
+  it('confines selected presentation dispatch to auth, library, and account routes', () => {
+    const routes = [
+      ['app/auth/page.tsx', 'LearningBoredAuthPresentation'],
+      ['app/library/page.tsx', 'LearningBoredLibraryPresentation'],
+      ['app/user/page.tsx', 'LearningBoredAccountPresentation'],
+    ] as const;
+
+    for (const [route, learningBoredRenderer] of routes) {
+      const source = readSource(route);
+      expect(source, route).toContain('SelectedRoutePresentation');
+      expect(source, route).toContain(learningBoredRenderer);
+      expect(source, route).toContain(
+        'const routePresentation = getLearningBoredRoutePresentation();',
+      );
+      expect(source, route).toContain('presentation={routePresentation}');
+    }
+
+    const selector = readSource('integrations/learningbored/presentation/selection.ts');
+    expect(selector).toContain('getLearningBoredPrivateBetaPolicy().active');
+    expect(selector).not.toMatch(/environment|LearningBoredPrivateBetaEnvironment/u);
+    expect(selector).not.toMatch(/URLSearchParams|document\.|localStorage|sessionStorage|cookie/u);
   });
 });

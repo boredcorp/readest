@@ -42,8 +42,12 @@ import AccountActions from './components/AccountActions';
 import StorageManager from './components/StorageManager';
 import Checkout from './components/Checkout';
 import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+import LearningBoredAccountPresentation from '@/integrations/learningbored/presentation/LearningBoredAccountPresentation';
+import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
+import { getLearningBoredRoutePresentation } from '@/integrations/learningbored/presentation/selection';
 
 const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+const routePresentation = getLearningBoredRoutePresentation();
 
 type CheckoutState = {
   clientSecret: string;
@@ -51,7 +55,7 @@ type CheckoutState = {
   planName: string;
 };
 
-const ProfilePage = () => {
+const AccountRouteController = () => {
   const _ = useTranslation();
   const router = useRouter();
   const { appService } = useEnv();
@@ -341,6 +345,20 @@ const ProfilePage = () => {
         <Toast />
       </div>
     </div>
+  );
+};
+
+const ProfilePage = () => {
+  return (
+    <SelectedRoutePresentation
+      presentation={routePresentation}
+      readest={<AccountRouteController />}
+      learningbored={
+        <LearningBoredAccountPresentation>
+          <AccountRouteController />
+        </LearningBoredAccountPresentation>
+      }
+    />
   );
 };
 

@@ -172,6 +172,7 @@ function createClient(input?: {
       documentId: DOCUMENT.id,
       kind: 'concept_map' as const,
       title: 'Fictional signal Board',
+      titleSourceSpan: { sourceStart: 0, sourceEnd: 12 },
       svg: null,
       outline: [
         {

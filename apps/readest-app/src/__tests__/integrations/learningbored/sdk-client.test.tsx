@@ -79,6 +79,19 @@ const SPEC = {
         },
       ],
     },
+    {
+      kind: 'content',
+      id: 'node_scaffold',
+      label: 'Added bridge',
+      description: 'A plain-language restatement added to help.',
+      conceptIds: [],
+      undefinedConceptIds: [],
+      figureStatus: 'not_requested',
+      provenance: 'scaffold',
+      scaffoldFor: 'node_undefined',
+      scaffoldForm: 'restatement',
+      analogyLimit: null,
+    },
   ],
   edges: [
     {
@@ -127,9 +140,9 @@ const BOARD = {
   outline: '# A fictional rotor system\n',
   cachedSvg: null,
   rendererVersion: null,
-  nodeCount: 2,
+  nodeCount: 3,
   edgeCount: 1,
-  scaffoldNodeCount: 0,
+  scaffoldNodeCount: 1,
   figureCount: 1,
   figureFailureCount: 0,
   showScaffold: true,
@@ -276,6 +289,25 @@ describe('LearningBored SDK Reader adapter', () => {
       imageUrl: 'data:image/png;base64,iVBORw==',
       failed: false,
     });
+    expect(board.titleSourceSpan).toEqual(SOURCE_SPAN);
+    const figureProjection = new DOMParser().parseFromString(
+      board.figures[0]?.projectionSvg ?? '',
+      'image/svg+xml',
+    ).documentElement;
+    expect(figureProjection.tagName.toLowerCase()).toBe('svg');
+    expect(figureProjection.getAttribute('data-figure-projection')).toBe(FIGURE.id);
+    expect(figureProjection.getAttribute('aria-hidden')).toBe('true');
+    expect(figureProjection.getAttribute('width')).toBeTruthy();
+    expect(figureProjection.getAttribute('height')).toBeTruthy();
+    expect(figureProjection.querySelectorAll('[data-node-id]')).toHaveLength(1);
+    expect(figureProjection.querySelector('[data-callout-index="1"]')).toBeTruthy();
+    expect(figureProjection.querySelector('[data-legend-for="label_rotor"]')).toBeTruthy();
+    expect(
+      figureProjection.querySelector('[tabindex], [role], [aria-label], [aria-labelledby]'),
+    ).toBeNull();
+    expect(figureProjection.querySelector('image')?.getAttribute('preserveAspectRatio')).toBe(
+      'xMidYMid meet',
+    );
     expect(board.outline).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -285,6 +317,7 @@ describe('LearningBored SDK Reader adapter', () => {
         }),
         expect.objectContaining({
           id: 'node_figure',
+          caption: 'The rotor sits inside the housing.',
           labels: [expect.objectContaining({ text: 'Rotor', at: { x: 0.5, y: 0.5 } })],
         }),
         expect.objectContaining({
@@ -314,6 +347,33 @@ describe('LearningBored SDK Reader adapter', () => {
     expect(getAccessToken).toHaveBeenCalledTimes(transport.requests.length);
   });
 
+  it('retains one full authorized projection so scaffold toggles stay local and reversible', async () => {
+    const transport = recordingTransport([
+      jsonResponse(BOARD),
+      jsonResponse(PROJECTION),
+      figureResponse(),
+    ]);
+    const client = createLearningBoredSdkClient({
+      apiBaseUrl: 'https://api.example.test',
+      transport: transport.transport,
+    });
+
+    const board = await client.getBoard(BOARD.id, { includeScaffold: false });
+
+    expect(board.outline).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'node_scaffold', provenance: 'scaffold' }),
+      ]),
+    );
+    expect(board.svg).toContain('data-node-id="node_scaffold"');
+    expect(board.svgWithoutScaffold).not.toContain('data-node-id="node_scaffold"');
+    expect(board.svgWithoutScaffold).not.toContain('data-scaffold-connector="node_scaffold"');
+    expect(JSON.parse(String(transport.requests[1]?.init.body))).toEqual({
+      kind: 'concept_map',
+      includeScaffold: true,
+    });
+  });
+
   it('keeps figure labels and structural meaning when private hydration fails', async () => {
     const transport = recordingTransport([
       jsonResponse(BOARD),
@@ -338,6 +398,8 @@ describe('LearningBored SDK Reader adapter', () => {
         }),
       ],
     });
+    expect(board.figures[0]?.projectionSvg).toContain('Illustration unavailable.');
+    expect(board.figures[0]?.projectionSvg).not.toContain('<image');
     expect(board.outline.find((item) => item.id === 'node_figure')).toMatchObject({
       figureFailed: true,
       labels: [expect.objectContaining({ text: 'Rotor' })],
