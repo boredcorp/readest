@@ -9,6 +9,7 @@ import { LearningBoredClientProvider } from '@/integrations/learningbored/Learni
 import LearningBoredAccountPresentation, {
   type LearningBoredAccountPresentationProps,
 } from '@/integrations/learningbored/presentation/LearningBoredAccountPresentation';
+import LearningBoredRuntimePresentationProviders from '@/integrations/learningbored/presentation/LearningBoredRuntimePresentationProviders';
 import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
 import {
   createLearningBoredSdkClient,
@@ -67,9 +68,11 @@ function renderAccount(
   props: Partial<LearningBoredAccountPresentationProps> = {},
 ) {
   return render(
-    <LearningBoredClientProvider value={clientWithCredits(getCredits)}>
-      <LearningBoredAccountPresentation {...presentationProps} {...props} />
-    </LearningBoredClientProvider>,
+    <LearningBoredRuntimePresentationProviders>
+      <LearningBoredClientProvider value={clientWithCredits(getCredits)}>
+        <LearningBoredAccountPresentation {...presentationProps} {...props} />
+      </LearningBoredClientProvider>
+    </LearningBoredRuntimePresentationProviders>,
   );
 }
 

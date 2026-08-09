@@ -28,7 +28,11 @@ import { getAppleIdAuth, Scope } from './utils/appleIdAuth';
 import { authWithCustomTab, authWithSafari } from './utils/nativeAuth';
 import WindowButtons from '@/components/WindowButtons';
 import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
-import LearningBoredAuthPresentation from '@/integrations/learningbored/presentation/LearningBoredAuthPresentation';
+import LearningBoredAuthPresentation, {
+  LearningBoredAuthActions,
+  LearningBoredAuthButton,
+  LearningBoredAuthStatus,
+} from '@/integrations/learningbored/presentation/LearningBoredAuthPresentation';
 import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
 import { getLearningBoredRoutePresentation } from '@/integrations/learningbored/presentation/selection';
 
@@ -50,6 +54,8 @@ interface ProviderLoginProp {
 }
 
 type AuthRoutePresentation = 'readest' | 'learningbored';
+type AuthTask = 'sign-in' | 'reset';
+type SupabaseAuthView = 'sign_in' | 'forgotten_password';
 
 const WEB_AUTH_CALLBACK = `${getBaseUrl()}/auth/callback`;
 const DEEPLINK_CALLBACK = 'readest://auth-callback';
@@ -80,6 +86,7 @@ function AuthRouteController({ presentation }: { presentation: AuthRoutePresenta
   const { settings, setSettings, saveSettings } = useSettingsStore();
   const [port, setPort] = useState<number | null>(null);
   const [isMounted, setIsMounted] = useState(false);
+  const [authTask, setAuthTask] = useState<AuthTask>('sign-in');
   const isOAuthServerRunning = useRef(false);
   const useCustomeOAuth = useRef(false);
 
@@ -345,53 +352,103 @@ function AuthRouteController({ presentation }: { presentation: AuthRoutePresenta
   }, [router]);
 
   useEffect(() => {
+    if (presentation === 'learningbored') {
+      const requestedTask = new URLSearchParams(window.location.search).get('task');
+      setAuthTask(requestedTask === 'reset' ? 'reset' : 'sign-in');
+    }
     setIsMounted(true);
-  }, []);
+  }, [presentation]);
 
   if (!isMounted) {
+    if (presentation === 'learningbored') {
+      return (
+        <LearningBoredAuthPresentation
+          description={_('Checking this device before the sign-in form becomes available.')}
+          heading={_('Preparing your sign-in.')}
+        >
+          <LearningBoredAuthStatus title={_('Loading secure sign-in')}>
+            <p>{_('Your private-beta invitation and session stay unchanged while this loads.')}</p>
+          </LearningBoredAuthStatus>
+        </LearningBoredAuthPresentation>
+      );
+    }
     return null;
   }
 
-  const renderAuthForm = (redirectTo: string, providers: OAuthProvider[]) => (
+  const renderAuthForm = (
+    redirectTo: string,
+    providers: OAuthProvider[],
+    view: SupabaseAuthView = 'sign_in',
+  ) => (
     <Auth
       supabaseClient={supabase}
       appearance={{ theme: ThemeSupa }}
       theme={isDarkMode ? 'dark' : 'light'}
       magicLink={true}
       providers={providers}
-      view={privateBetaPolicy.active ? 'sign_in' : undefined}
+      view={privateBetaPolicy.active ? view : undefined}
       showLinks={privateBetaPolicy.allowSignUpLinks}
       redirectTo={redirectTo}
       localization={getAuthLocalization()}
     />
   );
 
+  const renderLearningBoredAuthTask = (redirectTo: string) => {
+    const isReset = authTask === 'reset';
+
+    return (
+      <LearningBoredAuthPresentation
+        backLabel={_('Go Back')}
+        description={
+          isReset
+            ? _('We will send a single-use recovery link to your invited email address.')
+            : _('Use the email address connected to your private-beta invitation.')
+        }
+        heading={isReset ? _('Reset your password.') : _('Sign in to continue.')}
+        onBack={handleGoBack}
+        privacyNote={
+          isReset
+            ? _(
+                'A recovery request does not create an account or change your library. Only use a link you requested.',
+              )
+            : _(
+                'Signing in does not create a new account. Your library, Boards, and review history stay private to your account.',
+              )
+        }
+        windowControls={
+          isTauriAppPlatform() && appService?.hasWindowBar ? (
+            <div ref={headerRef}>
+              <WindowButtons
+                headerRef={headerRef}
+                showMinimize={!isTrafficLightVisible}
+                showMaximize={!isTrafficLightVisible}
+                showClose={!isTrafficLightVisible}
+                onClose={handleGoBack}
+              />
+            </div>
+          ) : undefined
+        }
+      >
+        {renderAuthForm(redirectTo, [], isReset ? 'forgotten_password' : 'sign_in')}
+        <LearningBoredAuthActions align='start'>
+          <LearningBoredAuthButton
+            onClick={() => setAuthTask(isReset ? 'sign-in' : 'reset')}
+            type='button'
+            variant='text'
+          >
+            {isReset ? _('Back to sign in') : _('Forgot your password?')}
+          </LearningBoredAuthButton>
+        </LearningBoredAuthActions>
+      </LearningBoredAuthPresentation>
+    );
+  };
+
   // For tauri app development, use a custom OAuth server to handle the OAuth callback
   // For tauri app production, use deeplink to handle the OAuth callback
   // For web app, use the built-in OAuth callback page /auth/callback
   if (isTauriAppPlatform()) {
     if (presentation === 'learningbored') {
-      return (
-        <LearningBoredAuthPresentation
-          backLabel={_('Go Back')}
-          onBack={handleGoBack}
-          windowControls={
-            appService?.hasWindowBar ? (
-              <div ref={headerRef}>
-                <WindowButtons
-                  headerRef={headerRef}
-                  showMinimize={!isTrafficLightVisible}
-                  showMaximize={!isTrafficLightVisible}
-                  showClose={!isTrafficLightVisible}
-                  onClose={handleGoBack}
-                />
-              </div>
-            ) : undefined
-          }
-        >
-          {renderAuthForm(getTauriRedirectTo(false), [])}
-        </LearningBoredAuthPresentation>
-      );
+      return renderLearningBoredAuthTask(getTauriRedirectTo(false));
     }
 
     return (
@@ -483,11 +540,7 @@ function AuthRouteController({ presentation }: { presentation: AuthRoutePresenta
   );
 
   if (presentation === 'learningbored') {
-    return (
-      <LearningBoredAuthPresentation backLabel={_('Go Back')} onBack={handleGoBack}>
-        {webAuth}
-      </LearningBoredAuthPresentation>
-    );
+    return renderLearningBoredAuthTask(getWebRedirectTo());
   }
 
   return (

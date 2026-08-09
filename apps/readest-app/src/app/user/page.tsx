@@ -42,6 +42,7 @@ import AccountActions from './components/AccountActions';
 import StorageManager from './components/StorageManager';
 import Checkout from './components/Checkout';
 import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+import LearningBoredAccountHeader from '@/integrations/learningbored/presentation/LearningBoredAccountHeader';
 import LearningBoredAccountPresentation from '@/integrations/learningbored/presentation/LearningBoredAccountPresentation';
 import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
 import { getLearningBoredRoutePresentation } from '@/integrations/learningbored/presentation/selection';
@@ -390,6 +391,12 @@ const LearningBoredAccountRouteController = () => {
   return (
     <>
       <LearningBoredAccountPresentation
+        header={
+          <LearningBoredAccountHeader
+            onBack={handleGoBack}
+            safeAreaTop={safeAreaInsets?.top || 0}
+          />
+        }
         status={ready ? 'ready' : 'loading'}
         userFullName={
           ready ? user?.user_metadata?.['full_name'] || _('LearningBored learner') : undefined

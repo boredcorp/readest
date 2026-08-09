@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import {
+  isLearningBoredPreviewEnabled,
+  LEARNINGBORED_PREVIEW_PATH,
+} from './integrations/learningbored/preview/gate';
+
 const allowedOrigins = [
   'https://web.readest.com',
   'https://tauri.localhost',
@@ -16,6 +21,20 @@ const corsOptions = {
 };
 
 export function middleware(request: NextRequest) {
+  if (request.nextUrl.pathname === LEARNINGBORED_PREVIEW_PATH) {
+    if (!isLearningBoredPreviewEnabled()) {
+      return new NextResponse(null, {
+        status: 404,
+        headers: {
+          'Cache-Control': 'private, no-store',
+          'X-Robots-Tag': 'noindex, nofollow, noarchive',
+        },
+      });
+    }
+
+    return NextResponse.next();
+  }
+
   const origin = request.headers.get('origin') ?? '';
   const isAllowedOrigin = allowedOrigins.includes(origin);
 
@@ -45,5 +64,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/api/:path*', '/api/stripe/:path*', '/api/metadata/:path*'],
+  matcher: ['/design/learningbored', '/api/:path*', '/api/stripe/:path*', '/api/metadata/:path*'],
 };

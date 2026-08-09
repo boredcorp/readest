@@ -1,8 +1,6 @@
 import * as React from 'react';
 import type { Metadata, Viewport } from 'next';
-import { ViewTransitions } from 'next-view-transitions';
-import { EnvProvider } from '@/context/EnvContext';
-import Providers from '@/components/Providers';
+import ReaderApplicationBoundary from '@/components/ReaderApplicationBoundary';
 
 import '../styles/globals.css';
 import '../integrations/learningbored/presentation/learningbored-tokens.css';
@@ -77,11 +75,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={process.env['NEXT_PUBLIC_APP_PLATFORM'] === 'tauri' ? 'edge-to-edge' : ''}
     >
       <body>
-        <ViewTransitions>
-          <EnvProvider>
-            <Providers>{children}</Providers>
-          </EnvProvider>
-        </ViewTransitions>
+        <ReaderApplicationBoundary>{children}</ReaderApplicationBoundary>
       </body>
     </html>
   );

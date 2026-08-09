@@ -15,6 +15,8 @@ assertLearningBoredProductionSupabaseEnvironment({
 const isDev = process.env['NODE_ENV'] === 'development';
 const appPlatform = process.env['NEXT_PUBLIC_APP_PLATFORM'];
 const storyBoredRoot = path.resolve(process.cwd(), '../../..');
+const learningBoredReaderPreviewEnabled =
+  isDev && process.env['ENABLE_LEARNINGBORED_READER_PREVIEW'] === 'true';
 
 if (isDev) {
   const { initOpenNextCloudflareForDev } = await import('@opennextjs/cloudflare');
@@ -31,7 +33,15 @@ const nextConfig = {
   // Ensure Next.js uses SSG instead of SSR
   // https://nextjs.org/docs/pages/building-your-application/deploying/static-exports
   output: exportOutput ? 'export' : undefined,
-  pageExtensions: exportOutput ? ['jsx', 'tsx'] : ['js', 'jsx', 'ts', 'tsx'],
+  pageExtensions: exportOutput
+    ? ['jsx', 'tsx']
+    : [
+        'js',
+        'jsx',
+        'ts',
+        'tsx',
+        ...(learningBoredReaderPreviewEnabled ? ['preview.tsx'] : []),
+      ],
   // Note: This feature is required to use the Next.js Image component in SSG mode.
   // See https://nextjs.org/docs/messages/export-image-api for different workarounds.
   images: {

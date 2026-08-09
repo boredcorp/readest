@@ -49,7 +49,10 @@ import BookshelfItem, { generateBookshelfItems } from './BookshelfItem';
 import SelectModeActions from './SelectModeActions';
 import GroupingModal from './GroupingModal';
 import SetStatusAlert from './SetStatusAlert';
-import type { BookshelfPresentation } from './bookshelfPresentation';
+import {
+  orderBookshelfItemsForPresentation,
+  type BookshelfPresentation,
+} from './bookshelfPresentation';
 
 interface BookshelfProps {
   libraryBooks: Book[];
@@ -312,7 +315,10 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     return allItems;
   }, [sortOrder, sortBy, groupBy, groupId, uiLanguage, currentBookshelfItems]);
 
-  const presentedBookshelfItems = sortedBookshelfItems;
+  const presentedBookshelfItems = useMemo(
+    () => orderBookshelfItemsForPresentation(sortedBookshelfItems, presentation),
+    [presentation, sortedBookshelfItems],
+  );
 
   useEffect(() => {
     if (isImportingBook.current) return;

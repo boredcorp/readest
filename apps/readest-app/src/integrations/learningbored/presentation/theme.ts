@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useThemeStore } from '@/store/themeStore';
 
-export type LearningBoredPresentationTheme = 'light' | 'dark' | 'eink';
+import type { LearningBoredPresentationTheme } from './context';
 
 function getDocumentEinkSnapshot(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset['eink'] === 'true';
@@ -22,15 +22,15 @@ function subscribeToDocumentEink(onStoreChange: () => void): () => void {
   return () => observer.disconnect();
 }
 
-export function useLearningBoredPresentationTheme(): LearningBoredPresentationTheme {
-  const isDarkMode = useThemeStore((state) => state.isDarkMode);
-  const isStoredEink = useSettingsStore((state) => state.settings.globalViewSettings?.isEink);
+export function useReaderLearningBoredPresentationTheme(): LearningBoredPresentationTheme {
+  const { isDarkMode } = useThemeStore();
+  const { settings } = useSettingsStore();
   const isDocumentEink = useSyncExternalStore(
     subscribeToDocumentEink,
     getDocumentEinkSnapshot,
     () => false,
   );
 
-  if (isStoredEink || isDocumentEink) return 'eink';
+  if (settings.globalViewSettings?.isEink === true || isDocumentEink) return 'eink';
   return isDarkMode ? 'dark' : 'light';
 }

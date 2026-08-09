@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 
+import LearningBoredRuntimePresentationProviders from './LearningBoredRuntimePresentationProviders';
 import type { LearningBoredRoutePresentation } from './selection';
 
 interface SelectedRoutePresentationProps {
@@ -15,5 +16,11 @@ export default function SelectedRoutePresentation({
   readest,
   learningbored,
 }: SelectedRoutePresentationProps) {
-  return presentation === 'learningbored' ? learningbored : readest;
+  return presentation === 'learningbored' ? (
+    <LearningBoredRuntimePresentationProviders>
+      {learningbored}
+    </LearningBoredRuntimePresentationProviders>
+  ) : (
+    readest
+  );
 }

@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import LearningBoredAuthPresentation from '@/integrations/learningbored/presentation/LearningBoredAuthPresentation';
+import LearningBoredRuntimePresentationProviders from '@/integrations/learningbored/presentation/LearningBoredRuntimePresentationProviders';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useThemeStore } from '@/store/themeStore';
 import type { SystemSettings } from '@/types/settings';
@@ -67,9 +68,11 @@ describe('LearningBored auth presentation', () => {
 
   it('reacts to Reader e-ink hydration on a cold direct route', async () => {
     const { container } = render(
-      <LearningBoredAuthPresentation>
-        <span>Authentication</span>
-      </LearningBoredAuthPresentation>,
+      <LearningBoredRuntimePresentationProviders>
+        <LearningBoredAuthPresentation>
+          <span>Authentication</span>
+        </LearningBoredAuthPresentation>
+      </LearningBoredRuntimePresentationProviders>,
     );
     const surface = container.querySelector('[data-lb-presentation="auth"]');
 

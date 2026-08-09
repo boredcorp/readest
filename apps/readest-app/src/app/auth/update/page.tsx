@@ -1,12 +1,31 @@
 'use client';
-import { useState, useEffect } from 'react';
+
+import { type FormEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+
 import { useAuth } from '@/context/AuthContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import LearningBoredAuthPresentation, {
+  LearningBoredAuthActions,
+  LearningBoredAuthButton,
+  LearningBoredAuthField,
+  LearningBoredAuthMessage,
+  LearningBoredAuthStatus,
+} from '@/integrations/learningbored/presentation/LearningBoredAuthPresentation';
+import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
+import { getLearningBoredRoutePresentation } from '@/integrations/learningbored/presentation/selection';
 import { supabase } from '@/utils/supabase';
 
-export default function UpdateEmailPage() {
+type UpdateEmailPresentation = 'readest' | 'learningbored';
+
+const routePresentation = getLearningBoredRoutePresentation();
+
+export function UpdateEmailRouteController({
+  presentation,
+}: {
+  presentation: UpdateEmailPresentation;
+}) {
   const _ = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
@@ -19,19 +38,19 @@ export default function UpdateEmailPage() {
 
   useEffect(() => {
     if (!user) {
-      router.push('/login');
+      router.push('/auth');
     }
   }, [user, router]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setLoading(true);
     setMessage('');
     setError('');
 
     try {
       const { error: updateError } = await supabase.auth.updateUser({
-        email: email,
+        email,
       });
 
       if (updateError) throw updateError;
@@ -48,6 +67,71 @@ export default function UpdateEmailPage() {
       setLoading(false);
     }
   };
+
+  if (presentation === 'learningbored') {
+    if (!user) {
+      return (
+        <LearningBoredAuthPresentation
+          description={_('Checking the active Reader session before account details are shown.')}
+          heading={_('Preparing your account.')}
+        >
+          <LearningBoredAuthStatus title={_('Checking your session')}>
+            <p>{_('You will return to sign in if this session is no longer active.')}</p>
+          </LearningBoredAuthStatus>
+        </LearningBoredAuthPresentation>
+      );
+    }
+
+    return (
+      <LearningBoredAuthPresentation
+        backLabel={_('Back')}
+        description={_(
+          'Enter the new email address you want to use for future private-beta sign-ins.',
+        )}
+        heading={_('Change your sign-in email.')}
+        onBack={() => router.back()}
+        privacyNote={_(
+          'The change is applied only after both addresses complete the confirmation steps.',
+        )}
+      >
+        <form aria-label={_('Update sign-in email')} data-lb-auth-form onSubmit={handleSubmit}>
+          <LearningBoredAuthField
+            autoComplete='email'
+            disabled={loading}
+            hint={
+              user.email
+                ? `${_('Current email')}: ${user.email}`
+                : _('Use an address you can access now.')
+            }
+            id='email'
+            label={_('New Email')}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder={_('Your new email')}
+            required
+            type='email'
+            value={email}
+          />
+
+          {error && <LearningBoredAuthMessage tone='error'>{error}</LearningBoredAuthMessage>}
+          {message && <LearningBoredAuthMessage tone='success'>{message}</LearningBoredAuthMessage>}
+
+          <LearningBoredAuthActions>
+            <LearningBoredAuthButton disabled={loading || !email} type='submit'>
+              {loading ? _('Updating email ...') : _('Update email')}
+            </LearningBoredAuthButton>
+            <LearningBoredAuthButton
+              disabled={loading}
+              onClick={() => router.back()}
+              type='button'
+              variant='secondary'
+            >
+              {_('Cancel')}
+            </LearningBoredAuthButton>
+          </LearningBoredAuthActions>
+        </form>
+      </LearningBoredAuthPresentation>
+    );
+  }
 
   return (
     <div className='flex min-h-screen items-center justify-center'>
@@ -119,5 +203,15 @@ export default function UpdateEmailPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function UpdateEmailPage() {
+  return (
+    <SelectedRoutePresentation
+      presentation={routePresentation}
+      readest={<UpdateEmailRouteController presentation='readest' />}
+      learningbored={<UpdateEmailRouteController presentation='learningbored' />}
+    />
   );
 }

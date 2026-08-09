@@ -4,10 +4,12 @@ import { createRef } from 'react';
 
 import type { LearningBoredClient } from '@/integrations/learningbored/client';
 import type { LearningBoredDocumentSummary } from '@/integrations/learningbored/client';
+import { orderBookshelfItemsForPresentation } from '@/app/library/components/bookshelfPresentation';
 import { LearningBoredClientProvider } from '@/integrations/learningbored/LearningBoredClientContext';
 import LearningBoredLibraryPresentation, {
   LearningBoredLibrarySurface,
 } from '@/integrations/learningbored/presentation/LearningBoredLibraryPresentation';
+import LearningBoredRuntimePresentationProviders from '@/integrations/learningbored/presentation/LearningBoredRuntimePresentationProviders';
 import SelectedRoutePresentation from '@/integrations/learningbored/presentation/SelectedRoutePresentation';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useThemeStore } from '@/store/themeStore';
@@ -57,6 +59,15 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('LearningBored library presentation isolation', () => {
+  it('leaves the default Readest ordering and collection identity untouched', () => {
+    const canonicalShelf = [
+      { hash: 'book-one', title: 'First book', format: 'EPUB' } as Book,
+      { hash: 'book-two', title: 'Second book', format: 'EPUB' } as Book,
+    ];
+
+    expect(orderBookshelfItemsForPresentation(canonicalShelf)).toBe(canonicalShelf);
+  });
+
   it('owns one named Operate work plane and heading', () => {
     render(
       <LearningBoredLibrarySurface
@@ -132,7 +143,7 @@ describe('LearningBored library presentation isolation', () => {
     expect(localAction).toHaveBeenCalledTimes(1);
   });
 
-  it('adds delayed document status without reordering the canonical shelf', async () => {
+  it('promotes delayed due work without mutating the canonical shelf', async () => {
     let resolveDocuments:
       | ((value: { documents: LearningBoredDocumentSummary[] }) => void)
       | undefined;
@@ -144,29 +155,36 @@ describe('LearningBored library presentation isolation', () => {
     );
     const quiet = { hash: 'book-quiet', title: 'Quiet book', format: 'EPUB' } as Book;
     const urgent = { hash: 'book-urgent', title: 'Urgent book', format: 'EPUB' } as Book;
+    const canonicalShelf = [quiet, urgent];
 
     render(
       <LearningBoredClientProvider value={clientWithListDocuments(listDocuments)}>
         <LearningBoredLibraryPresentation>
-          {(context) => (
-            <>
-              <p>{context.enrichmentStatus}</p>
-              <ol aria-label='Canonical shelf'>
-                {[quiet, urgent].map((book) => (
-                  <li key={book.hash}>
-                    <span>{book.title}</span>
-                    {context.bookshelfPresentation.presentItem?.(book)?.status}
-                  </li>
-                ))}
-              </ol>
-            </>
-          )}
+          {(context) => {
+            const presentedShelf = orderBookshelfItemsForPresentation(
+              canonicalShelf,
+              context.bookshelfPresentation,
+            );
+            return (
+              <>
+                <p>{context.enrichmentStatus}</p>
+                <ol aria-label='Presented shelf'>
+                  {presentedShelf.map((book) => (
+                    <li key={book.hash}>
+                      <span>{book.title}</span>
+                      {context.bookshelfPresentation.presentItem?.(book)?.status}
+                    </li>
+                  ))}
+                </ol>
+              </>
+            );
+          }}
         </LearningBoredLibraryPresentation>
       </LearningBoredClientProvider>,
     );
 
     const itemTitles = () =>
-      Array.from(screen.getByRole('list', { name: 'Canonical shelf' }).children).map(
+      Array.from(screen.getByRole('list', { name: 'Presented shelf' }).children).map(
         (item) => item.querySelector('span')?.textContent,
       );
     expect(itemTitles()).toEqual(['Quiet book', 'Urgent book']);
@@ -177,7 +195,8 @@ describe('LearningBored library presentation isolation', () => {
 
     await screen.findByText('available');
     expect(screen.getByText('5 due')).toBeTruthy();
-    expect(itemTitles()).toEqual(['Quiet book', 'Urgent book']);
+    expect(itemTitles()).toEqual(['Urgent book', 'Quiet book']);
+    expect(canonicalShelf.map((book) => book.title)).toEqual(['Quiet book', 'Urgent book']);
   });
 
   it('maps the Reader dark and e-ink settings onto the selected presentation root', () => {
@@ -185,9 +204,11 @@ describe('LearningBored library presentation isolation', () => {
 
     useThemeStore.setState({ isDarkMode: true });
     const dark = render(
-      <LearningBoredClientProvider value={clientWithListDocuments(listDocuments)}>
-        <LearningBoredLibraryPresentation>Library</LearningBoredLibraryPresentation>
-      </LearningBoredClientProvider>,
+      <LearningBoredRuntimePresentationProviders>
+        <LearningBoredClientProvider value={clientWithListDocuments(listDocuments)}>
+          <LearningBoredLibraryPresentation>Library</LearningBoredLibraryPresentation>
+        </LearningBoredClientProvider>
+      </LearningBoredRuntimePresentationProviders>,
     );
     expect(
       dark.container
@@ -201,9 +222,11 @@ describe('LearningBored library presentation isolation', () => {
       settings: { globalViewSettings: { isEink: true } } as SystemSettings,
     });
     const eink = render(
-      <LearningBoredClientProvider value={clientWithListDocuments(listDocuments)}>
-        <LearningBoredLibraryPresentation>Library</LearningBoredLibraryPresentation>
-      </LearningBoredClientProvider>,
+      <LearningBoredRuntimePresentationProviders>
+        <LearningBoredClientProvider value={clientWithListDocuments(listDocuments)}>
+          <LearningBoredLibraryPresentation>Library</LearningBoredLibraryPresentation>
+        </LearningBoredClientProvider>
+      </LearningBoredRuntimePresentationProviders>,
     );
     expect(
       eink.container

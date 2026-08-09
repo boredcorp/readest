@@ -2,8 +2,8 @@
 
 import { BookOpenCheck } from 'lucide-react';
 
-import { useTranslation } from '@/hooks/useTranslation';
 import type { LearningBoredDocumentSummary } from '../client';
+import { useLearningBoredTranslation } from './context';
 
 export interface LearningBoredLibraryStatusProps {
   document: LearningBoredDocumentSummary | null;
@@ -52,7 +52,7 @@ const LearningBoredLibraryStatus: React.FC<LearningBoredLibraryStatusProps> = ({
   document,
   className,
 }) => {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   if (!document) return null;
 
   const labels = getLearningBoredLibraryStatusLabels(document, _);

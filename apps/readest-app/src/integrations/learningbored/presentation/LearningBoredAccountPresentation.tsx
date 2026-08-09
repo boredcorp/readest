@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 
-import ProfileHeader from '@/app/user/components/Header';
-import { useTranslation } from '@/hooks/useTranslation';
 import { useLearningBoredClient } from '@/integrations/learningbored/LearningBoredClientContext';
 import { LEARNINGBORED_SUPPORT_EMAIL } from '@/integrations/learningbored/private-beta-policy';
 import type {
@@ -11,7 +9,12 @@ import type {
   LearningBoredCredits,
 } from '@/integrations/learningbored/client';
 
-import { useLearningBoredPresentationTheme } from './theme';
+import {
+  type LearningBoredTranslationFunc,
+  useLearningBoredPresentationTheme,
+  useLearningBoredTranslation,
+} from './context';
+import { learningBoredDirectionContractAttributes } from './direction-contract';
 import styles from './learningbored-account.module.css';
 
 type CreditsState =
@@ -21,6 +24,7 @@ type CreditsState =
 
 export interface LearningBoredAccountPresentationProps {
   status: 'loading' | 'ready';
+  header?: ReactNode;
   userFullName?: string;
   userEmail?: string;
   safeAreaTop?: number;
@@ -30,6 +34,7 @@ export interface LearningBoredAccountPresentationProps {
   onBack: () => void;
   onToggleStorage: () => void;
   onResetPassword: () => void;
+  onRequestDeletion?: () => void;
   onUpdateEmail: () => void;
   onSignOut: () => void;
 }
@@ -44,7 +49,7 @@ function accountInitials(name: string | undefined, email: string | undefined): s
 
 function eventCopy(
   event: LearningBoredCreditLedgerEntry,
-  translate: ReturnType<typeof useTranslation>,
+  translate: LearningBoredTranslationFunc,
 ): { label: string; detail: string } {
   switch (event.eventType) {
     case 'chalk_granted':
@@ -86,7 +91,7 @@ function formatEventDate(value: string): string {
 }
 
 function CreditHistory({ entries }: { entries: LearningBoredCreditLedgerEntry[] }) {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
 
   if (entries.length === 0) {
     return (
@@ -129,7 +134,7 @@ function CreditHistory({ entries }: { entries: LearningBoredCreditLedgerEntry[] 
 }
 
 function ChalkLedger({ enabled }: { enabled: boolean }) {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const client = useLearningBoredClient();
   const [requestVersion, setRequestVersion] = useState(0);
   const [state, setState] = useState<CreditsState>({ status: 'loading' });
@@ -251,6 +256,7 @@ function ChalkLedger({ enabled }: { enabled: boolean }) {
 
 export default function LearningBoredAccountPresentation({
   status,
+  header,
   userFullName,
   userEmail,
   safeAreaTop = 0,
@@ -260,10 +266,11 @@ export default function LearningBoredAccountPresentation({
   onBack,
   onToggleStorage,
   onResetPassword,
+  onRequestDeletion,
   onUpdateEmail,
   onSignOut,
 }: LearningBoredAccountPresentationProps) {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const theme = useLearningBoredPresentationTheme();
   const displayName = userFullName?.trim() || _('LearningBored learner');
   const shellStyle = useMemo(
@@ -273,21 +280,14 @@ export default function LearningBoredAccountPresentation({
 
   return (
     <div
+      {...learningBoredDirectionContractAttributes}
       className={`lb-presentation ${styles['root']}`}
       data-lb-presentation='account'
       data-lb-theme={theme}
       data-rounded-window={roundedWindow || undefined}
       style={shellStyle}
     >
-      <ProfileHeader
-        onGoBack={onBack}
-        fixed={false}
-        className={styles['profileHeader']}
-        buttonClassName={styles['backButton']}
-        iconClassName={styles['backIcon']}
-        style={{ marginTop: safeAreaTop }}
-        title={<span className={styles['headerWordmark']}>LearningBored</span>}
-      />
+      {header}
 
       <div className={styles['layout']}>
         <aside className={styles['rail']} aria-label={_('Account sections')}>
@@ -432,12 +432,22 @@ export default function LearningBoredAccountPresentation({
                     )}
                   </p>
                 </div>
-                <a
-                  className={styles['deletionLink']}
-                  href={`mailto:${LEARNINGBORED_SUPPORT_EMAIL}?subject=LearningBored%20account%20deletion%20request`}
-                >
-                  {_('Request account deletion')}
-                </a>
+                {onRequestDeletion ? (
+                  <button
+                    className={styles['deletionLink']}
+                    onClick={onRequestDeletion}
+                    type='button'
+                  >
+                    {_('Request account deletion')}
+                  </button>
+                ) : (
+                  <a
+                    className={styles['deletionLink']}
+                    href={`mailto:${LEARNINGBORED_SUPPORT_EMAIL}?subject=LearningBored%20account%20deletion%20request`}
+                  >
+                    {_('Request account deletion')}
+                  </a>
+                )}
               </section>
             </>
           )}

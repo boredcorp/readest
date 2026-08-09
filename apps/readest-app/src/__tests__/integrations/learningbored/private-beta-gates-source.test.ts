@@ -46,7 +46,9 @@ describe('LearningBored private-beta source gates', () => {
   it('makes LearningBored auth sign-in-only and removes social providers', () => {
     const source = readSource('app/auth/page.tsx');
 
-    expect(source).toContain("view={privateBetaPolicy.active ? 'sign_in' : undefined}");
+    expect(source).toContain('view={privateBetaPolicy.active ? view : undefined}');
+    expect(source).toContain("type SupabaseAuthView = 'sign_in' | 'forgotten_password';");
+    expect(source).toContain("isReset ? 'forgotten_password' : 'sign_in'");
     expect(source).toContain('showLinks={privateBetaPolicy.allowSignUpLinks}');
     expect(source).toContain('privateBetaPolicy.allowSocialOAuth &&');
     expect(source).toContain('providers={providers}');
@@ -58,7 +60,8 @@ describe('LearningBored private-beta source gates', () => {
   it('gates every direct PostHog operation and does not mount its provider', () => {
     const posthogProvider = readSource('context/PHContext.tsx');
     const authContext = readSource('context/AuthContext.tsx');
-    const errorPage = readSource('app/error.tsx');
+    const errorBoundary = readSource('app/error.tsx');
+    const errorPage = readSource('components/ReaderApplicationError.tsx');
     const telemetry = readSource('utils/telemetry.ts');
     const stripeClient = readSource('libs/payment/stripe/client.ts');
     const settingsMenu = readSource('app/library/components/SettingsMenu.tsx');
@@ -67,6 +70,7 @@ describe('LearningBored private-beta source gates', () => {
 
     expect(posthogProvider).toContain('if (!privateBetaPolicy.allowTelemetry)');
     expect(authContext).toContain('if (privateBetaPolicy.allowTelemetry)');
+    expect(errorBoundary).not.toContain("from 'posthog-js'");
     expect(errorPage).toContain('if (privateBetaPolicy.allowTelemetry)');
     expect(telemetry).toContain('privateBetaPolicy.allowTelemetry');
     expect(stripeClient).toContain('if (privateBetaPolicy.allowTelemetry)');
@@ -105,9 +109,13 @@ describe('LearningBored private-beta source gates', () => {
     expect(presentationMetadata).toContain("title: 'Account & Sign In'");
   });
 
-  it('confines selected presentation dispatch to auth, library, and account routes', () => {
+  it('confines selected presentation dispatch to the auth family, library, and account routes', () => {
     const routes = [
       ['app/auth/page.tsx', 'LearningBoredAuthPresentation'],
+      ['app/auth/callback/page.tsx', 'LearningBoredAuthPresentation'],
+      ['app/auth/error/page.tsx', 'LearningBoredAuthPresentation'],
+      ['app/auth/recovery/page.tsx', 'LearningBoredAuthPresentation'],
+      ['app/auth/update/page.tsx', 'LearningBoredAuthPresentation'],
       ['app/library/page.tsx', 'LearningBoredLibraryPresentation'],
       ['app/user/page.tsx', 'LearningBoredAccountPresentation'],
     ] as const;

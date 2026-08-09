@@ -5,7 +5,6 @@ import { BookOpen, LoaderCircle, LockKeyhole, SearchX, Upload, UserRound } from 
 import { useMemo, type ReactNode, type Ref } from 'react';
 
 import type { BookshelfPresentation } from '@/app/library/components/bookshelfPresentation';
-import { useTranslation } from '@/hooks/useTranslation';
 import type { Book } from '@/types/book';
 import LearningBoredLibraryStatus, {
   getLearningBoredLibraryStatusLabels,
@@ -17,7 +16,8 @@ import {
 } from '@/integrations/learningbored/library';
 
 import LearningBoredFoldMark from './LearningBoredFoldMark';
-import { useLearningBoredPresentationTheme } from './theme';
+import { useLearningBoredPresentationTheme, useLearningBoredTranslation } from './context';
+import { learningBoredDirectionContractAttributes } from './direction-contract';
 import styles from './LearningBoredLibraryPresentation.module.css';
 
 export interface LearningBoredLibraryPresentationContext {
@@ -46,6 +46,7 @@ export interface LearningBoredLibrarySurfaceProps {
   documentCount: number | null;
   dueCount: number | null;
   enrichmentStatus: LearningBoredLibraryEnrichmentStatus;
+  onNavigate?: (destination: 'account' | 'library') => void;
 }
 
 export interface LearningBoredLibraryEmptyStateProps {
@@ -53,7 +54,7 @@ export interface LearningBoredLibraryEmptyStateProps {
 }
 
 export function LearningBoredLibraryLoadingState() {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   return (
     <div className={styles['loadingState']} role='status' aria-live='polite'>
       <LoaderCircle aria-hidden='true' />
@@ -66,7 +67,7 @@ export function LearningBoredLibraryLoadingState() {
 }
 
 export function LearningBoredLibraryEmptyState({ onImport }: LearningBoredLibraryEmptyStateProps) {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   return (
     <div className={styles['emptyState']}>
       <div className={styles['emptyCopy']}>
@@ -137,8 +138,9 @@ export function LearningBoredLibrarySurface({
   documentCount,
   dueCount,
   enrichmentStatus,
+  onNavigate,
 }: LearningBoredLibrarySurfaceProps) {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const statusMessage = getStatusMessage(_, {
     syncing,
     syncProgress,
@@ -150,19 +152,55 @@ export function LearningBoredLibrarySurface({
   return (
     <div ref={pageRef} className={`${styles['surface']} ${className ?? ''}`}>
       <aside className={styles['rail']} aria-label={_('LearningBored navigation')}>
-        <Link href='/library' className={styles['brand']} aria-label={_('LearningBored library')}>
-          <LearningBoredFoldMark className={styles['foldMark']} />
-          <span>LearningBored</span>
-        </Link>
+        {onNavigate ? (
+          <button
+            aria-label={_('LearningBored library')}
+            className={styles['brand']}
+            onClick={() => onNavigate('library')}
+            type='button'
+          >
+            <LearningBoredFoldMark className={styles['foldMark']} />
+            <span>LearningBored</span>
+          </button>
+        ) : (
+          <Link href='/library' className={styles['brand']} aria-label={_('LearningBored library')}>
+            <LearningBoredFoldMark className={styles['foldMark']} />
+            <span>LearningBored</span>
+          </Link>
+        )}
         <nav className={styles['navigation']} aria-label={_('Primary')}>
-          <Link href='/library' className={styles['navItem']} aria-current='page'>
-            <BookOpen aria-hidden='true' />
-            <span>{_('Library')}</span>
-          </Link>
-          <Link href='/user' className={styles['navItem']}>
-            <UserRound aria-hidden='true' />
-            <span>{_('Account')}</span>
-          </Link>
+          {onNavigate ? (
+            <>
+              <button
+                aria-current='page'
+                className={styles['navItem']}
+                onClick={() => onNavigate('library')}
+                type='button'
+              >
+                <BookOpen aria-hidden='true' />
+                <span>{_('Library')}</span>
+              </button>
+              <button
+                className={styles['navItem']}
+                onClick={() => onNavigate('account')}
+                type='button'
+              >
+                <UserRound aria-hidden='true' />
+                <span>{_('Account')}</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href='/library' className={styles['navItem']} aria-current='page'>
+                <BookOpen aria-hidden='true' />
+                <span>{_('Library')}</span>
+              </Link>
+              <Link href='/user' className={styles['navItem']}>
+                <UserRound aria-hidden='true' />
+                <span>{_('Account')}</span>
+              </Link>
+            </>
+          )}
         </nav>
         <p className={styles['privacyNote']}>
           <LockKeyhole aria-hidden='true' />
@@ -200,7 +238,7 @@ export function LearningBoredLibrarySurface({
 export default function LearningBoredLibraryPresentation({
   children,
 }: LearningBoredLibraryPresentationProps) {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const theme = useLearningBoredPresentationTheme();
   const { documentsByReaderBookId, status } = useLearningBoredLibraryDocuments();
 
@@ -214,6 +252,13 @@ export default function LearningBoredLibraryPresentation({
           ? documents.reduce((total, document) => total + document.dueCount, 0)
           : null,
       bookshelfPresentation: {
+        getItemPriority: (item) => {
+          const books = 'format' in item ? [item] : item.books;
+          return books.reduce((total, book) => {
+            const document = getLearningBoredDocumentForBook(book, documentsByReaderBookId);
+            return total + (document?.dueCount ?? 0);
+          }, 0);
+        },
         emptyResult: (
           <div className={styles['noResults']} role='status'>
             <SearchX aria-hidden='true' />
@@ -247,7 +292,12 @@ export default function LearningBoredLibraryPresentation({
   }, [_, documentsByReaderBookId, status]);
 
   return (
-    <div className='lb-presentation' data-lb-presentation='library' data-lb-theme={theme}>
+    <div
+      {...learningBoredDirectionContractAttributes}
+      className='lb-presentation'
+      data-lb-presentation='library'
+      data-lb-theme={theme}
+    >
       {typeof children === 'function' ? children(context) : children}
     </div>
   );

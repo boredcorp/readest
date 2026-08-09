@@ -6,6 +6,7 @@ vi.mock('@/hooks/useTranslation', () => ({
 }));
 
 import LearningBoredProgressPanel from '@/integrations/learningbored/LearningBoredProgressPanel';
+import LearningBoredExamOverlay from '@/integrations/learningbored/LearningBoredExamOverlay';
 import { LearningBoredConceptList } from '@/integrations/learningbored/LearningBoredMastery';
 import type {
   LearningBoredBlueprint,
@@ -153,6 +154,10 @@ const READINESS: LearningBoredReadinessResult = {
   derivationVersion: '1.0.0',
 };
 
+function loadExamOverlayFixture() {
+  return Promise.resolve({ default: LearningBoredExamOverlay });
+}
+
 function createClient(input?: {
   document?: LearningBoredDocumentSummary;
   mastery?: LearningBoredMasteryResult;
@@ -249,9 +254,7 @@ describe('LearningBored progress panel', () => {
   it('shows actionable concept mastery without requesting or exposing the optional overlay', async () => {
     const client = createClient({ document: { ...DOCUMENT, blueprintId: null } });
     const onStartReview = vi.fn();
-    const loadExamOverlay = vi.fn(
-      async () => import('@/integrations/learningbored/LearningBoredExamOverlay'),
-    );
+    const loadExamOverlay = vi.fn(loadExamOverlayFixture);
     render(
       <LearningBoredProgressPanel
         client={client}
@@ -331,16 +334,19 @@ describe('LearningBored progress panel', () => {
       document: { ...DOCUMENT, blueprintId: BLUEPRINT.id },
       mastery: attachedMastery,
     });
+    const loadExamOverlay = vi.fn(loadExamOverlayFixture);
     render(
       <LearningBoredProgressPanel
         client={client}
         documentId={DOCUMENT.id}
         onClose={vi.fn()}
         onStartReview={vi.fn()}
+        loadExamOverlay={loadExamOverlay}
       />,
     );
 
     expect(await screen.findByRole('heading', { name: 'Readiness by objective' })).toBeTruthy();
+    expect(loadExamOverlay).toHaveBeenCalledTimes(1);
     expect(client.getDocumentReadiness).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('heading', { name: 'Concept progress' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Fictional unmapped bridge' })).toBeTruthy();
@@ -419,6 +425,7 @@ describe('LearningBored progress panel', () => {
       document: { ...DOCUMENT, blueprintId: BLUEPRINT.id },
       readiness,
     });
+    const loadExamOverlay = vi.fn(loadExamOverlayFixture);
 
     render(
       <LearningBoredProgressPanel
@@ -426,10 +433,12 @@ describe('LearningBored progress panel', () => {
         documentId={DOCUMENT.id}
         onClose={vi.fn()}
         onStartReview={vi.fn()}
+        loadExamOverlay={loadExamOverlay}
       />,
     );
 
     expect(await screen.findByRole('heading', { name: 'Readiness by objective' })).toBeTruthy();
+    expect(loadExamOverlay).toHaveBeenCalledTimes(1);
     const objectiveButtons = screen.getAllByRole('button', { name: /Open concept details/u });
     const zeroObjective = objectiveButtons.find((button) =>
       button.textContent?.includes('Heavy weak area'),
