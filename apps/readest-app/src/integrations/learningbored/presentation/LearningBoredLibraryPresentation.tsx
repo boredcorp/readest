@@ -15,7 +15,7 @@ import {
   type LearningBoredLibraryEnrichmentStatus,
 } from '@/integrations/learningbored/library';
 
-import LearningBoredFoldMark from './LearningBoredFoldMark';
+import LearningBoredBrandMark from './LearningBoredBrandMark';
 import { useLearningBoredPresentationTheme, useLearningBoredTranslation } from './context';
 import { learningBoredDirectionContractAttributes } from './direction-contract';
 import styles from './LearningBoredLibraryPresentation.module.css';
@@ -159,12 +159,12 @@ export function LearningBoredLibrarySurface({
             onClick={() => onNavigate('library')}
             type='button'
           >
-            <LearningBoredFoldMark className={styles['foldMark']} />
+            <LearningBoredBrandMark className={styles['brandMark']} />
             <span>LearningBored</span>
           </button>
         ) : (
           <Link href='/library' className={styles['brand']} aria-label={_('LearningBored library')}>
-            <LearningBoredFoldMark className={styles['foldMark']} />
+            <LearningBoredBrandMark className={styles['brandMark']} />
             <span>LearningBored</span>
           </Link>
         )}

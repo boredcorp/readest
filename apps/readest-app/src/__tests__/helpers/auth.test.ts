@@ -166,8 +166,8 @@ describe('handleAuthCallback', () => {
     mockGetUser.mockResolvedValue({ data: { user: fakeUser } });
 
     handleAuthCallback({
-      accessToken: 'token',
-      refreshToken: 'refresh',
+      accessToken: 'fictional-recovery-access',
+      refreshToken: 'fictional-recovery-refresh',
       login: mockLogin,
       navigate: mockNavigate,
       type: 'recovery',
@@ -175,9 +175,17 @@ describe('handleAuthCallback', () => {
     });
 
     await vi.waitFor(() => {
-      expect(mockLogin).toHaveBeenCalledWith('token', fakeUser);
+      expect(mockLogin).toHaveBeenCalledWith('fictional-recovery-access', fakeUser);
     });
 
+    expect(mockSetSession).toHaveBeenCalledTimes(1);
+    expect(mockSetSession).toHaveBeenCalledWith({
+      access_token: 'fictional-recovery-access',
+      refresh_token: 'fictional-recovery-refresh',
+    });
+    expect(mockGetUser).toHaveBeenCalledTimes(1);
+    expect(mockLogin).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledTimes(1);
     expect(mockNavigate).toHaveBeenCalledWith('/auth/recovery');
     // Should NOT navigate to next when type is recovery
     expect(mockNavigate).not.toHaveBeenCalledWith('/some-page');

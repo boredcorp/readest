@@ -21,7 +21,7 @@ import LearningBoredAuthPresentation, {
   LearningBoredAuthMessage,
   LearningBoredAuthStatus,
 } from '../presentation/LearningBoredAuthPresentation';
-import LearningBoredFoldMark from '../presentation/LearningBoredFoldMark';
+import LearningBoredBrandMark from '../presentation/LearningBoredBrandMark';
 import LearningBoredLibraryPresentation, {
   LearningBoredLibraryEmptyState,
   LearningBoredLibraryLoadingState,
@@ -697,7 +697,7 @@ export default function LearningBoredPreview() {
 
       <header className={styles['masthead']}>
         <div className={styles['brandLockup']}>
-          <LearningBoredFoldMark className={styles['foldMark']} />
+          <LearningBoredBrandMark className={styles['brandMark']} />
           <div>
             <h1>Reader state preview</h1>
             <p>Deterministic Operate fixtures · no account, store, network, or provider reads</p>

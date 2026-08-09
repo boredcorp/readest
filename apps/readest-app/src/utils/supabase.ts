@@ -5,6 +5,7 @@ import {
   canonicalizeLearningBoredSupabaseOrigin,
   requiresExactLearningBoredSupabaseEnvironment,
 } from '@/integrations/learningbored/production-environment.mjs';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
 
 const supabaseEnvironment = {
   deploymentProfile: process.env['NEXT_PUBLIC_LEARNINGBORED_DEPLOYMENT_PROFILE'],
@@ -18,6 +19,10 @@ assertLearningBoredProductionSupabaseEnvironment(supabaseEnvironment);
 
 const requiresExactSupabaseEnvironment =
   requiresExactLearningBoredSupabaseEnvironment(supabaseEnvironment);
+const learningBoredPrivateBetaPolicy = getLearningBoredPrivateBetaPolicy({
+  deploymentProfile: supabaseEnvironment.deploymentProfile,
+  enabled: supabaseEnvironment.learningBoredEnabled,
+});
 const explicitSupabaseUrl = requiresExactSupabaseEnvironment
   ? canonicalizeLearningBoredSupabaseOrigin(supabaseEnvironment.supabaseUrl)
   : supabaseEnvironment.supabaseUrl?.trim();
@@ -34,7 +39,13 @@ const supabaseAnonKey = requiresExactSupabaseEnvironment
     explicitSupabaseAnonKey ||
     atob(process.env['NEXT_PUBLIC_DEFAULT_SUPABASE_KEY_BASE64']!);
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    // The selected private-beta callback owns its implicit-flow fragment. Default Readest keeps
+    // auth-js's canonical URL detection behavior.
+    detectSessionInUrl: !learningBoredPrivateBetaPolicy.active,
+  },
+});
 
 export const createSupabaseClient = (accessToken?: string) => {
   return createClient(supabaseUrl, supabaseAnonKey, {

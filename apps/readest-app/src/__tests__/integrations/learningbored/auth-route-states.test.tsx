@@ -5,6 +5,15 @@ const probes = vi.hoisted(() => ({
   authStateCallback: null as
     | null
     | ((event: string, session: { access_token: string; user: { id: string } } | null) => void),
+  callbackCalls: [] as Array<{
+    accessToken: string | null | undefined;
+    hash: string;
+    historyState: unknown;
+    pathname: string;
+    refreshToken: string | null | undefined;
+    search: string;
+    type: string | null | undefined;
+  }>,
   callbackNavigate: null as null | ((path: string) => void),
   getSession: vi.fn(),
   login: vi.fn(),
@@ -75,7 +84,21 @@ vi.mock('@/utils/supabase', () => ({
 }));
 
 vi.mock('@/helpers/auth', () => ({
-  handleAuthCallback: (options: { navigate: (path: string) => void }) => {
+  handleAuthCallback: (options: {
+    accessToken?: string | null;
+    navigate: (path: string) => void;
+    refreshToken?: string | null;
+    type?: string | null;
+  }) => {
+    probes.callbackCalls.push({
+      accessToken: options.accessToken,
+      hash: window.location.hash,
+      historyState: window.history.state,
+      pathname: window.location.pathname,
+      refreshToken: options.refreshToken,
+      search: window.location.search,
+      type: options.type,
+    });
     probes.callbackNavigate = options.navigate;
   },
 }));
@@ -87,6 +110,7 @@ import UpdateEmailPage, { UpdateEmailRouteController } from '@/app/auth/update/p
 
 beforeEach(() => {
   probes.authStateCallback = null;
+  probes.callbackCalls = [];
   probes.callbackNavigate = null;
   probes.getSession.mockReset();
   probes.getSession.mockResolvedValue({ data: { session: null }, error: null });
@@ -114,21 +138,44 @@ describe('LearningBored auth route states', () => {
     );
   });
 
-  it('announces callback progress and a successful redirect', async () => {
+  it('clears a captured recovery fragment before establishing and navigating once', async () => {
+    const nextHistoryState = {
+      __NA: true,
+      tree: ['fictional', 'callback'],
+    };
     window.history.replaceState(
-      null,
+      nextHistoryState,
       '',
-      '/auth/callback#access_token=access&refresh_token=refresh&next=%2Flibrary',
+      '/auth/callback?source=recovery#access_token=fictional-access&refresh_token=fictional-refresh&expires_in=3600&token_type=bearer&type=recovery',
     );
-    render(<AuthCallback />);
+    const rendered = render(<AuthCallback />);
 
     expect(screen.getByRole('status', { name: /Verifying the secure callback/u })).toBeTruthy();
+    expect(window.location.pathname).toBe('/auth/callback');
+    expect(window.location.search).toBe('?source=recovery');
+    expect(window.location.hash).toBe('');
+    expect(window.history.state).toEqual(nextHistoryState);
+    expect(probes.callbackCalls).toEqual([
+      {
+        accessToken: 'fictional-access',
+        hash: '',
+        historyState: nextHistoryState,
+        pathname: '/auth/callback',
+        refreshToken: 'fictional-refresh',
+        search: '?source=recovery',
+        type: 'recovery',
+      },
+    ]);
     expect(probes.callbackNavigate).toBeTypeOf('function');
 
-    act(() => probes.callbackNavigate?.('/library'));
+    rendered.rerender(<AuthCallback />);
+    expect(probes.callbackCalls).toHaveLength(1);
+
+    act(() => probes.callbackNavigate?.('/auth/recovery'));
 
     expect(await screen.findByRole('status', { name: /Opening your Reader/u })).toBeTruthy();
-    expect(probes.push).toHaveBeenCalledWith('/library');
+    expect(probes.push).toHaveBeenCalledTimes(1);
+    expect(probes.push).toHaveBeenCalledWith('/auth/recovery');
   });
 
   it('routes callback provider errors into an actionable Miura error state', async () => {

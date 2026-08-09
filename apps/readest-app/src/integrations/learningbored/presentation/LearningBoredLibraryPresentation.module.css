@@ -52,18 +52,16 @@ button.brand {
   outline-offset: 3px;
 }
 
-.foldMark {
+.brandMark {
+  display: block;
   width: 2rem;
   height: 2rem;
   flex: none;
-  stroke: currentColor;
-  stroke-width: 1.6;
-  stroke-linecap: square;
-  stroke-linejoin: bevel;
+  object-fit: contain;
 }
 
-.foldMark path:last-child {
-  stroke: var(--lb-color-anchor);
+:global(.lb-presentation[data-lb-theme='eink']) .brandMark {
+  filter: grayscale(1);
 }
 
 .navigation {
@@ -392,7 +390,7 @@ button.brand {
     font-size: 1rem;
   }
 
-  .foldMark {
+  .brandMark {
     width: 1.75rem;
     height: 1.75rem;
   }

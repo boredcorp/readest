@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/context/AuthContext';
@@ -35,13 +35,21 @@ function AuthCallbackRouteController({ presentation }: { presentation: AuthCallb
   const _ = useTranslation();
   const router = useRouter();
   const { login } = useAuth();
+  const hasHandledCallback = useRef(false);
   const [visualState, setVisualState] = useState<'pending' | 'success' | AuthCallbackFailureReason>(
     'pending',
   );
 
   useEffect(() => {
-    const hash = window.location.hash || '';
-    const params = new URLSearchParams(hash.slice(1));
+    if (hasHandledCallback.current) return;
+    hasHandledCallback.current = true;
+
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    window.history.replaceState(
+      window.history.state,
+      '',
+      `${window.location.pathname}${window.location.search}`,
+    );
 
     const accessToken = params.get('access_token');
     const refreshToken = params.get('refresh_token');

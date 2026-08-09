@@ -1,7 +1,6 @@
 'use client';
 
 import DOMPurify from 'dompurify';
-import Image from 'next/image';
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -36,6 +35,7 @@ import {
 import { startLearningBoredPoller } from './polling';
 import type { LearningBoredReaderSession } from './session';
 import LearningBoredComprehensionPrompt from './LearningBoredComprehensionPrompt';
+import LearningBoredBrandMark from './presentation/LearningBoredBrandMark';
 
 const BOARD_KIND_LABELS: Record<LearningBoredBoardKind, string> = {
   concept_map: 'Concept map',
@@ -773,14 +773,7 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
 
       <header className='border-base-300 flex min-h-14 shrink-0 items-center justify-between gap-3 border-b px-4'>
         <div className='flex min-w-0 items-center gap-3'>
-          <Image
-            src='/learningbored/mark.svg'
-            width={28}
-            height={28}
-            alt=''
-            aria-hidden='true'
-            className='shrink-0'
-          />
+          <LearningBoredBrandMark className='eink:grayscale size-7 shrink-0' />
           <div className='min-w-0'>
             <h2 className='truncate text-base font-semibold'>{_('LearningBored')}</h2>
             <p className='text-base-content/60 truncate text-xs'>

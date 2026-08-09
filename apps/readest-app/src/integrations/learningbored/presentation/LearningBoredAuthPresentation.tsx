@@ -14,7 +14,7 @@ import {
   useLearningBoredTranslation,
 } from './context';
 import { learningBoredDirectionContractAttributes } from './direction-contract';
-import LearningBoredFoldMark from './LearningBoredFoldMark';
+import LearningBoredBrandMark from './LearningBoredBrandMark';
 import styles from './LearningBoredAuthPresentation.module.css';
 
 interface LearningBoredAuthPresentationProps extends PropsWithChildren {
@@ -226,7 +226,7 @@ export default function LearningBoredAuthPresentation({
       <aside className={styles['contextRail']} aria-label={_('Your LearningBored workspace')}>
         <div className={styles['brandLockup']}>
           <div className={styles['brand']}>
-            <LearningBoredFoldMark className={styles['foldMark']} />
+            <LearningBoredBrandMark className={styles['brandMark']} />
             <span>LearningBored</span>
           </div>
           <span className={styles['betaStatus']}>{_('Private beta')}</span>
