@@ -108,6 +108,14 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     bookKey,
     bookData.book === null ? undefined : bookData.book,
   );
+  const activeMarketplaceScenePack =
+    bookData.book?.marketplace?.entitlementStatus === 'active' &&
+    bookData.book.marketplace.hasScenePack
+      ? bookData.book.marketplace.scenePack
+      : undefined;
+  const activeMarketplaceLibraryItemId = activeMarketplaceScenePack
+    ? bookData.book?.marketplace?.libraryItemId
+    : undefined;
   const isStoryBoredStateOwnedByCurrentUser = Boolean(
     isStoryBoredAuthReady && storyBoredUserId && storyBoredStateOwnerUserId === storyBoredUserId,
   );
@@ -1137,6 +1145,8 @@ const Annotator: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       <StoryBoredScenePanel
         isOpen={visibleStoryBoredPanel}
         bookId={resolvedStoryBoredBookId}
+        marketplaceLibraryItemId={activeMarketplaceLibraryItemId}
+        marketplaceScenePack={activeMarketplaceScenePack}
         passage={visibleStoryBoredPassage}
         generationId={visibleStoryBoredGenerationId}
         onGenerationChange={handleStoryBoredGenerationChange}

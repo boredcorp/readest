@@ -17,6 +17,13 @@ export interface UserHighlightColor {
   hex: string;
   label?: string;
 }
+
+export interface MarketplaceScenePackSummary {
+  id: string;
+  version: string;
+  label?: string;
+  sceneCount: number;
+}
 export type ReadingRulerColor = 'transparent' | 'yellow' | 'green' | 'blue' | 'rose';
 
 export interface ParagraphModeConfig {
@@ -92,6 +99,8 @@ export interface Book {
 
   marketplace?: {
     libraryItemId: string;
+    /** One-way owner marker; the owner-verifiable Book.hash remains authoritative. */
+    ownerUserHash?: string;
     listingId: string;
     /** Stable StoryBored API identity; distinct from the entitlement-local `Book.hash`. */
     sourceKey?: string;
@@ -101,7 +110,11 @@ export interface Book {
     offlineCachedAt?: number | null;
     contentUrlExpiresAt?: number | null;
     hasScenePack?: boolean;
+    /** Durable metadata only; signed scene-image URLs stay in transient UI state. */
+    scenePack?: MarketplaceScenePackSummary;
   };
+  /** Transient local account-switch guard; not included in the cloud transform. */
+  marketplaceOwnerMismatchQuarantined?: boolean;
   exportAllowed?: boolean;
 }
 

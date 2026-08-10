@@ -1,6 +1,7 @@
 import clsx from 'clsx';
 import { useCallback } from 'react';
 import { useEnv } from '@/context/EnvContext';
+import { useAuth } from '@/context/AuthContext';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -17,6 +18,7 @@ import { BOOK_UNGROUPED_ID, BOOK_UNGROUPED_NAME } from '@/services/constants';
 import { FILE_REVEAL_LABELS, FILE_REVEAL_PLATFORMS } from '@/utils/os';
 import { Book, BooksGroup, ReadingStatus } from '@/types/book';
 import { md5Fingerprint } from '@/utils/md5';
+import { canOpenStoryBoredMarketplaceBook } from '@/integrations/storybored/marketplace';
 import BookItem from './BookItem';
 import GroupItem from './GroupItem';
 
@@ -119,6 +121,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   const _ = useTranslation();
   const router = useAppRouter();
   const { envConfig, appService } = useEnv();
+  const { user } = useAuth();
   const { settings } = useSettingsStore();
   const { updateBook } = useLibraryStore();
 
@@ -128,6 +131,15 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
   }, []);
 
   const makeBookAvailable = async (book: Book) => {
+    if (!canOpenStoryBoredMarketplaceBook(book, user?.id)) {
+      eventDispatcher.dispatch('toast', {
+        message:
+          'This StoryBored marketplace book must be verified for the current account before opening.',
+        timeout: 3000,
+        type: 'warning',
+      });
+      return false;
+    }
     if (book.uploadedAt && !book.downloadedAt) {
       if (await appService?.isBookAvailable(book)) {
         if (!book.downloadedAt || !book.coverDownloadedAt) {

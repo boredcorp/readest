@@ -5,9 +5,11 @@ import { useRouter, useSearchParams } from 'next/navigation';
 
 import { Book } from '@/types/book';
 import { useEnv } from '@/context/EnvContext';
+import { useAuth } from '@/context/AuthContext';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
+import { useLibraryStore } from '@/store/libraryStore';
 import { useSidebarStore } from '@/store/sidebarStore';
 import { useGamepad } from '@/hooks/useGamepad';
 import { useTranslation } from '@/hooks/useTranslation';
@@ -27,6 +29,7 @@ import {
 } from '@/utils/nav';
 import { BOOK_IDS_SEPARATOR } from '@/services/constants';
 import { BookDetailModal } from '@/components/metadata';
+import { canOpenStoryBoredMarketplaceBook } from '@/integrations/storybored/marketplace';
 
 import useBooksManager from '../hooks/useBooksManager';
 import useBookShortcuts from '../hooks/useBookShortcuts';
@@ -41,6 +44,7 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   const router = useRouter();
   const searchParams = useSearchParams();
   const { envConfig, appService } = useEnv();
+  const { isReady: isAuthReady, user } = useAuth();
   const { bookKeys, dismissBook, getNextBookKey } = useBooksManager();
   const { sideBarBookKey, setSideBarBookKey } = useSidebarStore();
   const { saveSettings } = useSettingsStore();
@@ -57,12 +61,30 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
   useGamepad();
 
   useEffect(() => {
+    if (!isAuthReady) return;
     if (isInitiating.current) return;
     isInitiating.current = true;
 
     const pathname = window.location.pathname;
     const bookIds = ids || searchParams?.get('ids') || pathname.split('/reader/')[1] || '';
-    const initialIds = bookIds.split(BOOK_IDS_SEPARATOR).filter(Boolean);
+    const requestedIds = bookIds.split(BOOK_IDS_SEPARATOR).filter(Boolean);
+    const library = useLibraryStore.getState().library;
+    const initialIds = requestedIds.filter((id) => {
+      const book = library.find((candidate) => candidate.hash === id);
+      return !book || canOpenStoryBoredMarketplaceBook(book, user?.id);
+    });
+    if (initialIds.length !== requestedIds.length) {
+      eventDispatcher.dispatch('toast', {
+        message:
+          'This StoryBored marketplace book must be verified for the current account before opening.',
+        timeout: 3000,
+        type: 'warning',
+      });
+    }
+    if (initialIds.length === 0) {
+      navigateToLibrary(router, '', undefined, true);
+      return;
+    }
     const initialBookKeys = initialIds.map((id) => `${id}-${uniqueId()}`);
     setBookKeys(initialBookKeys);
     const uniqueIds = new Set<string>();
@@ -89,7 +111,21 @@ const ReaderContent: React.FC<{ ids?: string; settings: SystemSettings }> = ({ i
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isAuthReady, user?.id]);
+
+  useEffect(() => {
+    if (!isAuthReady || !isInitiating.current) return;
+    const library = useLibraryStore.getState().library;
+    const hasUnauthorizedBook = useReaderStore.getState().bookKeys.some((key) => {
+      const hash = key.slice(0, key.lastIndexOf('-'));
+      const book = library.find((candidate) => candidate.hash === hash);
+      return Boolean(book && !canOpenStoryBoredMarketplaceBook(book, user?.id));
+    });
+    if (hasUnauthorizedBook) {
+      eventDispatcher.dispatch('close-reader');
+      navigateToLibrary(router, '', undefined, true);
+    }
+  }, [isAuthReady, router, user?.id]);
 
   useEffect(() => {
     const handleShowBookDetails = (event: CustomEvent) => {

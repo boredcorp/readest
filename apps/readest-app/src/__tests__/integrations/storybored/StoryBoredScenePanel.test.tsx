@@ -3,7 +3,12 @@ import type { User } from '@supabase/supabase-js';
 import { useCallback, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { StoryBoredPassage, StoryBoredSceneGeneration } from '@/integrations/storybored/types';
+import type {
+  StoryBoredOwnedLibraryScenePack,
+  StoryBoredPassage,
+  StoryBoredSceneGeneration,
+} from '@/integrations/storybored/types';
+import type { MarketplaceScenePackSummary } from '@/types/book';
 
 const authMocks = vi.hoisted(() => ({
   current: {
@@ -72,11 +77,52 @@ const passage: StoryBoredPassage = {
   stylePreset: 'cinematic-literary',
 };
 
+const marketplaceScenePack: MarketplaceScenePackSummary = {
+  id: 'scene-pack-1',
+  version: 'v1',
+  label: 'Collector scenes',
+  sceneCount: 1,
+};
+
+function ownedScenePack(
+  libraryItemId: string,
+  options: {
+    packId?: string;
+    title?: string;
+    imageUrl?: string;
+    imageUrlExpiresAt?: string;
+  } = {},
+): StoryBoredOwnedLibraryScenePack {
+  const packId = options.packId ?? 'scene-pack-1';
+  return {
+    libraryItemId,
+    listingId: `listing-${libraryItemId}`,
+    scenePack: {
+      id: packId,
+      listingId: `listing-${libraryItemId}`,
+      label: 'Collector scenes',
+      version: 'v1',
+      scenes: [
+        {
+          id: `scene-${libraryItemId}`,
+          title: options.title ?? 'Moonlit bridge',
+          selectedText: 'A bridge appeared beneath the moonlight.',
+          imageUrl: options.imageUrl ?? 'https://assets.storybored.test/moonlit-bridge.webp',
+          imageUrlExpiresAt:
+            options.imageUrlExpiresAt ?? new Date(Date.now() + 60_000).toISOString(),
+          sortOrder: 0,
+        },
+      ],
+    },
+  };
+}
+
 function readerClient(overrides: Record<string, unknown> = {}) {
   return {
     cancelSceneGeneration: vi.fn(),
     createSceneGeneration: vi.fn(),
     getSceneGeneration: vi.fn(),
+    getOwnedLibraryScenePack: vi.fn(),
     listBookSceneGenerations: vi.fn().mockResolvedValue([]),
     retrySceneGeneration: vi.fn(),
     submitFeedback: vi.fn(),
@@ -1182,5 +1228,177 @@ describe('StoryBored scene panel auth epoch', () => {
     });
 
     expect(onGenerationChange).not.toHaveBeenCalledWith(staleResult);
+  });
+
+  it('fetches and renders entitled scenes only when the panel opens', async () => {
+    const getOwnedLibraryScenePack = vi.fn().mockResolvedValue(ownedScenePack('library-item-1'));
+    clientMocks.createClient.mockReturnValue(readerClient({ getOwnedLibraryScenePack }));
+
+    const view = render(
+      <StoryBoredScenePanel
+        isOpen={false}
+        bookId='book-1'
+        marketplaceLibraryItemId='library-item-1'
+        marketplaceScenePack={marketplaceScenePack}
+        passage={null}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(getOwnedLibraryScenePack).not.toHaveBeenCalled();
+
+    view.rerender(
+      <StoryBoredScenePanel
+        isOpen
+        bookId='book-1'
+        marketplaceLibraryItemId='library-item-1'
+        marketplaceScenePack={marketplaceScenePack}
+        passage={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(await screen.findByRole('region', { name: 'Included scenes' })).toBeTruthy();
+    expect((await screen.findByRole('img', { name: 'Moonlit bridge' })).getAttribute('src')).toBe(
+      'https://assets.storybored.test/moonlit-bridge.webp',
+    );
+    expect(getOwnedLibraryScenePack).toHaveBeenCalledTimes(1);
+    expect(getOwnedLibraryScenePack).toHaveBeenCalledWith('library-item-1');
+  });
+
+  it('discards a stale scene-pack response after the active book and entitlement change', async () => {
+    const firstResponse = deferred<StoryBoredOwnedLibraryScenePack>();
+    const getOwnedLibraryScenePack = vi
+      .fn()
+      .mockImplementationOnce(() => firstResponse.promise)
+      .mockResolvedValueOnce(
+        ownedScenePack('library-item-2', {
+          packId: 'scene-pack-2',
+          title: 'Current entitled scene',
+        }),
+      );
+    clientMocks.createClient.mockReturnValue(readerClient({ getOwnedLibraryScenePack }));
+    const view = render(
+      <StoryBoredScenePanel
+        isOpen
+        bookId='book-1'
+        marketplaceLibraryItemId='library-item-1'
+        marketplaceScenePack={marketplaceScenePack}
+        passage={null}
+        onClose={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(getOwnedLibraryScenePack).toHaveBeenCalledWith('library-item-1'));
+
+    view.rerender(
+      <StoryBoredScenePanel
+        isOpen
+        bookId='book-2'
+        marketplaceLibraryItemId='library-item-2'
+        marketplaceScenePack={{ ...marketplaceScenePack, id: 'scene-pack-2' }}
+        passage={null}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(await screen.findByRole('img', { name: 'Current entitled scene' })).toBeTruthy();
+
+    await act(async () => {
+      firstResponse.resolve(
+        ownedScenePack('library-item-1', {
+          title: 'Stale entitled scene',
+        }),
+      );
+      await firstResponse.promise;
+    });
+
+    expect(screen.queryByText('Stale entitled scene')).toBeNull();
+    expect(screen.getByText('Current entitled scene')).toBeTruthy();
+  });
+
+  it('refetches the scene pack when a signed included-scene URL is expired', async () => {
+    const getOwnedLibraryScenePack = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ownedScenePack('library-item-1', {
+          imageUrl: 'https://assets.storybored.test/expired.webp',
+          imageUrlExpiresAt: '2020-01-01T00:00:00.000Z',
+        }),
+      )
+      .mockResolvedValueOnce(
+        ownedScenePack('library-item-1', {
+          imageUrl: 'https://assets.storybored.test/refreshed.webp',
+          imageUrlExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }),
+      );
+    clientMocks.createClient.mockReturnValue(readerClient({ getOwnedLibraryScenePack }));
+
+    render(
+      <StoryBoredScenePanel
+        isOpen
+        bookId='book-1'
+        marketplaceLibraryItemId='library-item-1'
+        marketplaceScenePack={marketplaceScenePack}
+        passage={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(getOwnedLibraryScenePack).toHaveBeenCalledTimes(2));
+    expect((await screen.findByRole('img', { name: 'Moonlit bridge' })).getAttribute('src')).toBe(
+      'https://assets.storybored.test/refreshed.webp',
+    );
+  });
+
+  it('refetches the scene pack after an included scene image fails to load', async () => {
+    const getOwnedLibraryScenePack = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ownedScenePack('library-item-1', {
+          imageUrl: 'https://assets.storybored.test/broken.webp',
+        }),
+      )
+      .mockResolvedValueOnce(
+        ownedScenePack('library-item-1', {
+          imageUrl: 'https://assets.storybored.test/recovered.webp',
+        }),
+      );
+    clientMocks.createClient.mockReturnValue(readerClient({ getOwnedLibraryScenePack }));
+
+    render(
+      <StoryBoredScenePanel
+        isOpen
+        bookId='book-1'
+        marketplaceLibraryItemId='library-item-1'
+        marketplaceScenePack={marketplaceScenePack}
+        passage={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    fireEvent.error(await screen.findByRole('img', { name: 'Moonlit bridge' }));
+    await waitFor(() => expect(getOwnedLibraryScenePack).toHaveBeenCalledTimes(2));
+    expect((await screen.findByRole('img', { name: 'Moonlit bridge' })).getAttribute('src')).toBe(
+      'https://assets.storybored.test/recovered.webp',
+    );
+  });
+
+  it('does not fetch full scene data without an active scene-pack entitlement summary', async () => {
+    const getOwnedLibraryScenePack = vi.fn();
+    clientMocks.createClient.mockReturnValue(readerClient({ getOwnedLibraryScenePack }));
+
+    render(
+      <StoryBoredScenePanel
+        isOpen
+        bookId='book-1'
+        marketplaceLibraryItemId='library-item-1'
+        passage={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(getOwnedLibraryScenePack).not.toHaveBeenCalled();
+    expect(screen.queryByRole('region', { name: 'Included scenes' })).toBeNull();
   });
 });

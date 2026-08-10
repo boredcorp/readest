@@ -40,6 +40,7 @@ import { requestStoragePermission } from '@/utils/permission';
 import { SUPPORTED_BOOK_EXTS } from '@/services/constants';
 import {
   cacheStoryBoredMarketplaceBook,
+  quarantineStoryBoredMarketplaceLibraryForUser,
   syncStoryBoredMarketplaceLibrary,
 } from '@/integrations/storybored/marketplace';
 import { getReaderLoginDecision } from '@/integrations/storybored/session-readiness';
@@ -476,20 +477,28 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   }, [envConfig, isAuthReady, router, saveSettings, setSettings, token, user]);
 
   useEffect(() => {
-    if (!isAuthReady || !token || !libraryLoaded) return;
+    if (!isAuthReady || !token || !user || !libraryLoaded) return;
 
     const controller = new AbortController();
     const syncMarketplaceLibrary = async () => {
       const currentLibrary = useLibraryStore.getState().library;
+      const quarantinedLibrary = quarantineStoryBoredMarketplaceLibraryForUser(
+        currentLibrary,
+        user.id,
+      );
+      if (quarantinedLibrary !== currentLibrary) {
+        setLibrary(quarantinedLibrary);
+      }
       try {
         const syncedLibrary = await syncStoryBoredMarketplaceLibrary({
           envConfig,
+          userId: user.id,
           token,
-          library: currentLibrary,
+          library: quarantinedLibrary,
           getCurrentLibrary: () => useLibraryStore.getState().library,
           signal: controller.signal,
         });
-        if (!controller.signal.aborted && syncedLibrary !== currentLibrary) {
+        if (!controller.signal.aborted && syncedLibrary !== quarantinedLibrary) {
           setLibrary(syncedLibrary);
         }
       } catch (error) {
@@ -503,7 +512,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     return () => {
       controller.abort();
     };
-  }, [envConfig, isAuthReady, libraryLoaded, setLibrary, token]);
+  }, [envConfig, isAuthReady, libraryLoaded, setLibrary, token, user]);
 
   useEffect(() => {
     const group = searchParams?.get('group') || '';

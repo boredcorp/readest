@@ -17,6 +17,7 @@ import {
 
 import { useAuth } from '@/context/AuthContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import type { MarketplaceScenePackSummary } from '@/types/book';
 import { createStoryBoredReaderClient, isStoryBoredReaderEnabled } from './client';
 import { StoryBoredLogoMarkIcon } from './StoryBoredLogo';
 import {
@@ -38,6 +39,7 @@ import {
 import type {
   StoryBoredFeedbackCategory,
   StoryBoredPassage,
+  StoryBoredOwnedLibraryScenePack,
   StoryBoredSceneGeneration,
   StoryBoredSceneStatus,
   StoryBoredStylePreset,
@@ -75,12 +77,16 @@ const DEFAULT_FEEDBACK_DRAFT: StoryBoredFeedbackDraft = {
 interface StoryBoredScenePanelProps {
   isOpen: boolean;
   bookId?: string;
+  marketplaceLibraryItemId?: string;
+  marketplaceScenePack?: MarketplaceScenePackSummary;
   passage: StoryBoredPassage | null;
   generationId?: string | null;
   onGenerationChange?: (generation: StoryBoredSceneGeneration | null) => void;
   onHistoryChange?: (hasScenes: boolean, discoveryFailed?: boolean) => void;
   onClose: () => void;
 }
+
+type StoryBoredIncludedScenePack = NonNullable<StoryBoredOwnedLibraryScenePack['scenePack']>;
 
 const EMPTY_SCENE_HISTORY: StoryBoredSceneHistory = {
   latestActive: null,
@@ -118,9 +124,17 @@ function clearGenerationAttemptKeys(attempts: Set<string>, generationId: string)
   }
 }
 
+function isIncludedSceneImageExpired(expiresAt?: string): boolean {
+  if (!expiresAt) return false;
+  const expiration = Date.parse(expiresAt);
+  return Number.isFinite(expiration) && expiration <= Date.now();
+}
+
 const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   isOpen,
   bookId,
+  marketplaceLibraryItemId,
+  marketplaceScenePack,
   passage,
   generationId,
   onGenerationChange,
@@ -146,6 +160,13 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const [unavailableThumbnailIds, setUnavailableThumbnailIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [includedScenePack, setIncludedScenePack] = useState<StoryBoredIncludedScenePack>();
+  const [isIncludedScenesLoading, setIsIncludedScenesLoading] = useState(false);
+  const [includedScenesError, setIncludedScenesError] = useState<string | null>(null);
+  const [unavailableIncludedSceneImageIds, setUnavailableIncludedSceneImageIds] = useState<
+    Set<string>
+  >(() => new Set());
+  const [includedSceneImageEpoch, setIncludedSceneImageEpoch] = useState(0);
   const authEpochRef = useRef({ isReady, token, userId, version: 0 });
   const authSessionEpochRef = useRef({
     hasSession: Boolean(isReady && token && userId),
@@ -167,6 +188,8 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const thumbnailRefreshAttemptedRef = useRef<Set<string>>(new Set());
   const imageRefreshCountRef = useRef<Map<string, number>>(new Map());
   const thumbnailRefreshCountRef = useRef<Map<string, number>>(new Map());
+  const includedScenesRequestVersionRef = useRef(0);
+  const includedScenesRefreshAttemptedRef = useRef<Set<string>>(new Set());
 
   if (
     authEpochRef.current.isReady !== isReady ||
@@ -251,6 +274,17 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const resolvedBookId = bookId ?? passage?.bookId ?? null;
   const currentBookIdRef = useRef(resolvedBookId);
   currentBookIdRef.current = resolvedBookId;
+  const marketplaceScenePackId = marketplaceScenePack?.id;
+  const includedScenesScopeKey = JSON.stringify([
+    userId,
+    resolvedBookId,
+    marketplaceLibraryItemId ?? null,
+    marketplaceScenePack?.id ?? null,
+    marketplaceScenePack?.version ?? null,
+    marketplaceScenePack?.sceneCount ?? null,
+  ]);
+  const currentIncludedScenesScopeRef = useRef(includedScenesScopeKey);
+  currentIncludedScenesScopeRef.current = includedScenesScopeKey;
   const generationMatchesPassage =
     generationPassageKeyRef.current === null ||
     (Boolean(passage) && generationPassageKeyRef.current === passageKey);
@@ -278,6 +312,90 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   const shouldShowVisibleImagePlaceholder = isVisibleImageExpired || isVisibleImageUnavailable;
   const sceneHistoryRef = useRef(sceneHistory);
   sceneHistoryRef.current = sceneHistory;
+
+  const loadIncludedScenes = useCallback(async () => {
+    const requestVersion = includedScenesRequestVersionRef.current + 1;
+    includedScenesRequestVersionRef.current = requestVersion;
+
+    if (
+      !isOpen ||
+      !isReady ||
+      !token ||
+      !userId ||
+      !resolvedBookId ||
+      !marketplaceLibraryItemId ||
+      !marketplaceScenePackId
+    ) {
+      setIsIncludedScenesLoading(false);
+      return;
+    }
+
+    const requestAuthEpoch = authEpoch;
+    const requestScopeKey = includedScenesScopeKey;
+    const requestLibraryItemId = marketplaceLibraryItemId;
+    const requestScenePackId = marketplaceScenePackId;
+    setIsIncludedScenesLoading(true);
+    setIncludedScenesError(null);
+
+    try {
+      const response = await client.getOwnedLibraryScenePack(requestLibraryItemId);
+      if (
+        includedScenesRequestVersionRef.current !== requestVersion ||
+        !isCurrentAuthEpoch(requestAuthEpoch) ||
+        currentIncludedScenesScopeRef.current !== requestScopeKey
+      ) {
+        return;
+      }
+
+      if (response.libraryItemId !== requestLibraryItemId) {
+        throw new Error('StoryBored returned scenes for a different library item.');
+      }
+      if (response.scenePack && response.scenePack.id !== requestScenePackId) {
+        throw new Error('StoryBored returned an unexpected included scene pack.');
+      }
+
+      setIncludedScenePack(response.scenePack);
+      setUnavailableIncludedSceneImageIds(new Set());
+      setIncludedSceneImageEpoch((current) => current + 1);
+    } catch (includedScenesLoadError) {
+      if (
+        includedScenesRequestVersionRef.current === requestVersion &&
+        isCurrentAuthEpoch(requestAuthEpoch) &&
+        currentIncludedScenesScopeRef.current === requestScopeKey
+      ) {
+        setIncludedScenesError(getErrorMessage(includedScenesLoadError));
+      }
+    } finally {
+      if (
+        includedScenesRequestVersionRef.current === requestVersion &&
+        currentIncludedScenesScopeRef.current === requestScopeKey
+      ) {
+        setIsIncludedScenesLoading(false);
+      }
+    }
+  }, [
+    authEpoch,
+    client,
+    includedScenesScopeKey,
+    isCurrentAuthEpoch,
+    isOpen,
+    isReady,
+    marketplaceLibraryItemId,
+    marketplaceScenePackId,
+    resolvedBookId,
+    token,
+    userId,
+  ]);
+
+  const refreshIncludedScenes = useCallback(
+    (refreshKey: string) => {
+      if (includedScenesRefreshAttemptedRef.current.has(refreshKey)) return false;
+      includedScenesRefreshAttemptedRef.current.add(refreshKey);
+      void loadIncludedScenes();
+      return true;
+    },
+    [loadIncludedScenes],
+  );
 
   const applyScopedGeneration = useCallback(
     (nextGeneration: StoryBoredSceneGeneration, generationPassageKey: string | null) => {
@@ -442,6 +560,70 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
   useEffect(() => {
     void loadHistory(isOpen);
   }, [isOpen, loadHistory]);
+
+  useEffect(() => {
+    includedScenesRequestVersionRef.current += 1;
+    includedScenesRefreshAttemptedRef.current.clear();
+    setIncludedScenePack(undefined);
+    setIncludedScenesError(null);
+    setUnavailableIncludedSceneImageIds(new Set());
+    setIncludedSceneImageEpoch(0);
+
+    if (
+      !isOpen ||
+      !isReady ||
+      !token ||
+      !userId ||
+      !resolvedBookId ||
+      !marketplaceLibraryItemId ||
+      !marketplaceScenePackId
+    ) {
+      setIsIncludedScenesLoading(false);
+      return;
+    }
+
+    void loadIncludedScenes();
+    return () => {
+      includedScenesRequestVersionRef.current += 1;
+    };
+  }, [
+    includedScenesScopeKey,
+    isOpen,
+    isReady,
+    loadIncludedScenes,
+    marketplaceLibraryItemId,
+    marketplaceScenePackId,
+    resolvedBookId,
+    token,
+    userId,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen || !includedScenePack) return;
+
+    let earliestExpiration = Number.POSITIVE_INFINITY;
+    let expirationRefreshKey = '';
+    for (const scene of includedScenePack.scenes) {
+      if (!scene.imageUrl || !scene.imageUrlExpiresAt) continue;
+      const expiration = Date.parse(scene.imageUrlExpiresAt);
+      if (!Number.isFinite(expiration) || expiration >= earliestExpiration) continue;
+      earliestExpiration = expiration;
+      expirationRefreshKey = `expired:${scene.id}:${scene.imageUrl}:${scene.imageUrlExpiresAt}`;
+    }
+
+    if (!Number.isFinite(earliestExpiration) || !expirationRefreshKey) return;
+    const refresh = () => {
+      refreshIncludedScenes(expirationRefreshKey);
+    };
+    const delay = earliestExpiration - Date.now();
+    if (delay <= 0) {
+      refresh();
+      return;
+    }
+
+    const timeoutId = window.setTimeout(refresh, Math.min(delay, 2_147_483_647));
+    return () => window.clearTimeout(timeoutId);
+  }, [includedScenePack, isOpen, refreshIncludedScenes]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -1135,6 +1317,17 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
     });
   };
 
+  const handleIncludedSceneImageError = (
+    sceneId: string,
+    failedImageUrl: string,
+    imageUrlExpiresAt?: string,
+  ) => {
+    setUnavailableIncludedSceneImageIds((current) => new Set(current).add(sceneId));
+    refreshIncludedScenes(
+      `image-error:${sceneId}:${failedImageUrl}:${imageUrlExpiresAt ?? 'no-expiry'}`,
+    );
+  };
+
   return (
     <aside
       aria-label={_('StoryBored scene panel')}
@@ -1269,6 +1462,117 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
             </div>
           )}
         </section>
+
+        {marketplaceLibraryItemId && marketplaceScenePack && (
+          <section
+            aria-label={_('Included scenes')}
+            aria-busy={isIncludedScenesLoading}
+            className='border-base-300 border-b p-4'
+          >
+            <div className='mb-3 flex items-center justify-between gap-3'>
+              <div className='min-w-0'>
+                <h3 className='text-base-content/60 text-xs font-semibold uppercase tracking-wide'>
+                  {_('Included scenes')}
+                </h3>
+                {(includedScenePack?.label ?? marketplaceScenePack.label) && (
+                  <p className='text-base-content/50 mt-1 truncate text-xs'>
+                    {includedScenePack?.label ?? marketplaceScenePack.label}
+                  </p>
+                )}
+              </div>
+              <button
+                type='button'
+                className='btn btn-ghost btn-sm h-10 min-h-10 w-10 shrink-0 p-0'
+                aria-label={_('Refresh included scenes')}
+                disabled={isIncludedScenesLoading || !token}
+                onClick={() => {
+                  includedScenesRefreshAttemptedRef.current.clear();
+                  setUnavailableIncludedSceneImageIds(new Set());
+                  void loadIncludedScenes();
+                }}
+              >
+                <RefreshCcw className={clsx('size-4', isIncludedScenesLoading && 'animate-spin')} />
+              </button>
+            </div>
+
+            {isIncludedScenesLoading && !includedScenePack && (
+              <div role='status' className='text-base-content/60 flex items-center gap-2 text-sm'>
+                <span className='loading loading-spinner loading-xs' aria-hidden='true' />
+                {_('Loading included scenes')}
+              </div>
+            )}
+
+            {includedScenesError && (
+              <p role='alert' className='text-error text-sm'>
+                {includedScenesError}
+              </p>
+            )}
+
+            {!isIncludedScenesLoading && !includedScenesError && !includedScenePack && (
+              <p className='text-base-content/60 text-sm'>
+                {_('Included scenes are no longer available')}
+              </p>
+            )}
+
+            {includedScenePack && includedScenePack.scenes.length === 0 && (
+              <p className='text-base-content/60 text-sm'>{_('No included scenes')}</p>
+            )}
+
+            {includedScenePack && includedScenePack.scenes.length > 0 && (
+              <ul className='space-y-3'>
+                {includedScenePack.scenes.map((scene, index) => {
+                  const imageExpired = isIncludedSceneImageExpired(scene.imageUrlExpiresAt);
+                  const imageUnavailable = unavailableIncludedSceneImageIds.has(scene.id);
+                  const sceneTitle = scene.title ?? `${_('Included scene')} ${index + 1}`;
+
+                  return (
+                    <li
+                      key={scene.id}
+                      className='border-base-300 overflow-hidden rounded-lg border'
+                    >
+                      <div className='bg-base-200 flex min-h-40 items-center justify-center'>
+                        {scene.imageUrl && !imageExpired && !imageUnavailable ? (
+                          <img
+                            key={`${scene.id}:${scene.imageUrl}:${includedSceneImageEpoch}`}
+                            src={scene.imageUrl}
+                            alt={sceneTitle}
+                            className='aspect-video w-full object-cover'
+                            loading='lazy'
+                            onError={() =>
+                              handleIncludedSceneImageError(
+                                scene.id,
+                                scene.imageUrl!,
+                                scene.imageUrlExpiresAt,
+                              )
+                            }
+                          />
+                        ) : (
+                          <div className='text-base-content/60 flex flex-col items-center gap-2 p-6 text-center text-sm'>
+                            <ImageOff className='text-base-content/40 size-6' />
+                            {imageExpired ? _('Scene image expired') : _('Scene image unavailable')}
+                          </div>
+                        )}
+                      </div>
+                      <div className='p-3'>
+                        <h4 className='text-sm font-semibold'>{sceneTitle}</h4>
+                        {(scene.chapter || scene.location) && (
+                          <p className='text-base-content/60 mt-1 text-xs'>
+                            {[scene.chapter, scene.location].filter(Boolean).join(' · ')}
+                          </p>
+                        )}
+                        {scene.selectedText && (
+                          <p className='text-base-content/70 mt-2 line-clamp-3 text-sm leading-5'>
+                            {scene.selectedText}
+                          </p>
+                        )}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        )}
 
         <section className='border-base-300 border-b p-4'>
           <div className='mb-3 flex items-center justify-between gap-3'>
