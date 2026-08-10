@@ -248,7 +248,7 @@ const ProfilePage = () => {
   };
 
   const handleDeleteWithMessage = () => {
-    handleConfirmDelete(_('Failed to delete user. Please try again later.'));
+    handleConfirmDelete();
   };
 
   if (!mounted) return null;

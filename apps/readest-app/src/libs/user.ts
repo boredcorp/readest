@@ -1,21 +1,20 @@
-import { getAPIBaseUrl } from '@/services/environment';
-import { getUserID } from '@/utils/access';
-import { fetchWithAuth } from '@/utils/fetch';
+const DEFAULT_STORYBORED_SITE_URL = 'https://storybored.com/';
 
-const API_ENDPOINT = getAPIBaseUrl() + '/user/delete';
-
-export const deleteUser = async () => {
-  try {
-    const userId = await getUserID();
-    if (!userId) {
-      throw new Error('Not authenticated');
-    }
-
-    await fetchWithAuth(API_ENDPOINT, {
-      method: 'DELETE',
-    });
-  } catch (error) {
-    console.error('User deletion failed:', error);
-    throw new Error('User deletion failed');
+export function getAccountDeletionUrl(
+  siteUrl = process.env['NEXT_PUBLIC_SITE_URL'] ?? DEFAULT_STORYBORED_SITE_URL,
+): string {
+  const configuredUrl = new URL(siteUrl);
+  if (
+    (configuredUrl.protocol !== 'https:' && configuredUrl.protocol !== 'http:') ||
+    configuredUrl.username ||
+    configuredUrl.password
+  ) {
+    throw new Error('StoryBored site URL must be an HTTP(S) origin without credentials');
   }
-};
+
+  return new URL('/account', configuredUrl.origin).toString();
+}
+
+export function openAccountDeletion(): void {
+  window.location.assign(getAccountDeletionUrl());
+}

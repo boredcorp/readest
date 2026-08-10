@@ -19,10 +19,10 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
   return (
     <div className='fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4'>
       <div className='w-full max-w-md rounded-2xl bg-white p-6'>
-        <h3 className='mb-4 text-xl font-bold text-gray-800'>{_('Delete Your Account?')}</h3>
+        <h3 className='mb-4 text-xl font-bold text-gray-800'>{_('Manage Account Deletion?')}</h3>
         <p className='mb-6 text-gray-600'>
           {_(
-            'This action cannot be undone. All your data in the cloud will be permanently deleted.',
+            'Continue to your secure StoryBored account page to review your subscription, remaining Ink, and deletion schedule.',
           )}
         </p>
         <div className='flex flex-col gap-3 sm:flex-row'>
@@ -36,7 +36,7 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
             onClick={onConfirm}
             className='flex-1 rounded-lg bg-red-500 px-4 py-2 font-medium text-white hover:bg-red-600'
           >
-            {_('Delete Permanently')}
+            {_('Continue Securely')}
           </button>
         </div>
       </div>

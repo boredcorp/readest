@@ -1,3 +1,4 @@
+import { createHmac, randomUUID } from 'node:crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
@@ -7,7 +8,30 @@ import {
   STORAGE_QUOTA_GRACE_BYTES,
 } from '@/utils/access';
 import { getDownloadSignedUrl, getUploadSignedUrl } from '@/utils/object';
-import { READEST_PUBLIC_STORAGE_BASE_URL } from '@/services/constants';
+
+const TEMP_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+const TEMP_UPLOAD_TTL_SECONDS = 5 * 60;
+const TEMP_STORAGE_NAMESPACE_DOMAIN = 'storybored:readest-temp-storage:v2';
+
+function configuredPublicStorageOrigin(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value.trim());
+    if (
+      url.protocol !== 'https:' ||
+      url.username ||
+      url.password ||
+      url.pathname !== '/' ||
+      url.search ||
+      url.hash
+    ) {
+      return undefined;
+    }
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -23,16 +47,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { fileName, fileSize, bookHash, temp = false } = req.body;
   if (temp) {
+    if (!Number.isSafeInteger(fileSize) || fileSize <= 0 || fileSize > TEMP_IMAGE_MAX_BYTES) {
+      return res.status(400).json({ error: 'Invalid temporary image size' });
+    }
+    const bucketName = process.env['TEMP_STORAGE_PUBLIC_BUCKET_NAME']?.trim();
+    const namespaceSecret = process.env['READEST_TEMP_STORAGE_NAMESPACE_SECRET'] ?? '';
+    const publicBaseUrl = configuredPublicStorageOrigin(
+      process.env['READEST_PUBLIC_STORAGE_BASE_URL'],
+    );
+    if (!bucketName || namespaceSecret.trim().length < 32 || !publicBaseUrl) {
+      return res.status(503).json({ error: 'Temporary storage is not configured' });
+    }
     try {
-      const datetime = new Date();
-      const timeStr = datetime.toISOString().replace(/[-:]/g, '').replace('T', '').slice(0, 10);
-      const userStr = user.id.slice(0, 8);
-      const fileKey = `temp/img/${timeStr}/${userStr}/${fileName}`;
-      const bucketName = process.env['TEMP_STORAGE_PUBLIC_BUCKET_NAME'] || '';
-      const uploadUrl = await getUploadSignedUrl(fileKey, fileSize, 1800, bucketName);
+      const namespace = createHmac('sha256', namespaceSecret)
+        .update(`${TEMP_STORAGE_NAMESPACE_DOMAIN}\0${user.id}`, 'utf8')
+        .digest('hex');
+      const fileKey = `temp/img/v2/${namespace}/${randomUUID()}`;
+      const uploadUrl = await getUploadSignedUrl(
+        fileKey,
+        fileSize,
+        TEMP_UPLOAD_TTL_SECONDS,
+        bucketName,
+      );
       const downloadUrl = await getDownloadSignedUrl(fileKey, 3 * 86400, bucketName);
       const pathname = new URL(downloadUrl).pathname;
-      const publicBaseUrl = READEST_PUBLIC_STORAGE_BASE_URL;
       const publicDownloadUrl = `${publicBaseUrl}${pathname.replace(`/${bucketName}`, '')}`;
       return res.status(200).json({
         uploadUrl,
