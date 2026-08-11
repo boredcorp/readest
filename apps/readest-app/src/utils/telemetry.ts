@@ -4,6 +4,18 @@ export const TELEMETRY_OPT_OUT_KEY = 'readest-telemetry-opt-out';
 export const REDACTED_TELEMETRY_VALUE = '[REDACTED]';
 export const REDACTED_SIGNED_URL = '[REDACTED_SIGNED_URL]';
 
+export interface PostHogEnvironment {
+  readonly host?: string;
+  readonly key?: string;
+  readonly defaultHostBase64?: string;
+  readonly defaultKeyBase64?: string;
+}
+
+export interface PostHogConfig {
+  readonly host: string;
+  readonly key: string;
+}
+
 const SAFE_ERROR_MESSAGE = 'Reader error details redacted at the telemetry boundary.';
 const CIRCULAR_VALUE = '[CIRCULAR]';
 const MAX_DEPTH_VALUE = '[MAX_DEPTH]';
@@ -190,18 +202,33 @@ export const POSTHOG_PRIVACY_CONFIG = {
   before_send: sanitizePostHogCapture,
 } as const;
 
+export function resolvePostHogConfig(
+  environment: PostHogEnvironment = readPostHogEnvironment(),
+): PostHogConfig | null {
+  const host = resolvePostHogValue(
+    environment.host,
+    environment.defaultHostBase64,
+    isValidPostHogHost,
+  );
+  const key = resolvePostHogValue(environment.key, environment.defaultKeyBase64, isValidPostHogKey);
+
+  return host && key ? { host, key } : null;
+}
+
+export const isTelemetryConfigured = () => resolvePostHogConfig() !== null;
+
 export const hasOptedOutTelemetry = () => {
   return typeof window === 'undefined' || localStorage.getItem(TELEMETRY_OPT_OUT_KEY) === 'true';
 };
 
 export const captureEvent = (event: string, properties?: Record<string, unknown>) => {
-  if (!hasOptedOutTelemetry()) {
+  if (isTelemetryConfigured() && !hasOptedOutTelemetry()) {
     posthog.capture(sanitizeTelemetryString(event), sanitizeTelemetryValue(properties));
   }
 };
 
 export const captureException = (error: unknown, properties?: Record<string, unknown>) => {
-  if (hasOptedOutTelemetry()) return;
+  if (!isTelemetryConfigured() || hasOptedOutTelemetry()) return;
 
   const safeError = new Error(SAFE_ERROR_MESSAGE);
   safeError.name = sanitizeErrorName(error);
@@ -411,9 +438,64 @@ function hasSignedUrlParameter(url: URL): boolean {
 
 export const optInTelemetry = () => {
   localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'false');
-  posthog.opt_in_capturing();
+  if (isTelemetryConfigured()) posthog.opt_in_capturing();
 };
 export const optOutTelemetry = () => {
   localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
-  posthog.opt_out_capturing();
+  if (isTelemetryConfigured()) posthog.opt_out_capturing();
 };
+
+function readPostHogEnvironment(): PostHogEnvironment {
+  return {
+    host: process.env['NEXT_PUBLIC_POSTHOG_HOST'],
+    key: process.env['NEXT_PUBLIC_POSTHOG_KEY'],
+    defaultHostBase64: process.env['NEXT_PUBLIC_DEFAULT_POSTHOG_URL_BASE64'],
+    defaultKeyBase64: process.env['NEXT_PUBLIC_DEFAULT_POSTHOG_KEY_BASE64'],
+  };
+}
+
+function resolvePostHogValue(
+  configuredValue: string | undefined,
+  fallbackBase64: string | undefined,
+  validate: (value: string) => boolean,
+): string | null {
+  if (configuredValue?.trim()) {
+    const value = configuredValue.trim();
+    return validate(value) ? value : null;
+  }
+
+  const fallback = decodeBase64(fallbackBase64);
+  return fallback && validate(fallback) ? fallback : null;
+}
+
+function decodeBase64(value: string | undefined): string | null {
+  const encoded = value?.trim();
+  if (!encoded || !/^[a-z\d+/]*={0,2}$/iu.test(encoded) || encoded.length % 4 === 1) {
+    return null;
+  }
+
+  try {
+    const decoded = globalThis.atob?.(encoded).trim();
+    return decoded || null;
+  } catch {
+    return null;
+  }
+}
+
+function isValidPostHogHost(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      (url.protocol === 'https:' || url.protocol === 'http:') &&
+      !url.username &&
+      !url.password &&
+      url.hostname.length > 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+function isValidPostHogKey(value: string): boolean {
+  return value.trim().length > 0;
+}

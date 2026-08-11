@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { CaptureResult } from 'posthog-js';
 
 const posthogMocks = vi.hoisted(() => ({
@@ -23,14 +23,69 @@ import {
   POSTHOG_PRIVACY_CONFIG,
   REDACTED_SIGNED_URL,
   REDACTED_TELEMETRY_VALUE,
+  resolvePostHogConfig,
   sanitizePostHogCapture,
   TELEMETRY_OPT_OUT_KEY,
 } from '@/utils/telemetry';
 
 describe('reader telemetry privacy boundary', () => {
   beforeEach(() => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_HOST', 'https://telemetry.example.com');
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_test_project');
+    vi.stubEnv('NEXT_PUBLIC_DEFAULT_POSTHOG_URL_BASE64', '');
+    vi.stubEnv('NEXT_PUBLIC_DEFAULT_POSTHOG_KEY_BASE64', '');
     window.localStorage.clear();
     vi.clearAllMocks();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  test('fails closed without configured or fallback PostHog values', () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_HOST', '');
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', '');
+
+    expect(resolvePostHogConfig()).toBeNull();
+
+    captureEvent('reader_event');
+    captureException(new Error('PRIVATE_ERROR_MARKER'));
+
+    expect(posthogMocks.capture).not.toHaveBeenCalled();
+    expect(posthogMocks.captureException).not.toHaveBeenCalled();
+  });
+
+  test('fails closed when fallback PostHog values are malformed', () => {
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_HOST', '');
+    vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', '');
+    vi.stubEnv('NEXT_PUBLIC_DEFAULT_POSTHOG_URL_BASE64', 'not valid base64!');
+    vi.stubEnv('NEXT_PUBLIC_DEFAULT_POSTHOG_KEY_BASE64', '%%%');
+
+    expect(() => resolvePostHogConfig()).not.toThrow();
+    expect(resolvePostHogConfig()).toBeNull();
+
+    captureEvent('reader_event');
+    captureException(new Error('PRIVATE_ERROR_MARKER'));
+
+    expect(posthogMocks.capture).not.toHaveBeenCalled();
+    expect(posthogMocks.captureException).not.toHaveBeenCalled();
+  });
+
+  test('preserves explicit and valid fallback PostHog configuration', () => {
+    expect(resolvePostHogConfig()).toEqual({
+      host: 'https://telemetry.example.com',
+      key: 'phc_test_project',
+    });
+
+    expect(
+      resolvePostHogConfig({
+        defaultHostBase64: btoa('https://fallback-telemetry.example.com'),
+        defaultKeyBase64: btoa('phc_fallback_project'),
+      }),
+    ).toEqual({
+      host: 'https://fallback-telemetry.example.com',
+      key: 'phc_fallback_project',
+    });
   });
 
   test('disables automatic page, exception, DOM, and session recording capture', () => {
