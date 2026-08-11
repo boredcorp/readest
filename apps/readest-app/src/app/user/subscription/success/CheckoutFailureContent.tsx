@@ -23,12 +23,12 @@ function failureCopy(
       ? {
           title: 'Unable to Confirm Ink Purchase',
           description:
-            "We couldn't confirm your Ink purchase yet. Check its status again or contact support if the issue persists.",
+            "We couldn't confirm your Ink purchase yet. Check its status again. If the issue persists, use the approved beta support channel from your invitation.",
         }
       : {
           title: 'Unable to Confirm Subscription',
           description:
-            "We couldn't confirm your subscription yet. Check its status again or contact support if the issue persists.",
+            "We couldn't confirm your subscription yet. Check its status again. If the issue persists, use the approved beta support channel from your invitation.",
         };
   }
 
@@ -65,12 +65,12 @@ function failureCopy(
       ? {
           title: 'Ink Purchase Under Review',
           description:
-            'This Ink purchase is under payment dispute and is no longer active. Contact support if you need help.',
+            'This Ink purchase is under payment dispute and is no longer active. Use the approved beta support channel from your invitation if you need help.',
         }
       : {
           title: 'Subscription Payment Under Review',
           description:
-            'This subscription payment is under dispute. Return to billing to review your account or contact support.',
+            'This subscription payment is under dispute. Return to billing to review your account, then use the approved beta support channel from your invitation if you need help.',
         };
   }
 
@@ -78,12 +78,12 @@ function failureCopy(
     ? {
         title: 'Ink Purchase Failed',
         description:
-          "We couldn't process your Ink purchase. Return to billing to choose an Ink pack again, or contact support if the issue persists.",
+          "We couldn't process your Ink purchase. Return to billing to choose an Ink pack again. If the issue persists, use the approved beta support channel from your invitation.",
       }
     : {
         title: 'Subscription Payment Failed',
         description:
-          "We couldn't process your subscription. Return to billing to choose a plan again, or contact support if the issue persists.",
+          "We couldn't process your subscription. Return to billing to choose a plan again. If the issue persists, use the approved beta support channel from your invitation.",
       };
 }
 

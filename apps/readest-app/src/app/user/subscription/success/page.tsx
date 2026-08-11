@@ -13,6 +13,7 @@ import {
   type BillingCheckoutStatus,
 } from '@/libs/payment/stripe/client';
 import Spinner from '@/components/Spinner';
+import { StoryBoredStripeSandboxNotice } from '@/app/user/components/StoryBoredBetaBillingNotice';
 import type { CheckoutFailureRecovery } from './CheckoutFailureActions';
 import CheckoutFailureContent from './CheckoutFailureContent';
 import {
@@ -60,6 +61,7 @@ const SuccessPageWithSearchParams = () => {
   const payment = searchParams?.get('payment');
   const platform = searchParams?.get('platform');
   const sessionId = searchParams?.get('session_id');
+  const isStripePayment = payment === 'stripe';
 
   // iOS parameters
   const transactionId = searchParams?.get('transaction_id');
@@ -280,6 +282,11 @@ const SuccessPageWithSearchParams = () => {
       <div className='flex min-h-screen items-center justify-center bg-gray-50'>
         <div className='text-center'>
           <div className='mx-auto mb-4 h-12 w-12 animate-spin rounded-full border-b-2 border-blue-600'></div>
+          {isStripePayment ? (
+            <div className='mb-4'>
+              <StoryBoredStripeSandboxNotice />
+            </div>
+          ) : null}
           <h2 className='mb-2 text-xl font-semibold text-gray-800'>
             {_('Processing your payment...')}
           </h2>
@@ -310,6 +317,11 @@ const SuccessPageWithSearchParams = () => {
               />
             </svg>
           </div>
+          {isStripePayment ? (
+            <div className='mb-4'>
+              <StoryBoredStripeSandboxNotice />
+            </div>
+          ) : null}
           <h2 className='mb-2 text-xl font-semibold text-gray-800'>{_('Payment Processing')}</h2>
           <p className='mb-4 text-gray-600'>
             {autoPollingStopped
@@ -359,6 +371,11 @@ const SuccessPageWithSearchParams = () => {
               />
             </svg>
           </div>
+          {isStripePayment ? (
+            <div className='mb-4'>
+              <StoryBoredStripeSandboxNotice />
+            </div>
+          ) : null}
           <CheckoutFailureContent
             planType={sessionStatus.planType}
             billingStatus={sessionStatus.billingStatus}
@@ -386,20 +403,33 @@ const SuccessPageWithSearchParams = () => {
             <path strokeLinecap='round' strokeLinejoin='round' strokeWidth={2} d='M5 13l4 4L19 7' />
           </svg>
         </div>
+        {isStripePayment ? (
+          <div className='mb-6'>
+            <StoryBoredStripeSandboxNotice />
+          </div>
+        ) : null}
 
         {/* Success Message */}
         <h1 className='mb-4 text-3xl font-bold text-gray-800'>
           🎉{' '}
-          {sessionStatus.planType === 'purchase'
-            ? _('Purchase Successful!')
-            : _('Subscription Successful!')}
+          {isStripePayment
+            ? sessionStatus.planType === 'purchase'
+              ? _('Stripe Test Purchase Confirmed')
+              : _('Stripe Test Subscription Confirmed')
+            : sessionStatus.planType === 'purchase'
+              ? _('Purchase Successful!')
+              : _('Subscription Successful!')}
         </h1>
 
         <div className='mb-6 rounded-lg bg-white p-6 shadow-md'>
           <p className='mb-4 text-lg text-gray-700'>
-            {sessionStatus.planType === 'purchase'
-              ? _('Thank you for your purchase! Your payment has been processed successfully.')
-              : _('Thank you for your subscription! Your payment has been processed successfully.')}
+            {isStripePayment
+              ? _('Your Stripe sandbox checkout was confirmed. No real charge was made.')
+              : sessionStatus.planType === 'purchase'
+                ? _('Thank you for your purchase! Your payment has been processed successfully.')
+                : _(
+                    'Thank you for your subscription! Your payment has been processed successfully.',
+                  )}
           </p>
 
           {/* Subscription Details */}
@@ -454,7 +484,9 @@ const SuccessPageWithSearchParams = () => {
 
         {/* Additional Info */}
         <div className='mt-8 text-xs text-gray-500'>
-          <p>{_('Need help? Contact our support team at support@readest.com')}</p>
+          <p>
+            {_('For billing help, use the approved beta support channel from your invitation.')}
+          </p>
         </div>
       </div>
     </div>

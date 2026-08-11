@@ -38,6 +38,7 @@ import BillingPlanChooser, { type NativeIAPStatus } from './components/BillingPl
 import ProfileHeader from './components/Header';
 import PlansComparison from './components/PlansComparison';
 import StorageManager from './components/StorageManager';
+import StoryBoredBetaBillingNotice from './components/StoryBoredBetaBillingNotice';
 import UsageStats from './components/UsageStats';
 import UserInfo from './components/UserInfo';
 import { getNativePlanBadgeDetails, getPlanDetails } from './utils/plan';
@@ -334,9 +335,7 @@ const ProfilePage = () => {
                       onRetryNativeIAP={() => void refreshIAPPlans()}
                       stripeContent={
                         <>
-                          <div className='mx-4 rounded-lg bg-amber-100 px-4 py-3 text-center text-sm font-medium text-amber-900 sm:mx-0'>
-                            {_('Stripe sandbox · No real charges during the private beta')}
-                          </div>
+                          <StoryBoredBetaBillingNotice />
                           <PlansComparison
                             catalog={availablePlans}
                             currentPlan={currentPlan}

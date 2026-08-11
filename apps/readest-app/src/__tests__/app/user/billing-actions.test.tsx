@@ -1,7 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import AccountActions from '@/app/user/components/AccountActions';
 import BillingPlanChooser from '@/app/user/components/BillingPlanChooser';
+import StoryBoredBetaBillingNotice, {
+  StoryBoredStripeSandboxNotice,
+} from '@/app/user/components/StoryBoredBetaBillingNotice';
 import PlanActionButton from '@/app/user/components/PlanActionButton';
 import NativeIAPPlans from '@/app/user/components/NativeIAPPlans';
 import PurchaseCallToActions from '@/app/user/components/PurchaseCallToActions';
@@ -89,6 +94,46 @@ const iapPlans: AvailablePlan[] = [
 ];
 
 describe('StoryBored billing actions', () => {
+  it('warns before beta checkout and keeps team plans unavailable', () => {
+    render(<StoryBoredBetaBillingNotice />);
+
+    expect(screen.getByText(/Stripe sandbox/i)).toBeTruthy();
+    expect(screen.getByText(/no real charges/i)).toBeTruthy();
+    expect(screen.getByText(/Team and Education plans are coming soon/i)).toBeTruthy();
+    expect(screen.getByText(/not available during the private beta/i)).toBeTruthy();
+  });
+
+  it('renders a compact Stripe sandbox warning on checkout return surfaces', () => {
+    render(<StoryBoredStripeSandboxNotice />);
+
+    expect(screen.getByText(/Stripe sandbox/i)).toBeTruthy();
+    expect(screen.getByText(/no real charges/i)).toBeTruthy();
+    expect(screen.queryByText(/Team and Education plans/i)).toBeNull();
+  });
+
+  it('keeps the checkout return free of upstream or unapproved contact details', () => {
+    const successPageSource = readFileSync(
+      resolve(process.cwd(), 'src/app/user/subscription/success/page.tsx'),
+      'utf8',
+    );
+    const errorPageSource = readFileSync(resolve(process.cwd(), 'src/app/error.tsx'), 'utf8');
+    const checkoutFailureSource = readFileSync(
+      resolve(process.cwd(), 'src/app/user/subscription/success/CheckoutFailureContent.tsx'),
+      'utf8',
+    );
+    const readerSupportCopy = `${successPageSource}\n${errorPageSource}\n${checkoutFailureSource}`;
+
+    expect(readerSupportCopy).not.toMatch(
+      /support@readest\.com|mailto:|contact support|team has been notified/i,
+    );
+    expect(readerSupportCopy).toMatch(/approved beta support channel/i);
+    expect(successPageSource).toMatch(/StoryBoredStripeSandboxNotice/);
+    expect(successPageSource).toMatch(/isStripePayment/);
+    expect(successPageSource).toMatch(/Stripe Test Purchase Confirmed/);
+    expect(successPageSource).toMatch(/Stripe Test Subscription Confirmed/);
+    expect(successPageSource).toMatch(/No real charge was made/);
+  });
+
   it('starts checkout with the stable catalog key for a Reader upgrade', () => {
     const onCheckout = vi.fn();
 
