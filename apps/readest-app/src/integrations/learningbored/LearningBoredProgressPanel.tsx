@@ -1,6 +1,5 @@
 'use client';
 
-import { ArrowLeft, BookOpenText, RefreshCw, X } from 'lucide-react';
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -13,70 +12,43 @@ import type {
 } from './client';
 import { LearningBoredConceptList, LearningBoredMasterySummary } from './LearningBoredMastery';
 import type { LearningBoredExamOverlayProps } from './LearningBoredExamOverlay';
-import { useLearningBoredTranslation } from './presentation/context';
+import {
+  type LearningBoredPresentationTheme,
+  useLearningBoredPresentationTheme,
+  useLearningBoredTranslation,
+} from './presentation/context';
+import {
+  LearningBoredProgressShell,
+  LearningBoredProgressStatus,
+  learningBoredProgressStyles as styles,
+} from './progress/LearningBoredProgressShell';
 
 type LearningBoredExamOverlayModule = {
   default: React.ComponentType<LearningBoredExamOverlayProps>;
 };
 
+class LearningBoredOptionalReadinessBoundary extends React.Component<
+  { children: React.ReactNode; fallback: React.ReactNode },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  override render() {
+    return this.state.failed ? this.props.fallback : this.props.children;
+  }
+}
+
 function loadLearningBoredExamOverlay(): Promise<LearningBoredExamOverlayModule> {
   return import('./LearningBoredExamOverlay');
 }
 
-const PROGRESS_STYLES = `
-  .learningbored-progress {
-    --lb-progress-paper: #faf7f0;
-    --lb-progress-raised: #fffdf8;
-    --lb-progress-recessed: #eee7da;
-    --lb-progress-border: #d8cdbd;
-    --lb-progress-ink: #172633;
-    --lb-progress-muted: #586873;
-    --lb-progress-focus: #0d6870;
-    --lb-mastery-new: #6f7a87;
-    --lb-mastery-learning: #a8620d;
-    --lb-mastery-retained: #256b47;
-    --lb-mastery-lapsed: #9c3f2c;
-    background: var(--lb-progress-paper);
-    border-color: var(--lb-progress-border);
-    color: var(--lb-progress-ink);
-  }
-  .learningbored-progress :is(button, input, summary):focus-visible {
-    outline: 3px solid var(--lb-progress-focus);
-    outline-offset: 2px;
-  }
-  .learningbored-mastery-fill-new,
-  .learningbored-mastery-marker-new { background: var(--lb-mastery-new); }
-  .learningbored-mastery-fill-learning,
-  .learningbored-mastery-marker-learning { background: var(--lb-mastery-learning); }
-  .learningbored-mastery-fill-retained,
-  .learningbored-mastery-marker-retained { background: var(--lb-mastery-retained); }
-  .learningbored-mastery-fill-lapsed,
-  .learningbored-mastery-marker-lapsed { background: var(--lb-mastery-lapsed); }
-  .learningbored-mastery-marker {
-    width: 0.75rem;
-    height: 0.75rem;
-    border: 1px solid var(--lb-progress-ink);
-    border-radius: 9999px;
-  }
-  .learningbored-mastery-card {
-    background: var(--lb-progress-raised);
-    border-color: var(--lb-progress-border);
-    border-left-width: 0.35rem;
-  }
-  .learningbored-mastery-card-new { border-left-color: var(--lb-mastery-new); }
-  .learningbored-mastery-card-learning { border-left-color: var(--lb-mastery-learning); }
-  .learningbored-mastery-card-retained { border-left-color: var(--lb-mastery-retained); }
-  .learningbored-mastery-card-lapsed { border-left-color: var(--lb-mastery-lapsed); }
-  .learningbored-mastery-card-new .learningbored-mastery-tier { border-style: dotted; }
-  .learningbored-mastery-card-learning .learningbored-mastery-tier { border-style: dashed; }
-  .learningbored-mastery-card-retained .learningbored-mastery-tier { border-style: solid; }
-  .learningbored-mastery-card-lapsed .learningbored-mastery-tier { border-style: double; }
-`;
-
 interface ProgressData {
   document: LearningBoredDocumentSummary;
   mastery: LearningBoredMasteryResult;
-  readiness: LearningBoredReadinessResult | null;
 }
 
 interface BoardDrillInState {
@@ -93,6 +65,12 @@ export interface LearningBoredProgressPanelProps {
   onStartReview: (documentId: string, conceptId: string) => void;
   /** Test seam proving the optional overlay chunk is not requested for ordinary documents. */
   loadExamOverlay?: () => Promise<LearningBoredExamOverlayModule>;
+  /** Deterministic presentation seam; production inherits the Reader presentation theme. */
+  theme?: LearningBoredPresentationTheme;
+  /** Deterministic presentation seam; production starts with every concept collapsed. */
+  initialSelectedConceptId?: string | null;
+  /** Deterministic presentation seam; production starts at the progress overview. */
+  initialBoardId?: string | null;
 }
 
 const LearningBoredProgressPanel: React.FC<LearningBoredProgressPanelProps> = ({
@@ -101,22 +79,39 @@ const LearningBoredProgressPanel: React.FC<LearningBoredProgressPanelProps> = ({
   onClose,
   onStartReview,
   loadExamOverlay = loadLearningBoredExamOverlay,
+  theme: themeOverride,
+  initialSelectedConceptId = null,
+  initialBoardId = null,
 }) => {
   const _ = useLearningBoredTranslation();
+  const inheritedTheme = useLearningBoredPresentationTheme();
+  const theme = themeOverride ?? inheritedTheme;
   const translateRef = useRef(_);
   translateRef.current = _;
+  const initialBoardRequestedRef = useRef(false);
   const [data, setData] = useState<ProgressData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loadRevision, setLoadRevision] = useState(0);
-  const [boardDrillIn, setBoardDrillIn] = useState<BoardDrillInState | null>(null);
+  const [readiness, setReadiness] = useState<LearningBoredReadinessResult | null>(null);
+  const [readinessLoading, setReadinessLoading] = useState(false);
+  const [readinessError, setReadinessError] = useState<string | null>(null);
+  const [readinessRevision, setReadinessRevision] = useState(0);
+  const [overlayRevision, setOverlayRevision] = useState(0);
+  const [boardDrillIn, setBoardDrillIn] = useState<BoardDrillInState | null>(
+    initialBoardId ? { boardId: initialBoardId, board: null, loading: true, error: null } : null,
+  );
   const [selectedTier, setSelectedTier] = useState<LearningBoredMasteryTier | null>(null);
-  const LearningBoredExamOverlay = useMemo(() => lazy(loadExamOverlay), [loadExamOverlay]);
+  const LearningBoredExamOverlay = useMemo(() => {
+    void overlayRevision;
+    return lazy(loadExamOverlay);
+  }, [loadExamOverlay, overlayRevision]);
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
+    setData(null);
 
     void (async () => {
       try {
@@ -126,12 +121,7 @@ const LearningBoredProgressPanel: React.FC<LearningBoredProgressPanelProps> = ({
         ]);
         if (controller.signal.aborted) return;
 
-        const readiness =
-          document.blueprintId === null
-            ? null
-            : await client.getDocumentReadiness(documentId, { signal: controller.signal });
-        if (controller.signal.aborted) return;
-        setData({ document, mastery, readiness });
+        setData({ document, mastery });
       } catch (loadError) {
         if (loadError instanceof Error && loadError.name === 'AbortError') return;
         setError(translateRef.current('Your progress could not be loaded. Please try again.'));
@@ -143,11 +133,44 @@ const LearningBoredProgressPanel: React.FC<LearningBoredProgressPanelProps> = ({
     return () => controller.abort();
   }, [client, documentId, loadRevision]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    setReadiness(null);
+    setReadinessError(null);
+
+    if (!data || data.document.blueprintId === null) {
+      setReadinessLoading(false);
+      return () => controller.abort();
+    }
+
+    setReadinessLoading(true);
+    void client
+      .getDocumentReadiness(documentId, { signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted) setReadiness(result);
+      })
+      .catch((loadError: unknown) => {
+        if (loadError instanceof Error && loadError.name === 'AbortError') return;
+        if (!controller.signal.aborted) {
+          setReadinessError(
+            translateRef.current(
+              'Exam readiness could not be loaded. Concept progress is still available.',
+            ),
+          );
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setReadinessLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [client, data, documentId, readinessRevision]);
+
   const openBoard = useCallback(
     async (boardId: string) => {
       setBoardDrillIn({ boardId, board: null, loading: true, error: null });
       try {
-        const board = await client.getBoard(boardId, { includeScaffold: true });
+        const board = await client.getBoard(boardId, { includeScaffold: false });
         setBoardDrillIn((current) =>
           current?.boardId === boardId ? { boardId, board, loading: false, error: null } : current,
         );
@@ -167,162 +190,167 @@ const LearningBoredProgressPanel: React.FC<LearningBoredProgressPanelProps> = ({
     [client],
   );
 
+  useEffect(() => {
+    if (!initialBoardId || initialBoardRequestedRef.current) return;
+    initialBoardRequestedRef.current = true;
+    void openBoard(initialBoardId);
+  }, [initialBoardId, openBoard]);
+
   if (boardDrillIn) {
     return (
-      <aside
-        aria-label={_('LearningBored Board drill-in')}
-        className='learningbored-progress relative z-10 flex h-[44dvh] w-full shrink-0 flex-col border-t sm:h-full sm:w-[clamp(360px,32vw,520px)] sm:border-l sm:border-t-0'
+      <LearningBoredProgressShell
+        backLabel='Back to progress'
+        onBack={() => setBoardDrillIn(null)}
+        onClose={onClose}
+        theme={theme}
+        title='Board outline'
+        translate={_}
       >
-        <style>{PROGRESS_STYLES}</style>
-        <header className='flex min-h-14 items-center justify-between gap-3 border-b border-[var(--lb-progress-border)] px-3'>
-          <button
-            type='button'
-            className='btn btn-ghost btn-sm min-h-11'
-            onClick={() => setBoardDrillIn(null)}
+        {boardDrillIn.loading ? (
+          <LearningBoredProgressStatus translate={_}>
+            {_('Opening Board…')}
+          </LearningBoredProgressStatus>
+        ) : boardDrillIn.error ? (
+          <LearningBoredProgressStatus
+            actionLabel='Try again'
+            onAction={() => void openBoard(boardDrillIn.boardId)}
+            tone='error'
+            translate={_}
           >
-            <ArrowLeft className='size-4' />
-            {_('Back to progress')}
-          </button>
-          <button
-            type='button'
-            className='btn btn-ghost btn-sm min-h-11 min-w-11'
-            aria-label={_('Close progress')}
-            onClick={onClose}
-          >
-            <X className='size-5' />
-          </button>
-        </header>
-        <div className='flex-1 overflow-y-auto p-5'>
-          {boardDrillIn.loading ? (
-            <p role='status' className='flex items-center gap-3'>
-              <span className='loading loading-spinner' /> {_('Opening Board…')}
+            {boardDrillIn.error}
+          </LearningBoredProgressStatus>
+        ) : boardDrillIn.board ? (
+          <article aria-labelledby='learningbored-board-outline-heading'>
+            <h2 className={styles['sectionTitle']} id='learningbored-board-outline-heading'>
+              {boardDrillIn.board.title}
+            </h2>
+            <p className={styles['sectionCopy']}>
+              {_('Read the grounded outline without depending on its figures.')}
             </p>
-          ) : boardDrillIn.error ? (
-            <div>
-              <p role='alert'>{boardDrillIn.error}</p>
-              <button
-                type='button'
-                className='btn mt-4 min-h-11'
-                onClick={() => void openBoard(boardDrillIn.boardId)}
-              >
-                <RefreshCw className='size-4' /> {_('Try again')}
-              </button>
-            </div>
-          ) : boardDrillIn.board ? (
-            <article>
-              <p className='text-xs font-semibold uppercase tracking-[0.12em] text-[var(--lb-progress-muted)]'>
-                {_('Board outline')}
-              </p>
-              <h2 className='mt-2 text-2xl font-semibold'>{boardDrillIn.board.title}</h2>
-              <ol className='mt-5 space-y-3'>
-                {boardDrillIn.board.outline.map((item) => (
-                  <li
-                    key={item.id}
-                    className='rounded-xl border border-[var(--lb-progress-border)] bg-[var(--lb-progress-raised)] p-4'
-                  >
-                    <div className='flex items-start justify-between gap-3'>
-                      <h3 className='font-semibold'>{item.label}</h3>
-                      <span className='rounded-full border px-2 py-1 text-xs'>
-                        {item.provenance === 'scaffold'
-                          ? _('Added explanation')
-                          : _('From passage')}
-                      </span>
-                    </div>
-                    <p className='mt-2 text-sm leading-6'>{item.description}</p>
-                  </li>
-                ))}
-              </ol>
-            </article>
-          ) : null}
-        </div>
-      </aside>
+            <ol className={styles['boardOutline']}>
+              {boardDrillIn.board.outline.map((item) => (
+                <li
+                  className={styles['boardOutlineItem']}
+                  data-provenance={item.provenance}
+                  key={item.id}
+                >
+                  <div className={styles['outlineHeader']}>
+                    <h3 className={styles['conceptName']}>{item.label}</h3>
+                    <span className={styles['provenance']}>
+                      {item.provenance === 'scaffold' ? _('Added explanation') : _('From passage')}
+                    </span>
+                  </div>
+                  <p className={styles['outlineDescription']}>{item.description}</p>
+                </li>
+              ))}
+            </ol>
+          </article>
+        ) : null}
+      </LearningBoredProgressShell>
     );
   }
 
   return (
-    <aside
-      aria-label={_('LearningBored progress panel')}
-      className='learningbored-progress relative z-10 flex h-[44dvh] w-full shrink-0 flex-col border-t sm:h-full sm:w-[clamp(360px,32vw,520px)] sm:border-l sm:border-t-0'
+    <LearningBoredProgressShell
+      onClose={onClose}
+      subtitle={data?.document.title}
+      theme={theme}
+      title='LearningBored progress'
+      translate={_}
     >
-      <style>{PROGRESS_STYLES}</style>
-      <header className='flex min-h-14 items-center justify-between gap-3 border-b border-[var(--lb-progress-border)] px-4'>
-        <div className='flex min-w-0 items-center gap-2'>
-          <BookOpenText className='size-5 shrink-0 text-[var(--lb-progress-focus)]' />
-          <div className='min-w-0'>
-            <h1 className='truncate font-semibold'>{_('LearningBored progress')}</h1>
-            {data ? (
-              <p className='truncate text-xs text-[var(--lb-progress-muted)]'>
-                {data.document.title}
-              </p>
-            ) : null}
-          </div>
-        </div>
-        <button
-          type='button'
-          className='btn btn-ghost btn-sm min-h-11 min-w-11'
-          aria-label={_('Close progress')}
-          onClick={onClose}
+      {loading ? (
+        <LearningBoredProgressStatus translate={_}>
+          {_('Loading your progress…')}
+        </LearningBoredProgressStatus>
+      ) : error ? (
+        <LearningBoredProgressStatus
+          actionLabel='Try again'
+          onAction={() => setLoadRevision((revision) => revision + 1)}
+          tone='error'
+          translate={_}
         >
-          <X className='size-5' />
-        </button>
-      </header>
-
-      <div className='flex-1 overflow-y-auto p-5'>
-        {loading ? (
-          <p role='status' className='flex items-center gap-3'>
-            <span className='loading loading-spinner' /> {_('Loading your progress…')}
-          </p>
-        ) : error ? (
-          <div>
-            <p role='alert'>{error}</p>
-            <button
-              type='button'
-              className='btn mt-4 min-h-11'
-              onClick={() => setLoadRevision((revision) => revision + 1)}
-            >
-              <RefreshCw className='size-4' /> {_('Try again')}
-            </button>
-          </div>
-        ) : data ? (
-          <>
-            <LearningBoredMasterySummary
-              mastery={data.mastery}
-              selectedTier={selectedTier}
-              onSelectTier={setSelectedTier}
-            />
-            <LearningBoredConceptList
-              concepts={
-                selectedTier === null
-                  ? data.mastery.concepts
-                  : data.mastery.concepts.filter((concept) => concept.tier === selectedTier)
-              }
-              onOpenBoard={(boardId) => void openBoard(boardId)}
-              onStartReview={(conceptId) => onStartReview(documentId, conceptId)}
-            />
-            {data.document.blueprintId !== null && data.readiness ? (
-              <div className='mt-8 border-t border-[var(--lb-progress-border)] pt-6'>
-                <Suspense
-                  fallback={
-                    <p role='status' className='flex items-center gap-3'>
-                      <span className='loading loading-spinner' /> {_('Loading exam progress…')}
-                    </p>
-                  }
+          {error}
+        </LearningBoredProgressStatus>
+      ) : data ? (
+        <>
+          {data.document.blueprintId !== null ? (
+            <div className={styles['overlay']}>
+              {readinessLoading ? (
+                <LearningBoredProgressStatus translate={_}>
+                  {_('Loading exam progress…')}
+                </LearningBoredProgressStatus>
+              ) : readinessError ? (
+                <LearningBoredProgressStatus
+                  actionLabel='Try exam progress again'
+                  onAction={() => setReadinessRevision((revision) => revision + 1)}
+                  tone='error'
+                  translate={_}
                 >
-                  <LearningBoredExamOverlay
-                    client={client}
-                    document={data.document}
-                    mastery={data.mastery}
-                    readiness={data.readiness}
-                    onOpenBoard={(boardId) => void openBoard(boardId)}
-                    onStartReview={(conceptId) => onStartReview(documentId, conceptId)}
-                  />
-                </Suspense>
-              </div>
-            ) : null}
-          </>
-        ) : null}
-      </div>
-    </aside>
+                  {readinessError}
+                </LearningBoredProgressStatus>
+              ) : readiness ? (
+                <LearningBoredOptionalReadinessBoundary
+                  fallback={
+                    <LearningBoredProgressStatus
+                      actionLabel='Try exam view again'
+                      onAction={() => setOverlayRevision((revision) => revision + 1)}
+                      tone='error'
+                      translate={_}
+                    >
+                      {_(
+                        'Exam readiness could not be opened. Concept progress is still available.',
+                      )}
+                    </LearningBoredProgressStatus>
+                  }
+                  key={overlayRevision}
+                >
+                  <Suspense
+                    fallback={
+                      <LearningBoredProgressStatus translate={_}>
+                        {_('Loading exam progress…')}
+                      </LearningBoredProgressStatus>
+                    }
+                  >
+                    <LearningBoredExamOverlay
+                      client={client}
+                      document={data.document}
+                      mastery={data.mastery}
+                      onOpenBoard={(boardId) => void openBoard(boardId)}
+                      onStartReview={(conceptId) => onStartReview(documentId, conceptId)}
+                      readiness={readiness}
+                    />
+                  </Suspense>
+                </LearningBoredOptionalReadinessBoundary>
+              ) : null}
+            </div>
+          ) : null}
+          <LearningBoredMasterySummary
+            mastery={data.mastery}
+            onSelectTier={setSelectedTier}
+            selectedTier={selectedTier}
+          />
+          <LearningBoredConceptList
+            concepts={
+              selectedTier === null
+                ? data.mastery.concepts
+                : data.mastery.concepts.filter((concept) => concept.tier === selectedTier)
+            }
+            initialExpandedConceptId={initialSelectedConceptId}
+            emptyMessage={
+              selectedTier === null
+                ? 'No grounded concepts are available yet.'
+                : 'No concepts are in this mastery state.'
+            }
+            onOpenBoard={(boardId) => void openBoard(boardId)}
+            onStartReview={(conceptId) => onStartReview(documentId, conceptId)}
+          />
+        </>
+      ) : (
+        <LearningBoredProgressStatus tone='empty' translate={_}>
+          {_('No grounded concepts are available yet.')}
+        </LearningBoredProgressStatus>
+      )}
+    </LearningBoredProgressShell>
   );
 };
 

@@ -5,7 +5,9 @@ vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (message: string) => message,
 }));
 
-import LearningBoredReviewPanel from '@/integrations/learningbored/LearningBoredReviewPanel';
+import LearningBoredReviewPanel, {
+  type LearningBoredReviewOutboxStore,
+} from '@/integrations/learningbored/LearningBoredReviewPanel';
 import type {
   LearningBoredClient,
   LearningBoredDueReviewItem,
@@ -17,6 +19,7 @@ import {
   createLearningBoredReviewGradeOutboxEntry,
   writeLearningBoredReviewGradeOutbox,
 } from '@/integrations/learningbored/review-grade-outbox';
+import { LearningBoredPresentationThemeProvider } from '@/integrations/learningbored/presentation/context';
 
 const REQUEST_ID = '00000000-0000-4000-8000-000000000006';
 
@@ -259,6 +262,78 @@ describe('LearningBored review panel', () => {
     expect(panel.querySelector('[aria-hidden="true"] > .h-1.w-10.rounded-full')).toBeNull();
   });
 
+  it('owns a theme-aware Miura presentation scope and explicit start state', async () => {
+    const client = createClient([dueItem('recall-one', 'Which fictional component moves?')]);
+    render(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredReviewPanel client={client} onClose={vi.fn()} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+
+    await screen.findByText('1 question is due now.');
+    const panel = screen.getByTestId('learningbored-review-panel');
+    expect(panel.classList.contains('lb-presentation')).toBe(true);
+    expect(panel.getAttribute('data-lb-theme')).toBe('dark');
+    expect(panel.getAttribute('data-lb-presentation')).toBe('review-work-surface');
+    expect(panel.getAttribute('data-lb-review-state')).toBe('start');
+    expect(panel.getAttribute('data-design-version')).toBe('miura-study-grid-v1');
+    expect(panel.getAttribute('data-impeccable-seed')).toBe('c0d5a557');
+    expect(panel.querySelector('style')).toBeNull();
+  });
+
+  it('renders a genuine empty initial queue as empty instead of a disabled start state', async () => {
+    const client = createClient([]);
+    render(<LearningBoredReviewPanel client={client} onClose={vi.fn()} />);
+
+    expect(
+      await screen.findByRole('heading', { name: 'No validated questions are due' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(
+        '0 reviewed. No more validated questions are available from the remaining queue right now.',
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Begin review' })).toBeNull();
+    expect(
+      screen.getByTestId('learningbored-review-panel').getAttribute('data-lb-review-state'),
+    ).toBe('empty');
+  });
+
+  it('accepts an in-memory answer-free outbox without touching browser storage', async () => {
+    const client = createClient([dueItem('recall-one', 'Which fictional component moves?')]);
+    let stored: Parameters<LearningBoredReviewOutboxStore['write']>[0] | null = null;
+    const writtenEntries: Parameters<LearningBoredReviewOutboxStore['write']>[0][] = [];
+    const outboxStore: LearningBoredReviewOutboxStore = {
+      read: vi.fn<LearningBoredReviewOutboxStore['read']>(() => ({ status: 'empty' })),
+      write: vi.fn<LearningBoredReviewOutboxStore['write']>((entry) => {
+        stored = entry;
+        writtenEntries.push(entry);
+        return { status: 'stored' };
+      }),
+      clear: vi.fn<LearningBoredReviewOutboxStore['clear']>(() => {
+        stored = null;
+        return { status: 'cleared' };
+      }),
+    };
+
+    render(
+      <LearningBoredReviewPanel client={client} onClose={vi.fn()} outboxStore={outboxStore} />,
+    );
+    await beginReview();
+    fireEvent.keyDown(window, { key: ' ', code: 'Space' });
+    await screen.findByText('The inner fictional rotor moves.');
+    fireEvent.click(screen.getByRole('button', { name: 'Good, next review 2 days' }));
+
+    await screen.findByRole('heading', { name: 'Review complete' });
+    expect(outboxStore.write).toHaveBeenCalledTimes(1);
+    expect(outboxStore.clear).toHaveBeenCalledWith(REQUEST_ID);
+    const persistedRequest = JSON.stringify(writtenEntries[0]);
+    expect(persistedRequest).not.toContain('The inner fictional rotor moves.');
+    expect(persistedRequest).not.toContain('explanation');
+    expect(localStorage.length).toBe(0);
+    expect(stored).toBeNull();
+  });
+
   it('keeps the AI-generated source-check notice visible throughout recall study', async () => {
     const client = createClient([dueItem('recall-one', 'Which fictional component moves?')]);
     render(<LearningBoredReviewPanel client={client} onClose={vi.fn()} />);
@@ -301,9 +376,20 @@ describe('LearningBored review panel', () => {
     expect(client.revealReviewItem).not.toHaveBeenCalled();
 
     await beginReview();
-    expect(screen.getByText('Which fictional component moves?')).toBeTruthy();
+    const question = screen.getByRole('heading', { name: 'Which fictional component moves?' });
+    expect(question).toBeTruthy();
+    await waitFor(() => expect(document.activeElement).toBe(question));
+    expect(screen.getByTestId('learningbored-review-status').textContent).toBe('Review started.');
     expect(screen.getByText('The outer fictional ring.')).toBeTruthy();
     expect(screen.queryByText('The inner fictional rotor moves.')).toBeNull();
+
+    fireEvent.click(screen.getByLabelText('The inner fictional rotor.'));
+    expect(
+      screen.getByTestId('learningbored-review-panel').getAttribute('data-lb-review-state'),
+    ).toBe('selected-choice');
+    expect(
+      screen.getByRole('region', { name: 'Review question and answer' }).getAttribute('tabindex'),
+    ).toBe('0');
 
     fireEvent.keyDown(window, { key: ' ', code: 'Space' });
 
@@ -311,6 +397,12 @@ describe('LearningBored review panel', () => {
     await waitFor(() => {
       expect(document.activeElement).toBe(screen.getByText('Answer').closest('section'));
     });
+    expect(screen.getByTestId('learningbored-review-status').textContent).toBe(
+      'Answer revealed. Choose a grade from 1 to 4.',
+    );
+    expect(
+      screen.getByTestId('learningbored-review-panel').getAttribute('data-lb-review-state'),
+    ).toBe('revealed-answer');
     expect(client.revealReviewItem).toHaveBeenCalledTimes(1);
     expect(screen.getByText(/contrasts the moving inner part/u)).toBeTruthy();
     expect(screen.getByText('The source describes the outer ring as stationary.')).toBeTruthy();
@@ -330,17 +422,20 @@ describe('LearningBored review panel', () => {
     expect(screen.getByRole('button', { name: 'Hard, next review 10 min' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Good, next review 2 days' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Easy, next review 1 year' })).toBeTruthy();
-    expect(screen.getByRole('button', { name: 'Again, next review 1 min' }).className).toContain(
-      'min-h-14',
+    expect(
+      screen
+        .getByRole('button', { name: 'Again, next review 1 min' })
+        .getAttribute('aria-keyshortcuts'),
+    ).toBe('1');
+    expect(screen.getByRole('button', { name: 'Close review' }).getAttribute('title')).toBe(
+      'Close review',
     );
-    expect(screen.getByRole('button', { name: 'Bad choice' }).className).toContain('min-h-11');
-    expect(screen.getByRole('button', { name: 'Close review' }).className).toContain('min-h-11');
-    expect(screen.getByRole('button', { name: 'Close review' }).className).toContain('min-w-11');
-    expect(screen.getByRole('group', { name: 'Recall grade' }).className).toContain('grid-cols-2');
+    expect(
+      screen.getByRole('group', { name: 'Recall grade' }).querySelectorAll('button'),
+    ).toHaveLength(4);
 
     const panel = screen.getByTestId('learningbored-review-panel');
-    expect(panel.className).toContain('w-full');
-    expect(panel.className).toContain('min-w-0');
+    expect(panel.classList.contains('lb-presentation')).toBe(true);
   });
 
   it.each<[string, LearningBoredReviewGrade]>([
@@ -360,6 +455,9 @@ describe('LearningBored review panel', () => {
     fireEvent.keyDown(window, { key, code: `Digit${key}` });
 
     expect(await screen.findByRole('heading', { name: 'Review complete' })).toBeTruthy();
+    expect(screen.getByTestId('learningbored-review-status').textContent).toMatch(
+      /recorded\. Review complete\.$/u,
+    );
     expect(client.submitReviewGrade).toHaveBeenCalledWith(
       expect.objectContaining({
         clientRequestId: REQUEST_ID,
@@ -413,7 +511,10 @@ describe('LearningBored review panel', () => {
     fireEvent.keyDown(window, { key: '3', code: 'Digit3' });
 
     const retry = await screen.findByRole('button', { name: 'Retry grade' });
-    expect(retry.className).toContain('min-h-11');
+    expect((retry as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      screen.getByTestId('learningbored-review-panel').getAttribute('data-lb-review-state'),
+    ).toBe('pending-outbox');
     expect(screen.getByText('Which fictional component moves?')).toBeTruthy();
     const suppress = screen.getByRole('button', { name: 'Bad choice' }) as HTMLButtonElement;
     expect(suppress.disabled).toBe(true);
@@ -669,6 +770,9 @@ describe('LearningBored review panel', () => {
     fireEvent.keyDown(window, { key: '3', code: 'Digit3' });
 
     const reload = await screen.findByRole('button', { name: 'Reload review' });
+    expect(
+      screen.getByTestId('learningbored-review-panel').getAttribute('data-lb-review-state'),
+    ).toBe('rejection-recovery');
     expect(screen.queryByRole('button', { name: 'Retry grade' })).toBeNull();
     expect(submitReviewGrade).toHaveBeenCalledTimes(1);
     expect(
@@ -736,6 +840,55 @@ describe('LearningBored review panel', () => {
     expect(client.revealReviewItem).not.toHaveBeenCalled();
   });
 
+  it('announces completion when the final question is suppressed', async () => {
+    const item = dueItem('recall-one', 'Which fictional component moves?');
+    const client = createClient([item]);
+    render(<LearningBoredReviewPanel client={client} onClose={vi.fn()} />);
+
+    await beginReview();
+    fireEvent.click(screen.getByRole('button', { name: 'Ambiguous' }));
+
+    expect(await screen.findByRole('heading', { name: 'Review complete' })).toBeTruthy();
+    expect(screen.getByTestId('learningbored-review-status').textContent).toBe(
+      'Question removed. Review complete.',
+    );
+  });
+
+  it('locks answer choices while a deliberate reveal request is in flight', async () => {
+    const item = dueItem('recall-one', 'Which fictional component moves?');
+    let resolveReveal!: (value: {
+      recallItemId: string;
+      answer: LearningBoredReviewAnswer;
+    }) => void;
+    const revealRequest = new Promise<{
+      recallItemId: string;
+      answer: LearningBoredReviewAnswer;
+    }>((resolve) => {
+      resolveReveal = resolve;
+    });
+    const client = createClient([item], {
+      revealReviewItem: vi.fn(() => revealRequest),
+    });
+    render(<LearningBoredReviewPanel client={client} onClose={vi.fn()} />);
+
+    await beginReview();
+    const firstChoice = screen.getByLabelText('The outer fictional ring.') as HTMLInputElement;
+    const secondChoice = screen.getByLabelText('The inner fictional rotor.') as HTMLInputElement;
+    fireEvent.click(firstChoice);
+    fireEvent.click(screen.getByRole('button', { name: /Reveal answer/u }));
+
+    const choices = firstChoice.closest('fieldset') as HTMLFieldSetElement;
+    await waitFor(() => expect(choices.disabled).toBe(true));
+    expect(
+      screen.getByTestId('learningbored-review-panel').getAttribute('data-lb-review-state'),
+    ).toBe('reveal-request');
+    expect(firstChoice.checked).toBe(true);
+    expect(secondChoice.checked).toBe(false);
+
+    resolveReveal({ recallItemId: item.recallItem.id, answer: revealedAnswer() });
+    expect(await screen.findByText('The inner fictional rotor moves.')).toBeTruthy();
+  });
+
   it('continues a review larger than one twenty-item page and reports truthful totals', async () => {
     let requestSequence = 0;
     vi.mocked(globalThis.crypto.randomUUID).mockImplementation(() => {
@@ -776,6 +929,9 @@ describe('LearningBored review panel', () => {
     expect(
       await screen.findByRole('heading', { name: 'More questions are available' }),
     ).toBeTruthy();
+    expect(
+      screen.getByTestId('learningbored-review-panel').getAttribute('data-lb-review-state'),
+    ).toBe('continuation');
     expect(screen.getByText('20 reviewed. 1 remain.')).toBeTruthy();
     expect(getNextReviewItems).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole('button', { name: 'Continue review — 1 remaining' }));
@@ -825,6 +981,9 @@ describe('LearningBored review panel', () => {
         '1 reviewed. No more validated questions are available from the remaining queue right now.',
       ),
     ).toBeTruthy();
+    expect(
+      screen.getByTestId('learningbored-review-panel').getAttribute('data-lb-review-state'),
+    ).toBe('empty');
     await waitFor(() => expect(getNextReviewItems).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole('button', { name: /Continue review/u })).toBeNull();
   });

@@ -7,10 +7,16 @@ import type {
   LearningBoredBoardKind,
   LearningBoredComprehensionOutcome,
   LearningBoredFigureRegenerationIssue,
+  LearningBoredReviewGrade,
   LearningBoredSourceSpan,
 } from '../client';
 import LearningBoredBoardSurface from '../work-surface/LearningBoredBoardSurface';
 import LearningBoredProgressPanel from '../LearningBoredProgressPanel';
+import LearningBoredReviewPanel, {
+  LearningBoredReviewPresentation,
+  type LearningBoredReviewPresentationActions,
+  type LearningBoredReviewViewState,
+} from '../LearningBoredReviewPanel';
 import LearningBoredComprehensionState, {
   type LearningBoredComprehensionViewState,
 } from '../work-surface/LearningBoredComprehensionState';
@@ -21,12 +27,16 @@ import LearningBoredFigureSurface, {
 import LearningBoredGenerationState, {
   type LearningBoredGenerationViewState,
 } from '../work-surface/LearningBoredGenerationState';
-import LearningBoredReviewSurfaceShell from '../work-surface/LearningBoredReviewSurfaceShell';
 import LearningBoredWorkSurfaceShell, {
   learningBoredWorkSurfaceStyles,
 } from '../work-surface/LearningBoredWorkSurfaceShell';
 import type { LearningBoredPreviewStateId, LearningBoredPreviewTheme } from './contract';
 import styles from './LearningBoredPreview.module.css';
+import {
+  createLearningBoredReviewPreviewClient,
+  createLearningBoredReviewPreviewOutboxStore,
+  createLearningBoredReviewPreviewViewState,
+} from './review-fixtures';
 import {
   LEARNINGBORED_PREVIEW_BOARD,
   LEARNINGBORED_PREVIEW_FIGURE_REPLACEMENT,
@@ -35,6 +45,7 @@ import {
   LEARNINGBORED_PREVIEW_SECOND_FIGURE,
   createLearningBoredStudyPanelPreviewClient,
   getLearningBoredPreviewBoard,
+  type LearningBoredStudyPanelPreviewMode,
 } from './study-fixtures';
 
 type PreviewAction = (message: string) => void;
@@ -292,6 +303,69 @@ function ComprehensionFixture({ stateId, onAction }: { stateId: string; onAction
   return <LearningBoredComprehensionState onSubmit={onSubmit} state={state} />;
 }
 
+function ReviewFixture({
+  stateId,
+  onAction,
+  onClose,
+}: {
+  stateId: Extract<LearningBoredPreviewStateId, `review-${string}`>;
+  onAction: PreviewAction;
+  onClose: () => void;
+}) {
+  const client = useMemo(
+    () => createLearningBoredReviewPreviewClient(stateId === 'review-empty' ? 'empty' : 'ready'),
+    [stateId],
+  );
+  const outboxStore = useMemo(() => createLearningBoredReviewPreviewOutboxStore(), []);
+  const [viewState, setViewState] = useState<LearningBoredReviewViewState>(() =>
+    createLearningBoredReviewPreviewViewState(stateId),
+  );
+
+  if (stateId === 'review-start' || stateId === 'review-empty') {
+    return (
+      <LearningBoredReviewPanel
+        client={client}
+        documentId='preview-waterworks'
+        onClose={onClose}
+        onOpenProgress={() => onAction('Opened deterministic progress from Review.')}
+        outboxStore={outboxStore}
+      />
+    );
+  }
+
+  const actions: LearningBoredReviewPresentationActions = {
+    onBegin: () => undefined,
+    onTryAgain: () => onAction('Retried the deterministic Review read.'),
+    onContinue: () => onAction('Continued the deterministic Review page.'),
+    onReveal: () => {
+      setViewState(createLearningBoredReviewPreviewViewState('review-revealed'));
+      onAction('Revealed the deterministic answer through the production presentation seam.');
+    },
+    onSelectOption: (optionId) => {
+      setViewState((current) =>
+        current.screen.kind === 'question'
+          ? {
+              ...current,
+              visualState: 'selected-choice',
+              statusMessage: 'Choice selected. Reveal the answer when ready.',
+              screen: { ...current.screen, selectedOptionId: optionId },
+            }
+          : current,
+      );
+      onAction(`Selected deterministic choice ${optionId}.`);
+    },
+    onGrade: (grade: LearningBoredReviewGrade) =>
+      onAction(`Submitted deterministic ${grade} grade.`),
+    onSuppress: (category) => onAction(`Removed deterministic question as ${category}.`),
+    onRetryGrade: () => onAction('Retried the exact deterministic grade request.'),
+    onReloadReview: () => onAction('Reloaded the deterministic Review queue.'),
+    onClose,
+    onOpenProgress: () => onAction('Opened deterministic progress from Review.'),
+  };
+
+  return <LearningBoredReviewPresentation actions={actions} viewState={viewState} />;
+}
+
 export default function LearningBoredStudyPreview({
   stateId,
   onAction,
@@ -303,17 +377,34 @@ export default function LearningBoredStudyPreview({
 }) {
   const [panelOpen, setPanelOpen] = useState(true);
   const [highlightedSpan, setHighlightedSpan] = useState<LearningBoredSourceSpan | null>(null);
-  const panelClient = useMemo(createLearningBoredStudyPanelPreviewClient, []);
   const generationState = generationStates[stateId];
-  const isProgress = stateId === 'progress-overview';
-  const isReview = stateId === 'review-topology';
+  const isProgress = stateId.startsWith('progress-') || stateId.startsWith('readiness-');
+  const isReview = stateId.startsWith('review-');
+  const progressMode: LearningBoredStudyPanelPreviewMode =
+    stateId === 'progress-loading'
+      ? 'loading'
+      : stateId === 'progress-error'
+        ? 'error'
+        : stateId === 'progress-empty'
+          ? 'empty'
+          : stateId === 'progress-board-error'
+            ? 'board-error'
+            : stateId === 'readiness-objectives'
+              ? 'readiness'
+              : stateId === 'readiness-not-started'
+                ? 'readiness-not-started'
+                : 'ready';
+  const panelClient = useMemo(
+    () => createLearningBoredStudyPanelPreviewClient(progressMode),
+    [progressMode],
+  );
   const stageLabel = useMemo(() => {
     if (generationState?.kind === 'active') return generationState.label;
     if (stateId.startsWith('capture-')) return 'Passage captured';
     if (stateId.startsWith('board-')) return 'Board ready';
     if (stateId.startsWith('figure-')) return 'Figure resilience';
     if (stateId.startsWith('comprehension-')) return 'Comprehension check';
-    if (isReview) return 'Review topology';
+    if (isReview) return 'Review';
     return 'Progress';
   }, [generationState, isReview, stateId]);
   const closePanel = () => {
@@ -335,32 +426,31 @@ export default function LearningBoredStudyPreview({
         <LearningBoredProgressPanel
           client={panelClient}
           documentId='preview-waterworks'
-          loadExamOverlay={() =>
-            Promise.reject(new Error('The deterministic document has no exam blueprint.'))
+          initialBoardId={
+            stateId === 'progress-board' || stateId === 'progress-board-error'
+              ? LEARNINGBORED_PREVIEW_BOARD.id
+              : null
+          }
+          initialSelectedConceptId={
+            stateId === 'progress-concept' ? 'preview-concept-settling' : null
+          }
+          loadExamOverlay={
+            stateId.startsWith('readiness-')
+              ? () => import('../LearningBoredExamOverlay')
+              : () => Promise.reject(new Error('The deterministic document has no exam blueprint.'))
           }
           onClose={closePanel}
           onStartReview={(_documentId, conceptId) =>
             onAction(`Opened deterministic review for ${conceptId}.`)
           }
+          theme={theme}
         />
       ) : panelOpen && isReview ? (
-        <LearningBoredReviewSurfaceShell
+        <ReviewFixture
+          onAction={onAction}
           onClose={closePanel}
-          statusMessage='Review topology fixture ready.'
-          subtitle='From this Board'
-        >
-          <section className={styles['reviewTopology']} aria-labelledby='preview-review-title'>
-            <p>Ready when you are</p>
-            <h2 id='preview-review-title'>0 questions are due now.</h2>
-            <p>
-              Review content migration belongs to §7. This state proves only the production Review
-              surface topology, with no queue, answer, grade, or retry-outbox controller mounted.
-            </p>
-            <button className='btn min-h-11' disabled type='button'>
-              Nothing available right now
-            </button>
-          </section>
-        </LearningBoredReviewSurfaceShell>
+          stateId={stateId as Extract<LearningBoredPreviewStateId, `review-${string}`>}
+        />
       ) : panelOpen ? (
         <LearningBoredWorkSurfaceShell
           height='study'

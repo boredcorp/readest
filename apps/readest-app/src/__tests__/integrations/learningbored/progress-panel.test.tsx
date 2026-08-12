@@ -8,6 +8,7 @@ vi.mock('@/hooks/useTranslation', () => ({
 import LearningBoredProgressPanel from '@/integrations/learningbored/LearningBoredProgressPanel';
 import LearningBoredExamOverlay from '@/integrations/learningbored/LearningBoredExamOverlay';
 import { LearningBoredConceptList } from '@/integrations/learningbored/LearningBoredMastery';
+import { LearningBoredPresentationThemeProvider } from '@/integrations/learningbored/presentation/context';
 import type {
   LearningBoredBlueprint,
   LearningBoredClient,
@@ -222,6 +223,68 @@ function createClient(input?: {
 afterEach(() => cleanup());
 
 describe('LearningBored progress panel', () => {
+  it('inherits the selected Reader theme through a scoped Miura study shell', async () => {
+    const client = createClient({ document: { ...DOCUMENT, blueprintId: null } });
+    const rendered = render(
+      <LearningBoredPresentationThemeProvider value='eink'>
+        <LearningBoredProgressPanel
+          client={client}
+          documentId={DOCUMENT.id}
+          onClose={vi.fn()}
+          onStartReview={vi.fn()}
+        />
+      </LearningBoredPresentationThemeProvider>,
+    );
+
+    const panel = await screen.findByRole('complementary', {
+      name: 'LearningBored progress panel',
+    });
+    expect(panel.classList.contains('lb-presentation')).toBe(true);
+    expect(panel.getAttribute('data-lb-presentation')).toBe('progress-work-surface');
+    expect(panel.getAttribute('data-lb-theme')).toBe('eink');
+    expect(rendered.container.querySelector('style')).toBeNull();
+  });
+
+  it('selects a concept before exposing its due items, Board links, and review action', async () => {
+    const client = createClient({ document: { ...DOCUMENT, blueprintId: null } });
+    const onStartReview = vi.fn();
+    render(
+      <LearningBoredProgressPanel
+        client={client}
+        documentId={DOCUMENT.id}
+        onClose={vi.fn()}
+        onStartReview={onStartReview}
+      />,
+    );
+
+    const conceptHeading = await screen.findByRole('heading', {
+      name: 'Fictional signal path',
+    });
+    const card = conceptHeading.closest('li');
+    expect(card).toBeTruthy();
+    expect(
+      within(card!).queryByRole('region', {
+        name: '3 due items for Fictional signal path',
+      }),
+    ).toBeNull();
+
+    const disclosure = within(card!).getByRole('button', {
+      name: /Fictional signal path.*Lapsed.*72%.*3 due/u,
+    });
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+
+    const dueItems = within(card!).getByRole('region', {
+      name: '3 due items for Fictional signal path',
+    });
+    expect(within(dueItems).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(card!).getByRole('button', { name: 'Open Board' })).toBeTruthy();
+
+    fireEvent.click(within(card!).getByRole('button', { name: 'Review this concept' }));
+    expect(onStartReview).toHaveBeenCalledWith(DOCUMENT.id, 'concept-lapsed');
+  });
+
   it('does not advertise a nonexistent action for a legacy concept without due items or Boards', () => {
     render(
       <LearningBoredConceptList
@@ -245,9 +308,14 @@ describe('LearningBored progress panel', () => {
 
     const card = screen.getByRole('heading', { name: 'Fictional legacy concept' }).closest('li');
     expect(card).toBeTruthy();
-    expect(within(card!).queryByRole('button')).toBeNull();
+    const disclosure = within(card!).getByRole('button', {
+      name: /Fictional legacy concept.*New.*Not started.*No items due/u,
+    });
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(disclosure);
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
     expect(within(card!).queryByText('Open Board')).toBeNull();
-    expect(within(card!).queryByText('Review due')).toBeNull();
+    expect(within(card!).queryByText('Review this concept')).toBeNull();
     expect(within(card!).getByText('Not started')).toBeTruthy();
   });
 
@@ -280,14 +348,21 @@ describe('LearningBored progress panel', () => {
     expect(screen.getByText('72%')).toBeTruthy();
     expect(screen.queryByText('73%')).toBeNull();
     expect(screen.getByText('Not started')).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Learning: 0' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByRole('button', { name: 'Retained: 0' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
 
     const reviewedMasteryAction = screen.getByRole('button', {
-      name: /Based on 4 anchored recall items.*Last reviewed.*Lapsed.*72%.*Review 3 due items for Fictional signal path/u,
+      name: /Fictional signal path.*Lapsed.*72%.*3 due/u,
     });
     expect(reviewedMasteryAction.querySelector('time')?.getAttribute('datetime')).toBe(
       '2026-07-21T10:00:00.000Z',
     );
     fireEvent.click(reviewedMasteryAction);
+    fireEvent.click(screen.getByRole('button', { name: 'Review this concept' }));
     expect(onStartReview).toHaveBeenCalledWith(DOCUMENT.id, 'concept-lapsed');
 
     fireEvent.click(screen.getByRole('button', { name: 'New: 1' }));
@@ -295,14 +370,19 @@ describe('LearningBored progress panel', () => {
     expect(screen.queryByRole('heading', { name: 'Fictional signal path' })).toBeNull();
     fireEvent.click(
       screen.getByRole('button', {
-        name: /Based on 1 anchored recall item.*Not reviewed yet.*New.*Not started.*Open the first Board for Fictional regulator/u,
+        name: /Fictional regulator.*New.*Not started.*No items due/u,
       }),
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Open Board' }));
     expect(await screen.findByRole('heading', { name: 'Fictional signal Board' })).toBeTruthy();
+    expect(client.getBoard).toHaveBeenLastCalledWith('board-new', { includeScaffold: false });
     fireEvent.click(screen.getByRole('button', { name: 'Back to progress' }));
 
     fireEvent.click(screen.getByRole('button', { name: '2 concepts' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Review 3 due' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /Fictional signal path.*Lapsed.*72%.*3 due/u }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Review this concept' }));
     expect(onStartReview).toHaveBeenCalledWith(DOCUMENT.id, 'concept-lapsed');
 
     const openBoardButtons = screen.getAllByRole('button', { name: 'Open Board' });
@@ -345,10 +425,15 @@ describe('LearningBored progress panel', () => {
       />,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Readiness by objective' })).toBeTruthy();
+    const readinessHeading = await screen.findByRole('heading', {
+      name: 'Readiness by objective',
+    });
     expect(loadExamOverlay).toHaveBeenCalledTimes(1);
     expect(client.getDocumentReadiness).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('heading', { name: 'Concept progress' })).toBeTruthy();
+    const conceptHeading = screen.getByRole('heading', { name: 'Concept progress' });
+    expect(
+      readinessHeading.compareDocumentPosition(conceptHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).not.toBe(0);
     expect(screen.getByRole('heading', { name: 'Fictional unmapped bridge' })).toBeTruthy();
     expect(screen.queryByText('64%')).toBeNull();
     const objectiveButtons = screen.getAllByRole('button', { name: /Open concept details/u });
@@ -400,6 +485,102 @@ describe('LearningBored progress panel', () => {
     );
     expect(client.getDocumentReadiness).toHaveBeenCalledTimes(3);
     expect(within(regulatorDetails!).getByText('Manual mapping saved.')).toBeTruthy();
+  });
+
+  it('keeps concept progress actionable when optional readiness fails and retries it locally', async () => {
+    const client = createClient({ document: { ...DOCUMENT, blueprintId: BLUEPRINT.id } });
+    vi.mocked(client.getDocumentReadiness)
+      .mockRejectedValueOnce(new Error('readiness unavailable'))
+      .mockResolvedValueOnce(READINESS);
+    const loadExamOverlay = vi.fn(loadExamOverlayFixture);
+
+    render(
+      <LearningBoredProgressPanel
+        client={client}
+        documentId={DOCUMENT.id}
+        onClose={vi.fn()}
+        onStartReview={vi.fn()}
+        loadExamOverlay={loadExamOverlay}
+      />,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Concept progress' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Fictional signal path' })).toBeTruthy();
+    expect(
+      await screen.findByText(
+        'Exam readiness could not be loaded. Concept progress is still available.',
+      ),
+    ).toBeTruthy();
+    expect(loadExamOverlay).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try exam progress again' }));
+    expect(await screen.findByRole('heading', { name: 'Readiness by objective' })).toBeTruthy();
+    expect(client.getDocumentReadiness).toHaveBeenCalledTimes(2);
+    expect(loadExamOverlay).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('heading', { name: 'Concept progress' })).toBeTruthy();
+  });
+
+  it('keeps concept progress available when the optional overlay chunk fails and retries locally', async () => {
+    const client = createClient({ document: { ...DOCUMENT, blueprintId: BLUEPRINT.id } });
+    const loadExamOverlay = vi
+      .fn<() => ReturnType<typeof loadExamOverlayFixture>>()
+      .mockRejectedValueOnce(new Error('overlay unavailable'))
+      .mockImplementation(loadExamOverlayFixture);
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    render(
+      <LearningBoredProgressPanel
+        client={client}
+        documentId={DOCUMENT.id}
+        onClose={vi.fn()}
+        onStartReview={vi.fn()}
+        loadExamOverlay={loadExamOverlay}
+      />,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'Concept progress' })).toBeTruthy();
+    expect(
+      await screen.findByText(
+        'Exam readiness could not be opened. Concept progress is still available.',
+      ),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Try exam view again' }));
+    expect(await screen.findByRole('heading', { name: 'Readiness by objective' })).toBeTruthy();
+    expect(loadExamOverlay).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('heading', { name: 'Concept progress' })).toBeTruthy();
+  });
+
+  it('uses truthful contextual copy when an expanded objective has no mapped concepts', async () => {
+    const readiness: LearningBoredReadinessResult = {
+      ...READINESS,
+      objectives: [
+        {
+          ...READINESS.objectives[0]!,
+          conceptCount: 0,
+          startedConceptCount: 0,
+          weakestConceptIds: [],
+        },
+      ],
+      conceptMappings: [],
+    };
+    const client = createClient({
+      document: { ...DOCUMENT, blueprintId: BLUEPRINT.id },
+      readiness,
+    });
+
+    render(
+      <LearningBoredProgressPanel
+        client={client}
+        documentId={DOCUMENT.id}
+        onClose={vi.fn()}
+        onStartReview={vi.fn()}
+        loadExamOverlay={loadExamOverlayFixture}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /Open concept details/u }));
+    expect(screen.getByText('No grounded concepts map to this objective yet.')).toBeTruthy();
+    expect(screen.queryByText('No grounded concepts are available yet.')).toBeNull();
   });
 
   it('keeps not-started readiness distinct from a started zero', async () => {

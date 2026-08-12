@@ -1,9 +1,12 @@
 import type {
+  LearningBoredBlueprint,
   LearningBoredBoardComprehension,
   LearningBoredBoardResult,
   LearningBoredClient,
+  LearningBoredDocumentSummary,
   LearningBoredFigureRegenerationSnapshot,
   LearningBoredMasteryResult,
+  LearningBoredReadinessResult,
 } from '../client';
 import type { LearningBoredCapturedPassage } from '../types';
 import type { LearningBoredPreviewTheme } from './contract';
@@ -297,7 +300,7 @@ export const LEARNINGBORED_PREVIEW_COMPREHENSION: Record<
   },
 };
 
-const LEARNINGBORED_PREVIEW_PROGRESS_MASTERY: LearningBoredMasteryResult = {
+export const LEARNINGBORED_PREVIEW_PROGRESS_MASTERY: LearningBoredMasteryResult = {
   documentId: 'preview-waterworks',
   concepts: [
     {
@@ -312,42 +315,212 @@ const LEARNINGBORED_PREVIEW_PROGRESS_MASTERY: LearningBoredMasteryResult = {
       dueItemIds: ['preview-recall-one', 'preview-recall-two'],
     },
     {
+      conceptId: 'preview-concept-calming',
+      name: 'Calming zone',
+      score: 0.814,
+      tier: 'learning',
+      itemCount: 2,
+      dueCount: 1,
+      lastReviewedAt: '2026-08-11T09:10:00.000Z',
+      boardIds: [LEARNINGBORED_PREVIEW_BOARD.id],
+      dueItemIds: ['preview-recall-calming'],
+    },
+    {
       conceptId: 'preview-concept-outlet',
       name: 'Outlet position',
       score: null,
       tier: 'new',
       itemCount: 1,
-      dueCount: 0,
+      dueCount: 1,
       lastReviewedAt: null,
+      boardIds: [LEARNINGBORED_PREVIEW_BOARD.id],
+      dueItemIds: ['preview-recall-outlet'],
+    },
+    {
+      conceptId: 'preview-concept-inlet',
+      name: 'Inlet path',
+      score: 0.944,
+      tier: 'retained',
+      itemCount: 2,
+      dueCount: 0,
+      lastReviewedAt: '2026-08-12T07:20:00.000Z',
       boardIds: [LEARNINGBORED_PREVIEW_BOARD.id],
       dueItemIds: [],
     },
   ],
-  summary: { new: 1, learning: 0, retained: 0, lapsed: 1 },
+  summary: { new: 1, learning: 1, retained: 1, lapsed: 1 },
   computedAt: '2026-08-12T08:30:00.000Z',
   derivationVersion: '1.0.0',
 };
 
-/** Minimal deterministic read port for mounting the production Progress panel. */
-export function createLearningBoredStudyPanelPreviewClient(): LearningBoredClient {
+export const LEARNINGBORED_PREVIEW_PROGRESS_DOCUMENT: LearningBoredDocumentSummary = {
+  id: 'preview-waterworks',
+  title: 'Maps of the Imaginary Waterworks',
+  author: 'Mira Vale',
+  format: 'EPUB',
+  sourceType: 'sample',
+  readerBookId: 'preview-reader-waterworks',
+  pageCount: 184,
+  blueprintId: null,
+  boardCount: 4,
+  recallItemCount: 12,
+  dueCount: 5,
+  lastOpenedAt: '2026-08-12T08:15:00.000Z',
+  createdAt: '2026-08-01T10:00:00.000Z',
+  updatedAt: '2026-08-12T08:15:00.000Z',
+};
+
+export const LEARNINGBORED_PREVIEW_BLUEPRINT: LearningBoredBlueprint = {
+  id: 'preview-blueprint-waterworks',
+  name: 'Fictional Waterworks Operator',
+  examCode: 'SAMPLE-200',
+  objectives: [
+    {
+      id: 'preview-objective-flow',
+      code: '1.0',
+      title: 'Trace the treatment flow',
+      weighting: 0.7,
+      parentId: null,
+      parentCode: null,
+      sortOrder: 0,
+    },
+    {
+      id: 'preview-objective-parts',
+      code: '2.0',
+      title: 'Locate generic chamber parts',
+      weighting: 0.3,
+      parentId: null,
+      parentCode: null,
+      sortOrder: 1,
+    },
+  ],
+  weightingTotal: 1,
+  weightingWarning: false,
+  createdAt: '2026-08-01T10:00:00.000Z',
+  updatedAt: '2026-08-12T08:15:00.000Z',
+};
+
+export const LEARNINGBORED_PREVIEW_READINESS: LearningBoredReadinessResult = {
+  documentId: LEARNINGBORED_PREVIEW_PROGRESS_DOCUMENT.id,
+  blueprintId: LEARNINGBORED_PREVIEW_BLUEPRINT.id,
+  overall: 0.701,
+  objectives: [
+    {
+      objectiveId: 'preview-objective-flow',
+      code: '1.0',
+      title: 'Trace the treatment flow',
+      weighting: 0.7,
+      readiness: 0.728,
+      status: 'in_progress',
+      conceptCount: 2,
+      startedConceptCount: 2,
+      weakestConceptIds: ['preview-concept-settling', 'preview-concept-calming'],
+    },
+    {
+      objectiveId: 'preview-objective-parts',
+      code: '2.0',
+      title: 'Locate generic chamber parts',
+      weighting: 0.3,
+      readiness: 0.944,
+      status: 'in_progress',
+      conceptCount: 2,
+      startedConceptCount: 1,
+      weakestConceptIds: ['preview-concept-outlet'],
+    },
+  ],
+  conceptMappings: [
+    {
+      conceptId: 'preview-concept-settling',
+      name: 'Settling sequence',
+      isManual: false,
+      mappings: [
+        {
+          objectiveId: 'preview-objective-flow',
+          confidence: 0.86,
+          isManual: false,
+          mappingVersion: 'preview-lexical-v1',
+        },
+      ],
+    },
+    {
+      conceptId: 'preview-concept-outlet',
+      name: 'Outlet position',
+      isManual: false,
+      mappings: [
+        {
+          objectiveId: 'preview-objective-parts',
+          confidence: 0.78,
+          isManual: false,
+          mappingVersion: 'preview-lexical-v1',
+        },
+      ],
+    },
+  ],
+  computedAt: '2026-08-12T08:30:00.000Z',
+  derivationVersion: '1.0.0',
+};
+
+export const LEARNINGBORED_PREVIEW_READINESS_NOT_STARTED: LearningBoredReadinessResult = {
+  ...LEARNINGBORED_PREVIEW_READINESS,
+  overall: null,
+  objectives: LEARNINGBORED_PREVIEW_READINESS.objectives.map((objective) => ({
+    ...objective,
+    readiness: null,
+    status: 'not_started' as const,
+    startedConceptCount: 0,
+  })),
+};
+
+export type LearningBoredStudyPanelPreviewMode =
+  | 'ready'
+  | 'loading'
+  | 'error'
+  | 'empty'
+  | 'board-error'
+  | 'readiness'
+  | 'readiness-not-started';
+
+function pendingPreviewResult<T>(): Promise<T> {
+  return new Promise<T>(() => undefined);
+}
+
+/** Deterministic read port for mounting the production Progress panel. */
+export function createLearningBoredStudyPanelPreviewClient(
+  mode: LearningBoredStudyPanelPreviewMode = 'ready',
+): LearningBoredClient {
+  const hasBlueprint = mode === 'readiness' || mode === 'readiness-not-started';
+  const document = {
+    ...LEARNINGBORED_PREVIEW_PROGRESS_DOCUMENT,
+    blueprintId: hasBlueprint ? LEARNINGBORED_PREVIEW_BLUEPRINT.id : null,
+  };
+  const mastery =
+    mode === 'empty'
+      ? {
+          ...LEARNINGBORED_PREVIEW_PROGRESS_MASTERY,
+          concepts: [],
+          summary: { new: 0, learning: 0, retained: 0, lapsed: 0 },
+        }
+      : LEARNINGBORED_PREVIEW_PROGRESS_MASTERY;
+
   return {
-    getDocument: async () => ({
-      id: 'preview-waterworks',
-      title: 'Maps of the Imaginary Waterworks',
-      author: 'Mira Vale',
-      format: 'EPUB',
-      sourceType: 'sample',
-      readerBookId: 'preview-reader-waterworks',
-      pageCount: 184,
-      blueprintId: null,
-      boardCount: 4,
-      recallItemCount: 12,
-      dueCount: 5,
-      lastOpenedAt: '2026-08-12T08:15:00.000Z',
-      createdAt: '2026-08-01T10:00:00.000Z',
-      updatedAt: '2026-08-12T08:15:00.000Z',
-    }),
-    getDocumentMastery: async () => LEARNINGBORED_PREVIEW_PROGRESS_MASTERY,
-    getBoard: async () => LEARNINGBORED_PREVIEW_BOARD,
+    getDocument: async () => {
+      if (mode === 'loading') return pendingPreviewResult();
+      if (mode === 'error') throw new Error('Deterministic progress read failed.');
+      return document;
+    },
+    getDocumentMastery: async () => {
+      if (mode === 'loading') return pendingPreviewResult();
+      if (mode === 'error') throw new Error('Deterministic mastery read failed.');
+      return mastery;
+    },
+    getDocumentReadiness: async () =>
+      mode === 'readiness-not-started'
+        ? LEARNINGBORED_PREVIEW_READINESS_NOT_STARTED
+        : LEARNINGBORED_PREVIEW_READINESS,
+    listBlueprints: async () => ({ blueprints: [LEARNINGBORED_PREVIEW_BLUEPRINT] }),
+    getBoard: async () => {
+      if (mode === 'board-error') throw new Error('Deterministic Board read failed.');
+      return LEARNINGBORED_PREVIEW_BOARD;
+    },
   } as unknown as LearningBoredClient;
 }

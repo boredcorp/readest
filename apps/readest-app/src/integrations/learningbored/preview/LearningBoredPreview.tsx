@@ -671,6 +671,7 @@ function RenderedState({
     stateId.startsWith('figure-') ||
     stateId.startsWith('comprehension-') ||
     stateId.startsWith('progress-') ||
+    stateId.startsWith('readiness-') ||
     stateId.startsWith('review-')
   ) {
     return <LearningBoredStudyPreview onAction={onAction} stateId={stateId} theme={theme} />;

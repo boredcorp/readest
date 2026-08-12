@@ -16,6 +16,7 @@ import type {
 } from './client';
 import { LearningBoredConceptList } from './LearningBoredMastery';
 import { useLearningBoredTranslation } from './presentation/context';
+import { learningBoredProgressStyles as styles } from './progress/LearningBoredProgressShell';
 
 export function sortLearningBoredObjectivesByWeightedWeakness(
   objectives: readonly LearningBoredObjectiveReadiness[],
@@ -186,35 +187,33 @@ const ExamPlanEditor: React.FC<ExamPlanEditorProps> = ({
   };
 
   return (
-    <section className='rounded-xl border border-[var(--lb-progress-border)] bg-[var(--lb-progress-raised)] p-4'>
-      <div className='flex items-start justify-between gap-3'>
+    <section className={styles['editor']}>
+      <div className={styles['editorHeader']}>
         <div>
-          <p className='text-xs font-semibold uppercase tracking-[0.12em] text-[var(--lb-progress-muted)]'>
-            {_('Attached overlay')}
-          </p>
-          <h3 className='mt-1 text-lg font-semibold'>{_('Edit exam plan')}</h3>
+          <h3 className={styles['sectionTitle']}>{_('Edit exam plan')}</h3>
+          <p className={styles['supportCopy']}>{_('Attached exam overlay')}</p>
         </div>
         <button
-          type='button'
-          className='btn btn-ghost btn-sm min-h-11 min-w-11'
           aria-label={_('Close exam plan editor')}
+          className={styles['iconButton']}
           onClick={onClose}
+          type='button'
         >
-          <X className='size-4' />
+          <X aria-hidden='true' />
         </button>
       </div>
 
       {loading ? (
-        <p className='mt-4 flex items-center gap-3' role='status'>
-          <span className='loading loading-spinner' /> {_('Loading exam plan…')}
+        <p className={styles['editorStatus']} role='status'>
+          <span aria-hidden='true' className={styles['spinner']} /> {_('Loading exam plan…')}
         </p>
       ) : draft && blueprint ? (
         <>
-          <div className='mt-4 grid gap-3'>
-            <label className='text-sm font-medium'>
-              {_('Plan name')}
+          <div className={styles['fieldGrid']}>
+            <label className={styles['field']}>
+              <span className={styles['fieldLabel']}>{_('Plan name')}</span>
               <input
-                className='input input-bordered mt-1 min-h-11 w-full'
+                className={styles['input']}
                 value={draft.name}
                 onChange={(event) =>
                   setDraft((current) =>
@@ -223,10 +222,10 @@ const ExamPlanEditor: React.FC<ExamPlanEditorProps> = ({
                 }
               />
             </label>
-            <label className='text-sm font-medium'>
-              {_('Exam code')}
+            <label className={styles['field']}>
+              <span className={styles['fieldLabel']}>{_('Exam code')}</span>
               <input
-                className='input input-bordered mt-1 min-h-11 w-full'
+                className={styles['input']}
                 value={draft.examCode}
                 onChange={(event) =>
                   setDraft((current) =>
@@ -237,25 +236,19 @@ const ExamPlanEditor: React.FC<ExamPlanEditorProps> = ({
             </label>
           </div>
 
-          <fieldset className='mt-5 space-y-3'>
-            <legend className='font-semibold'>{_('Objective weighting')}</legend>
+          <fieldset className={styles['weightingList']}>
+            <legend className={styles['conceptName']}>{_('Objective weighting')}</legend>
             {draft.objectives.map((objective, index) => (
-              <label
-                key={objective.code}
-                className='grid grid-cols-[1fr_7rem] items-center gap-3 text-sm'
-              >
+              <label className={styles['weightingRow']} key={objective.code}>
                 <span>
                   <strong>{objective.code}</strong> {objective.title}
                 </span>
-                <span className='flex items-center gap-1'>
+                <span className={styles['weightingInput']}>
                   <input
-                    type='number'
-                    className='input input-bordered min-h-11 w-full'
-                    min={0}
-                    max={100}
-                    step={0.1}
                     aria-label={_(`${objective.code} weighting percentage`)}
-                    value={Number((objective.weighting * 100).toFixed(2))}
+                    className={styles['input']}
+                    max={100}
+                    min={0}
                     onChange={(event) => {
                       const weighting = Math.min(1, Math.max(0, Number(event.target.value) / 100));
                       setDraft((current) =>
@@ -269,6 +262,9 @@ const ExamPlanEditor: React.FC<ExamPlanEditorProps> = ({
                           : current,
                       );
                     }}
+                    step={0.1}
+                    type='number'
+                    value={Number((objective.weighting * 100).toFixed(2))}
                   />
                   <span aria-hidden='true'>%</span>
                 </span>
@@ -277,103 +273,98 @@ const ExamPlanEditor: React.FC<ExamPlanEditorProps> = ({
           </fieldset>
 
           {weightingWarning ? (
-            <p className='mt-3 flex items-start gap-2 text-sm' role='alert'>
-              <AlertTriangle className='mt-0.5 size-4 shrink-0' />
+            <p className={styles['editorStatus']} data-tone='warning' role='alert'>
+              <AlertTriangle aria-hidden='true' />
               {_(`Weighting totals ${precisePercentage(weightingTotal)}. It should total 100%.`)}
             </p>
           ) : (
-            <p className='mt-3 flex items-center gap-2 text-sm' role='status'>
-              <Check className='size-4' /> {_('Weighting totals 100%.')}
+            <p className={styles['editorStatus']} data-tone='success' role='status'>
+              <Check aria-hidden='true' /> {_('Weighting totals 100%.')}
             </p>
           )}
 
           <button
-            type='button'
-            className='btn btn-primary mt-4 min-h-11 w-full'
+            className={`${styles['primaryButton']} ${styles['fullWidth']}`}
             disabled={saving || !draft.name.trim()}
             onClick={() => void saveBlueprint()}
+            type='button'
           >
             {saving ? _('Saving…') : _('Save exam plan')}
           </button>
 
-          <div className='mt-6 border-t border-[var(--lb-progress-border)] pt-5'>
-            <h4 className='font-semibold'>{_('Correct concept mappings')}</h4>
-            <p className='mt-1 text-sm leading-6 text-[var(--lb-progress-muted)]'>
+          <div className={styles['mappingSection']}>
+            <h4 className={styles['conceptName']}>{_('Correct concept mappings')}</h4>
+            <p className={styles['supportCopy']}>
               {_('A saved correction stays manual when automatic mapping runs again.')}
             </p>
-            <div className='mt-3 space-y-2'>
+            <div className={styles['mappingList']}>
               {mastery.concepts.map((concept) => {
                 const existing = mappingByConceptId.get(concept.conceptId);
                 const selected = new Set(mappingSelections[concept.conceptId] ?? []);
                 return (
-                  <details
-                    key={concept.conceptId}
-                    className='rounded-lg border border-[var(--lb-progress-border)] p-3'
-                  >
-                    <summary className='flex min-h-11 cursor-pointer list-none items-center justify-between gap-3'>
-                      <span className='font-medium'>{concept.name}</span>
-                      <span className='flex items-center gap-2 text-xs'>
+                  <details className={styles['mappingDetails']} key={concept.conceptId}>
+                    <summary className={styles['mappingSummary']}>
+                      <span className={styles['conceptName']}>{concept.name}</span>
+                      <span className={styles['objectiveCodeRow']}>
                         {existing?.isManual ? _('Manual') : _('Automatic')}
-                        <ChevronDown className='size-4' aria-hidden='true' />
+                        <ChevronDown aria-hidden='true' className={styles['objectiveChevron']} />
                       </span>
                     </summary>
-                    <fieldset className='mt-3 space-y-2'>
-                      <legend className='text-xs text-[var(--lb-progress-muted)]'>
-                        {_('Choose every objective this concept supports.')}
-                      </legend>
-                      {blueprint.objectives.map((objective) => {
-                        const currentMapping = existing?.mappings.find(
-                          (mapping) => mapping.objectiveId === objective.id,
-                        );
-                        return (
-                          <label
-                            key={objective.id}
-                            className='flex min-h-11 cursor-pointer items-center gap-3 rounded-lg border border-[var(--lb-progress-border)] px-3 py-2 text-sm'
-                          >
-                            <input
-                              type='checkbox'
-                              className='checkbox checkbox-sm'
-                              checked={selected.has(objective.id)}
-                              onChange={(event) => {
-                                setMappingSelections((current) => {
-                                  const next = new Set(current[concept.conceptId] ?? []);
-                                  if (event.target.checked) next.add(objective.id);
-                                  else next.delete(objective.id);
-                                  return { ...current, [concept.conceptId]: [...next] };
-                                });
-                              }}
-                            />
-                            <span className='min-w-0 flex-1'>
-                              <strong>{objective.code}</strong> {objective.title}
-                            </span>
-                            {currentMapping ? (
-                              <span className='text-xs text-[var(--lb-progress-muted)]'>
-                                {currentMapping.isManual
-                                  ? _('Manual')
-                                  : _(`${Math.floor(currentMapping.confidence * 100)}% match`)}
+                    <div className={styles['mappingBody']}>
+                      <fieldset className={styles['mappingChoices']}>
+                        <legend className={styles['supportCopy']}>
+                          {_('Choose every objective this concept supports.')}
+                        </legend>
+                        {blueprint.objectives.map((objective) => {
+                          const currentMapping = existing?.mappings.find(
+                            (mapping) => mapping.objectiveId === objective.id,
+                          );
+                          return (
+                            <label className={styles['mappingChoice']} key={objective.id}>
+                              <input
+                                checked={selected.has(objective.id)}
+                                onChange={(event) => {
+                                  setMappingSelections((current) => {
+                                    const next = new Set(current[concept.conceptId] ?? []);
+                                    if (event.target.checked) next.add(objective.id);
+                                    else next.delete(objective.id);
+                                    return { ...current, [concept.conceptId]: [...next] };
+                                  });
+                                }}
+                                type='checkbox'
+                              />
+                              <span>
+                                <strong>{objective.code}</strong> {objective.title}
                               </span>
-                            ) : null}
-                          </label>
-                        );
-                      })}
-                    </fieldset>
-                    <button
-                      type='button'
-                      className='btn btn-outline mt-3 min-h-11 w-full'
-                      disabled={mappingPending !== null}
-                      onClick={() =>
-                        void saveMapping(masteryByConceptId.get(concept.conceptId) ?? concept)
-                      }
-                    >
-                      {mappingPending === concept.conceptId
-                        ? _('Saving correction…')
-                        : _('Save manual mapping')}
-                    </button>
-                    {mappingStatus[concept.conceptId] ? (
-                      <p className='mt-2 text-sm' role='status'>
-                        {mappingStatus[concept.conceptId]}
-                      </p>
-                    ) : null}
+                              {currentMapping ? (
+                                <span className={styles['mappingMatch']}>
+                                  {currentMapping.isManual
+                                    ? _('Manual')
+                                    : _(`${Math.floor(currentMapping.confidence * 100)}% match`)}
+                                </span>
+                              ) : null}
+                            </label>
+                          );
+                        })}
+                      </fieldset>
+                      <button
+                        className={`${styles['secondaryButton']} ${styles['fullWidth']}`}
+                        disabled={mappingPending !== null}
+                        onClick={() =>
+                          void saveMapping(masteryByConceptId.get(concept.conceptId) ?? concept)
+                        }
+                        type='button'
+                      >
+                        {mappingPending === concept.conceptId
+                          ? _('Saving correction…')
+                          : _('Save manual mapping')}
+                      </button>
+                      {mappingStatus[concept.conceptId] ? (
+                        <p className={styles['editorStatus']} role='status'>
+                          {mappingStatus[concept.conceptId]}
+                        </p>
+                      ) : null}
+                    </div>
                   </details>
                 );
               })}
@@ -383,12 +374,12 @@ const ExamPlanEditor: React.FC<ExamPlanEditorProps> = ({
       ) : null}
 
       {status ? (
-        <p className='mt-3 text-sm' role='status'>
+        <p className={styles['editorStatus']} data-tone='success' role='status'>
           {status}
         </p>
       ) : null}
       {error ? (
-        <p className='mt-3 text-sm' role='alert'>
+        <p className={styles['editorStatus']} data-tone='error' role='alert'>
           {error}
         </p>
       ) : null}
@@ -452,94 +443,96 @@ const LearningBoredExamOverlay: React.FC<LearningBoredExamOverlayProps> = ({
   }
 
   return (
-    <>
-      <section aria-labelledby='learningbored-readiness-heading'>
-        <div className='flex items-start justify-between gap-3'>
-          <div>
-            <p className='text-xs font-semibold uppercase tracking-[0.12em] text-[var(--lb-progress-muted)]'>
-              {_('Attached exam overlay')}
-            </p>
-            <h2 id='learningbored-readiness-heading' className='mt-1 text-2xl font-semibold'>
-              {_('Readiness by objective')}
-            </h2>
-          </div>
-          <button
-            type='button'
-            className='btn btn-outline btn-sm min-h-11'
-            onClick={() => setEditorOpen(true)}
-          >
-            <Pencil className='size-4' /> {_('Edit exam plan')}
-          </button>
+    <section aria-labelledby='learningbored-readiness-heading' className={styles['section']}>
+      <div className={styles['overlayHeader']}>
+        <div>
+          <h2 className={styles['sectionTitle']} id='learningbored-readiness-heading'>
+            {_('Readiness by objective')}
+          </h2>
+          <p className={styles['supportCopy']}>{_('Attached exam overlay')}</p>
         </div>
-        <p className='mt-3 text-sm leading-6 text-[var(--lb-progress-muted)]'>
-          {_('Heavily weighted weak areas appear first. Open one to work on its concepts.')}
-        </p>
+        <button
+          className={styles['secondaryButton']}
+          onClick={() => setEditorOpen(true)}
+          type='button'
+        >
+          <Pencil aria-hidden='true' /> {_('Edit exam plan')}
+        </button>
+      </div>
+      <p className={styles['sectionCopy']}>
+        {_('Heavily weighted weak areas appear first. Open one to work on its concepts.')}
+      </p>
 
-        <ol className='mt-4 space-y-3'>
-          {sortedObjectives.map((objective) => {
-            const mappedConceptIds = conceptMappings.flatMap((concept) =>
-              concept.mappings.some((mapping) => mapping.objectiveId === objective.objectiveId)
-                ? [concept.conceptId]
-                : [],
-            );
-            const objectiveConceptIds = [
-              ...new Set([...objective.weakestConceptIds, ...mappedConceptIds]),
-            ];
-            const objectiveConcepts = objectiveConceptIds.flatMap((conceptId) => {
-              const concept = conceptsById.get(conceptId);
-              return concept ? [concept] : [];
-            });
-            const expanded = expandedObjectiveId === objective.objectiveId;
-            return (
-              <li
-                key={objective.objectiveId}
-                className='rounded-xl border border-[var(--lb-progress-border)] bg-[var(--lb-progress-raised)] p-4'
+      <ol className={styles['objectiveList']}>
+        {sortedObjectives.map((objective) => {
+          const mappedConceptIds = conceptMappings.flatMap((concept) =>
+            concept.mappings.some((mapping) => mapping.objectiveId === objective.objectiveId)
+              ? [concept.conceptId]
+              : [],
+          );
+          const objectiveConceptIds = [
+            ...new Set([...objective.weakestConceptIds, ...mappedConceptIds]),
+          ];
+          const objectiveConcepts = objectiveConceptIds.flatMap((conceptId) => {
+            const concept = conceptsById.get(conceptId);
+            return concept ? [concept] : [];
+          });
+          const expanded = expandedObjectiveId === objective.objectiveId;
+          const detailsId = `learningbored-objective-${objective.objectiveId}`;
+          return (
+            <li
+              className={styles['objectiveCard']}
+              data-expanded={expanded ? 'true' : 'false'}
+              key={objective.objectiveId}
+            >
+              <button
+                aria-controls={detailsId}
+                aria-expanded={expanded}
+                className={styles['objectiveToggle']}
+                onClick={() =>
+                  setExpandedObjectiveId((current) =>
+                    current === objective.objectiveId ? null : objective.objectiveId,
+                  )
+                }
+                type='button'
               >
-                <button
-                  type='button'
-                  className='min-h-14 w-full text-left'
-                  aria-expanded={expanded}
-                  onClick={() =>
-                    setExpandedObjectiveId((current) =>
-                      current === objective.objectiveId ? null : objective.objectiveId,
-                    )
-                  }
-                >
-                  <span className='flex items-start justify-between gap-3'>
-                    <span className='min-w-0'>
-                      <span className='block text-xs font-semibold text-[var(--lb-progress-muted)]'>
-                        {objective.code} · {_(`${percentage(objective.weighting)} weighting`)}
-                      </span>
-                      <span className='mt-1 block font-semibold'>{objective.title}</span>
-                      <span className='mt-1 block text-xs text-[var(--lb-progress-muted)]'>
-                        {_(
-                          `${objective.startedConceptCount} of ${objective.conceptCount} concepts started`,
-                        )}
-                      </span>
-                    </span>
-                    <span className='flex shrink-0 items-center gap-2 text-sm font-semibold'>
-                      {objective.readiness === null
-                        ? _('Not started')
-                        : _(percentage(objective.readiness))}
-                      <ChevronDown className='size-4' aria-hidden='true' />
-                    </span>
-                    <span className='sr-only'>{_('Open concept details')}</span>
+                <span>
+                  <span className={styles['objectiveCode']}>
+                    {objective.code} · {_(`${percentage(objective.weighting)} weighting`)}
                   </span>
-                </button>
-                {expanded ? (
+                  <span className={styles['objectiveTitle']}>{objective.title}</span>
+                  <span className={styles['objectiveMeta']}>
+                    {_(
+                      `${objective.startedConceptCount} of ${objective.conceptCount} concepts started`,
+                    )}
+                  </span>
+                </span>
+                <span className={styles['objectiveValue']}>
+                  <strong className={styles['readiness']}>
+                    {objective.readiness === null
+                      ? _('Not started')
+                      : _(percentage(objective.readiness))}
+                  </strong>
+                  <ChevronDown aria-hidden='true' className={styles['objectiveChevron']} />
+                </span>
+                <span className='sr-only'>{_('Open concept details')}</span>
+              </button>
+              {expanded ? (
+                <div className={styles['objectiveDetails']} id={detailsId}>
                   <LearningBoredConceptList
                     concepts={objectiveConcepts}
+                    emptyMessage='No grounded concepts map to this objective yet.'
                     heading='Work on these concepts'
                     onOpenBoard={onOpenBoard}
                     onStartReview={onStartReview}
                   />
-                ) : null}
-              </li>
-            );
-          })}
-        </ol>
-      </section>
-    </>
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 };
 

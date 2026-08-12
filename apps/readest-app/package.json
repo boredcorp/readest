@@ -24,7 +24,7 @@
     "test:learningbored:browser": "playwright test --config playwright.learningbored.config.ts --grep-invert \"@visual\"",
     "test:learningbored:browser:nonvisual": "playwright test --config playwright.learningbored.config.ts --grep-invert \"@visual\"",
     "test:learningbored:browser:visual:windows": "node -e \"if (process.platform !== 'win32') { console.error('Reader visual baselines are canonical on Windows.'); process.exit(1); }\" && playwright test --config playwright.learningbored.config.ts --grep \"@visual\"",
-    "test:learningbored:browser:update:windows": "node -e \"if (process.platform !== 'win32') { console.error('Reader visual baselines are canonical on Windows.'); process.exit(1); } console.log('Rewriting all eight approved Windows Reader visual references.');\" && playwright test --config playwright.learningbored.config.ts --grep \"@visual\" --update-snapshots=all",
+    "test:learningbored:browser:update:windows": "node -e \"if (process.platform !== 'win32') { console.error('Reader visual baselines are canonical on Windows.'); process.exit(1); } console.log('Rewriting all twelve approved Windows Reader visual references.');\" && playwright test --config playwright.learningbored.config.ts --grep \"@visual\" --update-snapshots=all",
     "test:tauri": "bash scripts/test-tauri.sh",
     "test:pr:web": "pnpm test -- --watch=false && pnpm test:browser && pnpm test:learningbored:browser:nonvisual",
     "test:pr:tauri": "bash scripts/test-tauri.sh",

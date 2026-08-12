@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BarChart3, BookOpenText, Check, Flag, RefreshCw } from 'lucide-react';
+import { BarChart3, BookOpenText, Check, Flag, LoaderCircle, RefreshCw } from 'lucide-react';
 
 import {
   LEARNINGBORED_REVIEW_GRADES,
@@ -18,10 +18,19 @@ import {
   createLearningBoredReviewGradeOutboxEntry,
   readLearningBoredReviewGradeOutbox,
   writeLearningBoredReviewGradeOutbox,
+  type LearningBoredReviewGradeOutboxClearResult,
   type LearningBoredReviewGradeOutboxEntry,
+  type LearningBoredReviewGradeOutboxReadResult,
+  type LearningBoredReviewGradeOutboxWriteResult,
 } from './review-grade-outbox';
-import { useLearningBoredTranslation } from './presentation/context';
-import LearningBoredReviewSurfaceShell from './work-surface/LearningBoredReviewSurfaceShell';
+import {
+  formatLearningBoredCopy,
+  type LearningBoredTranslationFunc,
+  useLearningBoredTranslation,
+} from './presentation/context';
+import LearningBoredReviewSurfaceShell, {
+  learningBoredReviewSurfaceStyles as styles,
+} from './work-surface/LearningBoredReviewSurfaceShell';
 
 const GRADE_LABELS: Record<LearningBoredReviewGrade, string> = {
   again: 'Again',
@@ -40,6 +49,116 @@ export interface LearningBoredReviewPanelProps {
   conceptId?: string;
   onClose: () => void;
   onOpenProgress?: (documentId: string) => void;
+  outboxStore?: LearningBoredReviewOutboxStore;
+}
+
+export interface LearningBoredReviewOutboxStore {
+  read: () => LearningBoredReviewGradeOutboxReadResult;
+  write: (entry: LearningBoredReviewGradeOutboxEntry) => LearningBoredReviewGradeOutboxWriteResult;
+  clear: (clientRequestId: string) => LearningBoredReviewGradeOutboxClearResult;
+}
+
+const defaultLearningBoredReviewOutboxStore: LearningBoredReviewOutboxStore = {
+  read: readLearningBoredReviewGradeOutbox,
+  write: writeLearningBoredReviewGradeOutbox,
+  clear: clearLearningBoredReviewGradeOutbox,
+};
+
+export type LearningBoredReviewVisualState =
+  | 'loading'
+  | 'load-error'
+  | 'start'
+  | 'question'
+  | 'selected-choice'
+  | 'reveal-request'
+  | 'revealed-answer'
+  | 'grading'
+  | 'pending-outbox'
+  | 'rejection-recovery'
+  | 'suppression'
+  | 'continuation'
+  | 'empty'
+  | 'completion';
+
+export interface LearningBoredReviewRecoveryView {
+  message: string;
+  action: 'retry-grade' | 'reload-review' | null;
+  actionDisabled: boolean;
+}
+
+interface LearningBoredReviewScreenBase {
+  recovery: LearningBoredReviewRecoveryView | null;
+}
+
+export type LearningBoredReviewScreen =
+  | ({ kind: 'loading' } & LearningBoredReviewScreenBase)
+  | ({ kind: 'load-error'; message: string } & LearningBoredReviewScreenBase)
+  | ({
+      kind: 'start';
+      remainingCount: number;
+      reviewedToday: number;
+      dailyTarget: number;
+      hasItems: boolean;
+      continuationExhausted: boolean;
+      beginBlocked: boolean;
+    } & LearningBoredReviewScreenBase)
+  | ({
+      kind: 'summary';
+      mode: 'continuation' | 'empty' | 'completion';
+      remainingCount: number;
+      reviewedCount: number;
+      removedCount: number;
+      documentId?: string;
+      canOpenProgress: boolean;
+    } & LearningBoredReviewScreenBase)
+  | ({
+      kind: 'question';
+      item: LearningBoredDueReviewItem;
+      questionNumber: number;
+      totalQuestions: number;
+      selectedOptionId: string | null;
+      controlsDisabled: boolean;
+      answer?: never;
+    } & LearningBoredReviewScreenBase)
+  | ({
+      kind: 'revealed';
+      item: LearningBoredDueReviewItem;
+      questionNumber: number;
+      totalQuestions: number;
+      selectedOptionId: string | null;
+      controlsDisabled: boolean;
+      answer: LearningBoredReviewAnswer;
+    } & LearningBoredReviewScreenBase);
+
+export interface LearningBoredReviewViewState {
+  subtitle: string;
+  visualState: LearningBoredReviewVisualState;
+  statusMessage: string;
+  screen: LearningBoredReviewScreen;
+}
+
+export interface LearningBoredReviewPresentationActions {
+  onBegin: () => void;
+  onTryAgain: () => void;
+  onContinue: () => void;
+  onReveal: () => void;
+  onSelectOption: (optionId: string) => void;
+  onGrade: (grade: LearningBoredReviewGrade) => void;
+  onSuppress: (
+    category: Extract<LearningBoredFeedbackCategory, 'ambiguous_question' | 'bad_distractor'>,
+  ) => void;
+  onRetryGrade: () => void;
+  onReloadReview: () => void;
+  onClose: () => void;
+  onOpenProgress?: (documentId: string) => void;
+}
+
+export interface LearningBoredReviewPresentationProps {
+  viewState: LearningBoredReviewViewState;
+  actions: LearningBoredReviewPresentationActions;
+  translate?: LearningBoredTranslationFunc;
+  questionRef?: React.RefObject<HTMLHeadingElement | null>;
+  answerRef?: React.RefObject<HTMLElement | null>;
 }
 
 function formatInterval(seconds: number, days: number): string {
@@ -77,12 +196,424 @@ function isDefinitiveGradeFailure(error: unknown): boolean {
   );
 }
 
+const REVIEW_STATE_LABELS: Record<LearningBoredReviewVisualState, string> = {
+  loading: 'Loading review',
+  'load-error': 'Review unavailable',
+  start: 'Review ready',
+  question: 'Question',
+  'selected-choice': 'Choice selected',
+  'reveal-request': 'Revealing answer',
+  'revealed-answer': 'Answer revealed',
+  grading: 'Saving grade',
+  'pending-outbox': 'Grade awaiting confirmation',
+  'rejection-recovery': 'Action needed',
+  suppression: 'Removing question',
+  continuation: 'More questions',
+  empty: 'No validated questions',
+  completion: 'Review complete',
+};
+
+function ReviewRecoveryNotice({
+  recovery,
+  actions,
+  translate,
+}: {
+  recovery: LearningBoredReviewRecoveryView | null;
+  actions: LearningBoredReviewPresentationActions;
+  translate: LearningBoredTranslationFunc;
+}) {
+  if (!recovery) return null;
+
+  return (
+    <div className={styles['recovery']} role='alert'>
+      <p>{recovery.message}</p>
+      {recovery.action === 'retry-grade' ? (
+        <button
+          type='button'
+          className={`${styles['secondaryButton']} ${styles['recoveryAction']}`}
+          disabled={recovery.actionDisabled}
+          onClick={actions.onRetryGrade}
+        >
+          <RefreshCw className={styles['buttonIcon']} aria-hidden='true' />
+          {translate('Retry grade')}
+        </button>
+      ) : null}
+      {recovery.action === 'reload-review' ? (
+        <button
+          type='button'
+          className={`${styles['secondaryButton']} ${styles['recoveryAction']}`}
+          disabled={recovery.actionDisabled}
+          onClick={actions.onReloadReview}
+        >
+          <RefreshCw className={styles['buttonIcon']} aria-hidden='true' />
+          {translate('Reload review')}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Data-only production Review surface. The discriminated screen union makes answer data impossible
+ * to supply for the pre-reveal `question` screen, so deterministic previews can mount real states
+ * without weakening the controller's deliberate-reveal boundary.
+ */
+export function LearningBoredReviewPresentation({
+  viewState,
+  actions,
+  translate = formatLearningBoredCopy,
+  questionRef,
+  answerRef,
+}: LearningBoredReviewPresentationProps) {
+  const { screen, visualState } = viewState;
+  const stateLabel = translate(REVIEW_STATE_LABELS[visualState]);
+  const busy =
+    visualState === 'loading' ||
+    visualState === 'reveal-request' ||
+    visualState === 'grading' ||
+    visualState === 'suppression';
+
+  let content: React.ReactNode;
+  if (screen.kind === 'loading') {
+    content = (
+      <div className={styles['centerState']} role='status'>
+        <LoaderCircle className={styles['spinner']} aria-hidden='true' />
+        <p className={styles['description']}>{translate('Loading your review queue…')}</p>
+      </div>
+    );
+  } else if (screen.kind === 'load-error') {
+    content = (
+      <section className={styles['centerState']}>
+        <span className={styles['stateMarker']}>{stateLabel}</span>
+        <p className={styles['description']} role='alert'>
+          {screen.message}
+        </p>
+        <button
+          type='button'
+          className={`${styles['secondaryButton']} ${styles['startAction']}`}
+          onClick={actions.onTryAgain}
+        >
+          <RefreshCw className={styles['buttonIcon']} aria-hidden='true' />
+          {translate('Try again')}
+        </button>
+      </section>
+    );
+  } else if (screen.kind === 'start') {
+    content = (
+      <section className={styles['startState']}>
+        <div>
+          <span className={styles['stateMarker']}>{stateLabel}</span>
+          <h2 className={styles['title']}>
+            {screen.remainingCount === 1
+              ? translate('1 question is due now.')
+              : translate(`${screen.remainingCount} questions are due now.`)}
+          </h2>
+          <div className={styles['metrics']}>
+            <div className={styles['metric']}>
+              <strong className={styles['metricValue']}>{screen.reviewedToday}</strong>
+              <span className={styles['metricLabel']}>{translate('Reviewed today')}</span>
+            </div>
+            <div className={styles['metric']}>
+              <strong className={styles['metricValue']}>{screen.dailyTarget}</strong>
+              <span className={styles['metricLabel']}>{translate('Daily target')}</span>
+            </div>
+          </div>
+          <p className={styles['description']}>
+            {translate('Take one question at a time. Reveal the answer before choosing a grade.')}
+          </p>
+          {screen.continuationExhausted && !screen.hasItems ? (
+            <p className={styles['description']}>
+              {translate(
+                'No validated questions are available from the remaining queue right now.',
+              )}
+            </p>
+          ) : null}
+          <ReviewRecoveryNotice
+            recovery={screen.recovery}
+            actions={actions}
+            translate={translate}
+          />
+        </div>
+        <button
+          type='button'
+          className={`${styles['primaryButton']} ${styles['fullWidth']} ${styles['startAction']}`}
+          disabled={screen.beginBlocked}
+          onClick={actions.onBegin}
+        >
+          {screen.beginBlocked && screen.hasItems
+            ? translate('Confirm the pending grade first')
+            : screen.hasItems
+              ? translate('Begin review')
+              : translate('Nothing available right now')}
+        </button>
+      </section>
+    );
+  } else if (screen.kind === 'summary') {
+    const continuing = screen.mode === 'continuation';
+    const unavailable = screen.mode === 'empty';
+    content = (
+      <section className={styles['centerState']}>
+        {continuing ? (
+          <RefreshCw className={styles['stateIcon']} aria-hidden='true' />
+        ) : (
+          <Check className={styles['stateIcon']} aria-hidden='true' />
+        )}
+        <span className={styles['stateMarker']}>{stateLabel}</span>
+        <h2 className={styles['title']}>
+          {continuing
+            ? translate('More questions are available')
+            : unavailable
+              ? translate('No validated questions are due')
+              : translate('Review complete')}
+        </h2>
+        <p className={styles['description']}>
+          {unavailable
+            ? translate(
+                `${screen.reviewedCount} reviewed. No more validated questions are available from the remaining queue right now.`,
+              )
+            : translate(
+                `${screen.reviewedCount} reviewed${screen.removedCount > 0 ? `, ${screen.removedCount} removed` : ''}. ${screen.remainingCount} remain.`,
+              )}
+        </p>
+        <ReviewRecoveryNotice recovery={screen.recovery} actions={actions} translate={translate} />
+        {continuing ? (
+          <button
+            type='button'
+            className={`${styles['primaryButton']} ${styles['startAction']}`}
+            disabled={visualState === 'suppression'}
+            onClick={actions.onContinue}
+          >
+            {translate(`Continue review — ${screen.remainingCount} remaining`)}
+          </button>
+        ) : (
+          <div className={styles['buttonRow']}>
+            {screen.documentId && screen.canOpenProgress && actions.onOpenProgress ? (
+              <button
+                type='button'
+                className={styles['primaryButton']}
+                onClick={() => actions.onOpenProgress?.(screen.documentId!)}
+              >
+                <BarChart3 className={styles['buttonIcon']} aria-hidden='true' />
+                {translate('View progress')}
+              </button>
+            ) : null}
+            <button type='button' className={styles['secondaryButton']} onClick={actions.onClose}>
+              {translate('Return to reading')}
+            </button>
+          </div>
+        )}
+      </section>
+    );
+  } else {
+    const answer = screen.kind === 'revealed' ? screen.answer : null;
+    const source = sourceLocation(screen.item);
+    content = (
+      <>
+        <div
+          aria-label={translate('Review question and answer')}
+          className={styles['questionScroll']}
+          role='region'
+          tabIndex={0}
+        >
+          <div className={styles['questionMeta']}>
+            <span>
+              {translate(`Question ${screen.questionNumber} of ${screen.totalQuestions}`)}
+            </span>
+            <span className={styles['questionState']}>{stateLabel}</span>
+            <span className={styles['sourceLocation']}>{source}</span>
+          </div>
+
+          <article className={styles['questionPlane']}>
+            <h2 ref={questionRef} tabIndex={-1} className={styles['questionHeading']}>
+              {screen.item.recallItem.stem}
+            </h2>
+
+            {screen.item.recallItem.options ? (
+              <fieldset
+                className={styles['choices']}
+                disabled={answer !== null || screen.controlsDisabled}
+              >
+                <legend className='sr-only'>{translate('Choose an answer')}</legend>
+                {screen.item.recallItem.options.map((option) => (
+                  <label key={option.id} className={styles['choice']}>
+                    <input
+                      type='radio'
+                      name={`review-answer-${screen.item.recallItem.id}`}
+                      value={option.id}
+                      checked={screen.selectedOptionId === option.id}
+                      onChange={() => actions.onSelectOption(option.id)}
+                    />
+                    <span>{option.text}</span>
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
+          </article>
+
+          {!answer ? (
+            <button
+              type='button'
+              data-review-reveal
+              aria-keyshortcuts='Space'
+              className={`${styles['primaryButton']} ${styles['fullWidth']} ${styles['revealButton']}`}
+              disabled={screen.controlsDisabled}
+              onClick={actions.onReveal}
+            >
+              {visualState === 'reveal-request'
+                ? translate('Revealing…')
+                : translate('Reveal answer')}
+              <span className={styles['shortcut']}>{translate('Space')}</span>
+            </button>
+          ) : (
+            <div className={styles['revealedStack']}>
+              <section ref={answerRef} tabIndex={-1} className={styles['answerSection']}>
+                <p className={styles['answerLabel']}>{translate('Answer')}</p>
+                <p className={styles['answerText']}>{answer.answer}</p>
+                <p className={styles['answerExplanation']}>{answer.explanation}</p>
+              </section>
+
+              {answer.optionRationales.length > 0 ? (
+                <section aria-labelledby='review-rationales-heading'>
+                  <h3 id='review-rationales-heading' className={styles['sectionHeading']}>
+                    {translate('Why each choice works or does not')}
+                  </h3>
+                  <ul className={styles['rationaleList']}>
+                    {answer.optionRationales.map((option) => (
+                      <li key={option.id} className={styles['rationaleItem']}>
+                        <p className={styles['rationaleTitle']}>
+                          {option.text}{' '}
+                          {screen.selectedOptionId === option.id ? translate('— your choice') : ''}
+                        </p>
+                        <p className={styles['rationaleCopy']}>
+                          <span className={styles['rationaleResult']}>
+                            {option.isCorrect ? translate('Correct.') : translate('Not correct.')}
+                          </span>{' '}
+                          {option.rationale}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              {answer.rubric ? (
+                <section aria-labelledby='review-rubric-heading'>
+                  <h3 id='review-rubric-heading' className={styles['sectionHeading']}>
+                    {translate('A complete answer includes')}
+                  </h3>
+                  <ul className={styles['rubricList']}>
+                    {answer.rubric.map((point) => (
+                      <li key={point}>{point}</li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+
+              <section className={styles['sourceAnchor']}>
+                <h3 className={styles['sourceHeading']}>
+                  <BookOpenText className={styles['sourceIcon']} aria-hidden='true' />
+                  {translate('Source anchor')}
+                </h3>
+                <p className={styles['sourceMeta']}>
+                  {[answer.anchor.title, answer.anchor.chapter, answer.anchor.pageLabel]
+                    .filter((part): part is string => Boolean(part?.trim()))
+                    .join(' · ')}
+                </p>
+                <blockquote className={styles['sourceQuote']}>
+                  {answer.anchor.sourceText}
+                </blockquote>
+              </section>
+            </div>
+          )}
+
+          <div className={styles['removeRow']}>
+            <span className={styles['removeLabel']}>
+              <Flag className={styles['flagIcon']} aria-hidden='true' />
+              {translate('Remove this question:')}
+            </span>
+            <button
+              type='button'
+              className={styles['textButton']}
+              disabled={screen.controlsDisabled}
+              onClick={() => actions.onSuppress('ambiguous_question')}
+            >
+              {translate('Ambiguous')}
+            </button>
+            {screen.item.recallItem.kind === 'multiple_choice' ? (
+              <button
+                type='button'
+                className={styles['textButton']}
+                disabled={screen.controlsDisabled}
+                onClick={() => actions.onSuppress('bad_distractor')}
+              >
+                {translate('Bad choice')}
+              </button>
+            ) : null}
+          </div>
+
+          <ReviewRecoveryNotice
+            recovery={screen.recovery}
+            actions={actions}
+            translate={translate}
+          />
+        </div>
+
+        {answer ? (
+          <footer className={styles['gradeFooter']}>
+            <p className={styles['gradePrompt']}>
+              {translate('How well did you recall it? Use keys 1–4.')}
+            </p>
+            <fieldset className={styles['gradeGrid']}>
+              <legend className='sr-only'>{translate('Recall grade')}</legend>
+              {LEARNINGBORED_REVIEW_GRADES.map((value, index) => {
+                const preview = screen.item.intervalPreviews[value];
+                const interval = formatInterval(preview.intervalSeconds, preview.intervalDays);
+                return (
+                  <button
+                    key={value}
+                    type='button'
+                    aria-keyshortcuts={String(index + 1)}
+                    aria-label={translate(`${GRADE_LABELS[value]}, next review ${interval}`)}
+                    className={styles['gradeButton']}
+                    disabled={screen.controlsDisabled}
+                    onClick={() => actions.onGrade(value)}
+                  >
+                    <span className={styles['gradeName']}>
+                      {translate(GRADE_LABELS[value])}
+                      <kbd className={styles['key']}>{index + 1}</kbd>
+                    </span>
+                    <span className={styles['interval']}>{interval}</span>
+                  </button>
+                );
+              })}
+            </fieldset>
+          </footer>
+        ) : null}
+      </>
+    );
+  }
+
+  return (
+    <LearningBoredReviewSurfaceShell
+      subtitle={viewState.subtitle}
+      state={visualState}
+      busy={busy}
+      statusMessage={viewState.statusMessage}
+      onClose={actions.onClose}
+      translate={translate}
+    >
+      {content}
+    </LearningBoredReviewSurfaceShell>
+  );
+}
+
 const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
   client,
   documentId,
   conceptId,
   onClose,
   onOpenProgress,
+  outboxStore = defaultLearningBoredReviewOutboxStore,
 }) => {
   const _ = useLearningBoredTranslation();
   const [items, setItems] = useState<LearningBoredDueReviewItem[]>([]);
@@ -230,7 +761,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
         ) {
           throw new Error('The grade response did not match the submitted request.');
         }
-        const cleared = clearLearningBoredReviewGradeOutbox(entry.request.clientRequestId);
+        const cleared = outboxStore.clear(entry.request.clientRequestId);
         if (cleared.status !== 'cleared') {
           if (cleared.status === 'conflict') holdPendingGrade(cleared.entry);
           setGradeRecovery('retry');
@@ -244,7 +775,20 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
 
         releasePendingGrade();
         setReviewedCount((count) => count + 1);
-        setStatusMessage(_(`${GRADE_LABELS[entry.request.grade]} recorded. Next question.`));
+        const wasNew = entry.occurrence.state === 'new' && entry.occurrence.dueAt === null;
+        const dueNowAfter = Math.max(0, (queue?.dueNow ?? 0) - (wasNew ? 0 : 1));
+        const newAvailableAfter = Math.max(0, (queue?.newAvailable ?? 0) - (wasNew ? 1 : 0));
+        const remainingAfter = dueNowAfter + newAvailableAfter;
+        const gradeLabel = GRADE_LABELS[entry.request.grade];
+        setStatusMessage(
+          _(
+            items.length > 1
+              ? `${gradeLabel} recorded. Next question.`
+              : remainingAfter > 0
+                ? `${gradeLabel} recorded. More questions are ready.`
+                : `${gradeLabel} recorded. Review complete.`,
+          ),
+        );
         if (mode === 'reconcile') {
           setAnswer(null);
           setSelectedOptionId(null);
@@ -254,7 +798,6 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
 
         setQueue((currentQueue) => {
           if (!currentQueue) return currentQueue;
-          const wasNew = entry.occurrence.state === 'new' && entry.occurrence.dueAt === null;
           return {
             ...currentQueue,
             dueNow: Math.max(0, currentQueue.dueNow - (wasNew ? 0 : 1)),
@@ -267,7 +810,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
       } catch (gradeError) {
         if (gradeError instanceof Error && gradeError.name === 'AbortError') return;
         if (isDefinitiveGradeFailure(gradeError)) {
-          const cleared = clearLearningBoredReviewGradeOutbox(entry.request.clientRequestId);
+          const cleared = outboxStore.clear(entry.request.clientRequestId);
           if (cleared.status === 'cleared') releasePendingGrade();
           else if (cleared.status === 'conflict') holdPendingGrade(cleared.entry);
           setGradeRecovery('reload');
@@ -294,7 +837,11 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
       client,
       finishAction,
       holdPendingGrade,
+      items.length,
       loadQueue,
+      outboxStore,
+      queue?.dueNow,
+      queue?.newAvailable,
       releasePendingGrade,
       startAction,
     ],
@@ -326,7 +873,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
       };
       const entry = createLearningBoredReviewGradeOutboxEntry(current, documentId, input);
       holdPendingGrade(entry);
-      const stored = writeLearningBoredReviewGradeOutbox(entry);
+      const stored = outboxStore.write(entry);
       if (stored.status === 'stored') {
         void submitGrade(entry, 'initial');
         return;
@@ -355,6 +902,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
       documentId,
       gradeRecovery,
       holdPendingGrade,
+      outboxStore,
       selectedOptionId,
       submitGrade,
     ],
@@ -372,6 +920,9 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
       }
       const recallItemId = current.recallItem.id;
       const wasNew = current.reviewState.state === 'new' && current.reviewState.dueAt === null;
+      const dueNowAfter = Math.max(0, (queue?.dueNow ?? 0) - (wasNew ? 0 : 1));
+      const newAvailableAfter = Math.max(0, (queue?.newAvailable ?? 0) - (wasNew ? 1 : 0));
+      const remainingAfter = dueNowAfter + newAvailableAfter;
       setError(null);
       setQueue((currentQueue) =>
         currentQueue
@@ -384,7 +935,15 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
           : currentQueue,
       );
       setRemovedCount((count) => count + 1);
-      setStatusMessage(_('Question removed from review.'));
+      setStatusMessage(
+        _(
+          items.length > 1
+            ? 'Question removed. Next question.'
+            : remainingAfter > 0
+              ? 'Question removed. More questions are ready.'
+              : 'Question removed. Review complete.',
+        ),
+      );
       advancePast(recallItemId);
       void client
         .submitFeedback({ recallItemId, category, suppressItem: true })
@@ -397,7 +956,18 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
         )
         .finally(finishAction);
     },
-    [_, advancePast, client, current, finishAction, gradeRecovery, startAction],
+    [
+      _,
+      advancePast,
+      client,
+      current,
+      finishAction,
+      gradeRecovery,
+      items.length,
+      queue?.dueNow,
+      queue?.newAvailable,
+      startAction,
+    ],
   );
 
   useEffect(() => {
@@ -439,7 +1009,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
     const entry = pendingGradeRef.current;
     if (!entry) return;
     if (entry.expiresAt <= Date.now()) {
-      const cleared = clearLearningBoredReviewGradeOutbox(entry.request.clientRequestId);
+      const cleared = outboxStore.clear(entry.request.clientRequestId);
       if (cleared.status === 'conflict') {
         holdPendingGrade(cleared.entry);
         setGradeRecovery('retry');
@@ -464,7 +1034,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
       return;
     }
 
-    const stored = writeLearningBoredReviewGradeOutbox(entry);
+    const stored = outboxStore.write(entry);
     if (stored.status === 'unavailable') {
       setError(
         _(
@@ -484,12 +1054,12 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
       return;
     }
     void submitGrade(entry, gradeRecovery === 'persist' ? 'initial' : 'reconcile');
-  }, [_, gradeRecovery, holdPendingGrade, releasePendingGrade, submitGrade]);
+  }, [_, gradeRecovery, holdPendingGrade, outboxStore, releasePendingGrade, submitGrade]);
 
   const reloadQueue = useCallback(() => {
     const entry = pendingGradeRef.current;
     if (entry) {
-      const cleared = clearLearningBoredReviewGradeOutbox(entry.request.clientRequestId);
+      const cleared = outboxStore.clear(entry.request.clientRequestId);
       if (cleared.status !== 'cleared') {
         if (cleared.status === 'conflict') holdPendingGrade(cleared.entry);
         setGradeRecovery('reload');
@@ -514,7 +1084,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
     setGradeRecovery(null);
     setStatusMessage(_('Reloading the review queue.'));
     void loadQueue(undefined, { resetProgress: true });
-  }, [_, holdPendingGrade, loadQueue, releasePendingGrade]);
+  }, [_, holdPendingGrade, loadQueue, outboxStore, releasePendingGrade]);
 
   const continueQueue = useCallback(() => {
     setAnswer(null);
@@ -527,7 +1097,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
     const controller = new AbortController();
     const initialize = async () => {
       let preserveError = false;
-      const stored = readLearningBoredReviewGradeOutbox();
+      const stored = outboxStore.read();
       if (stored.status === 'unavailable') {
         preserveError = true;
         setError(
@@ -550,7 +1120,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
           ) {
             throw new Error('The grade response did not match the submitted request.');
           }
-          const cleared = clearLearningBoredReviewGradeOutbox(entry.request.clientRequestId);
+          const cleared = outboxStore.clear(entry.request.clientRequestId);
           if (cleared.status === 'cleared') {
             releasePendingGrade();
             setGradeRecovery(null);
@@ -568,7 +1138,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
           if (gradeError instanceof Error && gradeError.name === 'AbortError') return;
           preserveError = true;
           if (isDefinitiveGradeFailure(gradeError)) {
-            const cleared = clearLearningBoredReviewGradeOutbox(entry.request.clientRequestId);
+            const cleared = outboxStore.clear(entry.request.clientRequestId);
             if (cleared.status === 'cleared') releasePendingGrade();
             else if (cleared.status === 'conflict') holdPendingGrade(cleared.entry);
             setGradeRecovery('reload');
@@ -594,350 +1164,127 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
     };
     void initialize();
     return () => controller.abort();
-  }, [client, holdPendingGrade, loadQueue, releasePendingGrade]);
+  }, [client, holdPendingGrade, loadQueue, outboxStore, releasePendingGrade]);
 
-  const recoveryNotice = error ? (
-    <div
-      className='mt-3 rounded-lg border border-[var(--lb-review-danger)] p-3 text-sm'
-      role='alert'
-    >
-      <p>{error}</p>
-      {pendingGrade && (gradeRecovery === 'persist' || gradeRecovery === 'retry') && (
-        <button
-          type='button'
-          className='btn btn-sm mt-3 min-h-11'
-          disabled={pendingAction !== null}
-          onClick={retryPendingGrade}
-        >
-          <RefreshCw className='size-4' />
-          {_('Retry grade')}
-        </button>
-      )}
-      {gradeRecovery === 'reload' && (
-        <button
-          type='button'
-          className='btn btn-sm mt-3 min-h-11'
-          disabled={pendingAction !== null}
-          onClick={reloadQueue}
-        >
-          <RefreshCw className='size-4' />
-          {_('Reload review')}
-        </button>
-      )}
-    </div>
-  ) : null;
+  const recovery: LearningBoredReviewRecoveryView | null = error
+    ? {
+        message: error,
+        action:
+          pendingGrade && (gradeRecovery === 'persist' || gradeRecovery === 'retry')
+            ? 'retry-grade'
+            : gradeRecovery === 'reload'
+              ? 'reload-review'
+              : null,
+        actionDisabled: pendingAction !== null,
+      }
+    : null;
+
+  let visualState: LearningBoredReviewVisualState;
+  if (loading) visualState = 'loading';
+  else if (error && !queue) visualState = 'load-error';
+  else if (pendingAction === 'suppress') visualState = 'suppression';
+  else if (pendingAction === 'reveal') visualState = 'reveal-request';
+  else if (pendingAction === 'grade') visualState = 'grading';
+  else if (gradeRecovery === 'retry' && pendingGrade) visualState = 'pending-outbox';
+  else if (gradeRecovery !== null) visualState = 'rejection-recovery';
+  else if (pendingGrade) visualState = 'pending-outbox';
+  else if (!started && queue !== null && items.length === 0) visualState = 'empty';
+  else if (!started) visualState = 'start';
+  else if (!current && remainingCount > 0 && !continuationExhausted) {
+    visualState = 'continuation';
+  } else if (!current && remainingCount > 0) visualState = 'empty';
+  else if (!current) visualState = 'completion';
+  else if (answer) visualState = 'revealed-answer';
+  else if (selectedOptionId) visualState = 'selected-choice';
+  else visualState = 'question';
+
+  let screen: LearningBoredReviewScreen;
+  if (loading) {
+    screen = { kind: 'loading', recovery };
+  } else if (error && !queue) {
+    screen = { kind: 'load-error', message: error, recovery };
+  } else if (!started && queue !== null && items.length === 0) {
+    screen = {
+      kind: 'summary',
+      mode: 'empty',
+      remainingCount,
+      reviewedCount,
+      removedCount,
+      ...(documentId ? { documentId } : {}),
+      canOpenProgress: Boolean(documentId && onOpenProgress),
+      recovery,
+    };
+  } else if (!started) {
+    screen = {
+      kind: 'start',
+      remainingCount,
+      reviewedToday: queue?.reviewedToday ?? 0,
+      dailyTarget: queue?.dailyTarget ?? 0,
+      hasItems: items.length > 0,
+      continuationExhausted,
+      beginBlocked: items.length === 0 || pendingGrade !== null || gradeRecovery === 'reload',
+      recovery,
+    };
+  } else if (!current) {
+    screen = {
+      kind: 'summary',
+      mode:
+        remainingCount > 0 && !continuationExhausted
+          ? 'continuation'
+          : remainingCount > 0
+            ? 'empty'
+            : 'completion',
+      remainingCount,
+      reviewedCount,
+      removedCount,
+      ...(documentId ? { documentId } : {}),
+      canOpenProgress: Boolean(documentId && onOpenProgress),
+      recovery,
+    };
+  } else {
+    const sharedQuestion = {
+      item: current,
+      questionNumber: completedCount + 1,
+      totalQuestions: Math.max(sessionPlannedCount, completedCount + items.length, 1),
+      selectedOptionId,
+      controlsDisabled: pendingAction !== null || gradeRecovery !== null,
+      recovery,
+    };
+    screen = answer
+      ? { kind: 'revealed', ...sharedQuestion, answer }
+      : { kind: 'question', ...sharedQuestion };
+  }
+
+  const viewState: LearningBoredReviewViewState = {
+    subtitle: documentId ? 'From this Board' : 'Your due questions',
+    visualState,
+    statusMessage,
+    screen,
+  };
 
   return (
-    <LearningBoredReviewSurfaceShell
-      subtitle={documentId ? 'From this Board' : 'Your due questions'}
-      statusMessage={statusMessage}
-      onClose={onClose}
+    <LearningBoredReviewPresentation
+      viewState={viewState}
       translate={_}
-    >
-      {loading ? (
-        <div className='flex flex-1 items-center justify-center p-6' role='status'>
-          <span className='loading loading-spinner text-[var(--lb-review-focus)]' />
-          <span className='ms-3'>{_('Loading your review queue…')}</span>
-        </div>
-      ) : error && !queue ? (
-        <section className='flex flex-1 flex-col items-center justify-center p-6 text-center'>
-          <p role='alert'>{error}</p>
-          <button type='button' className='btn mt-4 min-h-11' onClick={() => void loadQueue()}>
-            <RefreshCw className='size-4' />
-            {_('Try again')}
-          </button>
-        </section>
-      ) : !started ? (
-        <section className='flex flex-1 flex-col justify-between overflow-y-auto p-5'>
-          <div>
-            <p className='text-sm font-semibold uppercase tracking-[0.12em] text-[var(--lb-review-focus)]'>
-              {_('Ready when you are')}
-            </p>
-            <h2 className='learningbored-review-question mt-3 text-3xl font-semibold leading-tight'>
-              {remainingCount === 1
-                ? _('1 question is due now.')
-                : _(`${remainingCount} questions are due now.`)}
-            </h2>
-            <div className='learningbored-review-card mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-xl border text-center'>
-              <div className='p-4'>
-                <strong className='block text-2xl'>{queue?.reviewedToday ?? 0}</strong>
-                <span className='text-xs text-[var(--lb-review-muted)]'>{_('Reviewed today')}</span>
-              </div>
-              <div className='border-l border-[var(--lb-review-border)] p-4'>
-                <strong className='block text-2xl'>{queue?.dailyTarget ?? 0}</strong>
-                <span className='text-xs text-[var(--lb-review-muted)]'>{_('Daily target')}</span>
-              </div>
-            </div>
-            <p className='mt-5 text-sm leading-6 text-[var(--lb-review-muted)]'>
-              {_('Take one question at a time. Reveal the answer before choosing a grade.')}
-            </p>
-            {continuationExhausted && items.length === 0 && (
-              <p className='mt-3 text-sm leading-6 text-[var(--lb-review-muted)]'>
-                {_('No validated questions are available from the remaining queue right now.')}
-              </p>
-            )}
-            {recoveryNotice}
-          </div>
-          <button
-            type='button'
-            className='learningbored-review-primary mt-8 min-h-14 w-full rounded-xl px-5 text-base font-semibold disabled:opacity-50'
-            disabled={items.length === 0 || pendingGrade !== null || gradeRecovery === 'reload'}
-            onClick={() => {
-              setStarted(true);
-              setStatusMessage(_('Review started.'));
-            }}
-          >
-            {pendingGrade !== null || gradeRecovery === 'reload'
-              ? _('Confirm the pending grade first')
-              : items.length > 0
-                ? _('Begin review')
-                : _('Nothing available right now')}
-          </button>
-        </section>
-      ) : !current ? (
-        <section className='flex flex-1 flex-col items-center justify-center p-6 text-center'>
-          {remainingCount > 0 && !continuationExhausted ? (
-            <RefreshCw className='size-9 text-[var(--lb-review-focus)]' aria-hidden='true' />
-          ) : (
-            <Check className='size-9 text-[var(--lb-review-focus)]' aria-hidden='true' />
-          )}
-          <h2 className='learningbored-review-question mt-4 text-2xl font-semibold'>
-            {remainingCount > 0 && !continuationExhausted
-              ? _('More questions are available')
-              : _('Review complete')}
-          </h2>
-          <p className='mt-2 max-w-xs text-sm leading-6 text-[var(--lb-review-muted)]'>
-            {continuationExhausted && remainingCount > 0
-              ? _(
-                  `${reviewedCount} reviewed. No more validated questions are available from the remaining queue right now.`,
-                )
-              : _(
-                  `${reviewedCount} reviewed${removedCount > 0 ? `, ${removedCount} removed` : ''}. ${remainingCount} remain.`,
-                )}
-          </p>
-          {recoveryNotice}
-          {remainingCount > 0 && !continuationExhausted ? (
-            <button
-              type='button'
-              className='learningbored-review-primary mt-6 min-h-14 rounded-xl px-5 font-semibold disabled:opacity-50'
-              disabled={pendingAction !== null}
-              onClick={continueQueue}
-            >
-              {_(`Continue review — ${remainingCount} remaining`)}
-            </button>
-          ) : (
-            <div className='mt-6 flex flex-wrap justify-center gap-2'>
-              {documentId && onOpenProgress ? (
-                <button
-                  type='button'
-                  className='btn btn-primary min-h-11'
-                  onClick={() => onOpenProgress(documentId)}
-                >
-                  <BarChart3 className='size-4' />
-                  {_('View progress')}
-                </button>
-              ) : null}
-              <button type='button' className='btn min-h-11' onClick={onClose}>
-                {_('Return to reading')}
-              </button>
-            </div>
-          )}
-        </section>
-      ) : (
-        <>
-          <div className='flex-1 overflow-y-auto px-4 py-4'>
-            <div className='flex items-center justify-between gap-3 text-xs text-[var(--lb-review-muted)]'>
-              <span>
-                {_(
-                  `Question ${completedCount + 1} of ${Math.max(
-                    sessionPlannedCount,
-                    completedCount + items.length,
-                    1,
-                  )}`,
-                )}
-              </span>
-              <span className='truncate'>{sourceLocation(current)}</span>
-            </div>
-
-            <article className='learningbored-review-card mt-3 rounded-xl border p-4'>
-              <h2
-                ref={questionRef}
-                tabIndex={-1}
-                className='learningbored-review-question text-xl font-semibold leading-8'
-              >
-                {current.recallItem.stem}
-              </h2>
-
-              {current.recallItem.options && (
-                <fieldset className='mt-5 space-y-2' disabled={answer !== null}>
-                  <legend className='sr-only'>{_('Choose an answer')}</legend>
-                  {current.recallItem.options.map((option) => (
-                    <label
-                      key={option.id}
-                      className='flex min-h-12 cursor-pointer items-center gap-3 rounded-lg border border-[var(--lb-review-border)] bg-[var(--lb-review-paper)] px-3 py-2 text-sm'
-                    >
-                      <input
-                        type='radio'
-                        name={`review-answer-${current.recallItem.id}`}
-                        value={option.id}
-                        checked={selectedOptionId === option.id}
-                        onChange={() => setSelectedOptionId(option.id)}
-                      />
-                      <span>{option.text}</span>
-                    </label>
-                  ))}
-                </fieldset>
-              )}
-            </article>
-
-            {!answer ? (
-              <button
-                type='button'
-                data-review-reveal
-                aria-keyshortcuts='Space'
-                className='learningbored-review-primary mt-4 min-h-14 w-full rounded-xl px-5 text-base font-semibold disabled:opacity-50'
-                disabled={pendingAction !== null}
-                onClick={() => void reveal()}
-              >
-                {pendingAction === 'reveal' ? _('Revealing…') : _('Reveal answer')}
-                <span className='ms-2 text-xs font-normal opacity-80'>{_('Space')}</span>
-              </button>
-            ) : (
-              <div className='mt-4 space-y-4'>
-                <section
-                  ref={answerRef}
-                  tabIndex={-1}
-                  className='learningbored-review-card rounded-xl border p-4'
-                >
-                  <p className='text-xs font-semibold uppercase tracking-[0.12em] text-[var(--lb-review-focus)]'>
-                    {_('Answer')}
-                  </p>
-                  <p className='mt-2 text-lg font-semibold leading-7'>{answer.answer}</p>
-                  <p className='mt-3 text-sm leading-6 text-[var(--lb-review-muted)]'>
-                    {answer.explanation}
-                  </p>
-                </section>
-
-                {answer.optionRationales.length > 0 && (
-                  <section aria-labelledby='review-rationales-heading'>
-                    <h3 id='review-rationales-heading' className='text-sm font-semibold'>
-                      {_('Why each choice works or does not')}
-                    </h3>
-                    <ul className='mt-2 space-y-2'>
-                      {answer.optionRationales.map((option) => (
-                        <li
-                          key={option.id}
-                          className='learningbored-review-card rounded-lg border p-3 text-sm leading-6'
-                        >
-                          <p className='font-semibold'>
-                            {option.text} {selectedOptionId === option.id ? _('— your choice') : ''}
-                          </p>
-                          <p className='text-[var(--lb-review-muted)]'>
-                            <span className='font-medium text-[var(--lb-review-ink)]'>
-                              {option.isCorrect ? _('Correct.') : _('Not correct.')}
-                            </span>{' '}
-                            {option.rationale}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-
-                {answer.rubric && (
-                  <section aria-labelledby='review-rubric-heading'>
-                    <h3 id='review-rubric-heading' className='text-sm font-semibold'>
-                      {_('A complete answer includes')}
-                    </h3>
-                    <ul className='mt-2 list-disc space-y-1 ps-5 text-sm leading-6'>
-                      {answer.rubric.map((point) => (
-                        <li key={point}>{point}</li>
-                      ))}
-                    </ul>
-                  </section>
-                )}
-
-                <section className='learningbored-review-anchor rounded-xl border-l-4 p-4'>
-                  <h3 className='flex items-center gap-2 text-sm font-semibold'>
-                    <BookOpenText className='size-4' aria-hidden='true' />
-                    {_('Source anchor')}
-                  </h3>
-                  <p className='mt-1 text-xs text-[var(--lb-review-muted)]'>
-                    {[answer.anchor.title, answer.anchor.chapter, answer.anchor.pageLabel]
-                      .filter((part): part is string => Boolean(part?.trim()))
-                      .join(' · ')}
-                  </p>
-                  <blockquote className='mt-3 border-l border-[var(--lb-review-border)] ps-3 text-sm leading-6'>
-                    {answer.anchor.sourceText}
-                  </blockquote>
-                </section>
-              </div>
-            )}
-
-            <div className='mt-4 flex flex-wrap gap-2 border-t border-[var(--lb-review-border)] pt-3'>
-              <span className='me-1 flex items-center text-xs text-[var(--lb-review-muted)]'>
-                <Flag className='me-1 size-3.5' aria-hidden='true' />
-                {_('Remove this question:')}
-              </span>
-              <button
-                type='button'
-                className='min-h-11 rounded-lg px-2 text-xs font-medium underline underline-offset-4 disabled:opacity-50'
-                disabled={pendingAction !== null || gradeRecovery !== null}
-                onClick={() => suppress('ambiguous_question')}
-              >
-                {_('Ambiguous')}
-              </button>
-              {current.recallItem.kind === 'multiple_choice' && (
-                <button
-                  type='button'
-                  className='min-h-11 rounded-lg px-2 text-xs font-medium underline underline-offset-4 disabled:opacity-50'
-                  disabled={pendingAction !== null || gradeRecovery !== null}
-                  onClick={() => suppress('bad_distractor')}
-                >
-                  {_('Bad choice')}
-                </button>
-              )}
-            </div>
-
-            {recoveryNotice}
-          </div>
-
-          {answer && (
-            <footer className='shrink-0 border-t border-[var(--lb-review-border)] bg-[var(--lb-review-recessed)] p-3'>
-              <p className='mb-2 text-center text-xs text-[var(--lb-review-muted)]'>
-                {_('How well did you recall it? Use keys 1–4.')}
-              </p>
-              <fieldset className='grid grid-cols-2 gap-2'>
-                <legend className='sr-only'>{_('Recall grade')}</legend>
-                {LEARNINGBORED_REVIEW_GRADES.map((value, index) => {
-                  const preview = current.intervalPreviews[value];
-                  const interval = formatInterval(preview.intervalSeconds, preview.intervalDays);
-                  return (
-                    <button
-                      key={value}
-                      type='button'
-                      aria-keyshortcuts={String(index + 1)}
-                      aria-label={_(`${GRADE_LABELS[value]}, next review ${interval}`)}
-                      className='learningbored-review-grade min-h-14 rounded-xl border px-3 py-2 text-start disabled:opacity-50'
-                      disabled={pendingAction !== null || gradeRecovery !== null}
-                      onClick={() => grade(value)}
-                    >
-                      <span className='flex items-center justify-between gap-2 text-sm font-semibold'>
-                        {_(GRADE_LABELS[value])}
-                        <kbd className='text-[10px] font-normal opacity-60'>{index + 1}</kbd>
-                      </span>
-                      <span className='mt-0.5 block text-xs text-[var(--lb-review-muted)]'>
-                        {interval}
-                      </span>
-                    </button>
-                  );
-                })}
-              </fieldset>
-            </footer>
-          )}
-        </>
-      )}
-    </LearningBoredReviewSurfaceShell>
+      questionRef={questionRef}
+      answerRef={answerRef}
+      actions={{
+        onBegin: () => {
+          setStarted(true);
+          setStatusMessage(_('Review started.'));
+        },
+        onTryAgain: () => void loadQueue(),
+        onContinue: continueQueue,
+        onReveal: () => void reveal(),
+        onSelectOption: setSelectedOptionId,
+        onGrade: grade,
+        onSuppress: suppress,
+        onRetryGrade: retryPendingGrade,
+        onReloadReview: reloadQueue,
+        onClose,
+        ...(onOpenProgress ? { onOpenProgress } : {}),
+      }}
+    />
   );
 };
 

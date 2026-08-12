@@ -77,6 +77,15 @@ const screenshotCases = [
     theme: 'dark',
     width: 1440,
   },
+  { stateId: 'progress-overview', label: 'Four mastery states', theme: 'eink', width: 375 },
+  {
+    stateId: 'readiness-objectives',
+    label: 'Attached exam readiness',
+    theme: 'dark',
+    width: 1440,
+  },
+  { stateId: 'review-question', label: 'Answer-free question', theme: 'light', width: 375 },
+  { stateId: 'review-revealed', label: 'Revealed answer', theme: 'dark', width: 1440 },
 ] as const;
 
 interface RuntimeSignals {
@@ -212,7 +221,7 @@ test.describe('Reader LearningBored deterministic matrix', () => {
       await selectTheme(page, theme);
       for (const state of previewStates) {
         await selectState(page, state.label, state.id);
-        await expect(page.getByRole('heading', { name: state.label, exact: true })).toBeVisible();
+        await expect(page.locator('#preview-state-heading')).toHaveText(state.label);
       }
     }
   });
@@ -312,8 +321,8 @@ test.describe('Reader LearningBored deterministic matrix', () => {
     const topologyStates = [
       { label: 'Selection ready', stateId: 'capture-ready', mobileHeightRatio: 0.44 },
       { label: 'Complete Board', stateId: 'board-complete', mobileHeightRatio: 0.44 },
-      { label: 'Progress overview', stateId: 'progress-overview', mobileHeightRatio: 0.44 },
-      { label: 'Review work surface', stateId: 'review-topology', mobileHeightRatio: 0.78 },
+      { label: 'Four mastery states', stateId: 'progress-overview', mobileHeightRatio: 0.44 },
+      { label: 'Review start', stateId: 'review-start', mobileHeightRatio: 0.78 },
     ] as const;
     const topologyViewports = [
       { width: 375, height: 900 },
@@ -702,6 +711,123 @@ test.describe('Reader LearningBored deterministic matrix', () => {
     await expect(page.locator('[data-lb-reading-position="chapter-2-page-17"]')).toBeVisible();
   });
 
+  test('keeps Progress actionable and omits every readiness boundary without a blueprint', async ({
+    page,
+  }) => {
+    const readinessRequests: string[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (/readiness|blueprints?/iu.test(url.pathname)) readinessRequests.push(request.url());
+    });
+
+    await openStudyState(page, { label: 'Concept actions', stateId: 'progress-concept' }, 375);
+    const progress = page.getByTestId('learningbored-progress-panel');
+    await expect(progress).toHaveAttribute('data-lb-theme', 'light');
+    for (const tier of ['New', 'Learning', 'Retained', 'Lapsed'] as const) {
+      await expect(progress.getByRole('button', { name: `${tier}: 1` })).toBeVisible();
+    }
+    await expect(progress.getByText('Not started', { exact: true })).toBeVisible();
+    await expect(
+      progress.getByRole('button', {
+        name: /Settling sequence\. Lapsed\. 72%\. 2 due/u,
+      }),
+    ).toHaveAttribute('aria-expanded', 'true');
+    await expect(
+      progress.getByRole('region', { name: '2 due items for Settling sequence' }),
+    ).toBeVisible();
+    await expect(progress.getByText('Due recall item 1', { exact: true })).toBeVisible();
+    await expect(progress.getByText('Due recall item 2', { exact: true })).toBeVisible();
+    await expect(progress.getByRole('button', { name: 'Open Board' })).toBeVisible();
+    await expect(progress.getByRole('button', { name: 'Review this concept' })).toBeVisible();
+
+    await progress.getByRole('button', { name: 'Review this concept' }).click();
+    await expect(
+      page.getByText('Opened deterministic review for preview-concept-settling.'),
+    ).toBeAttached();
+    await progress.getByRole('button', { name: 'Open Board' }).click();
+    await expect(
+      progress.getByRole('heading', {
+        name: 'How the fictional settling chamber separates particles',
+      }),
+    ).toBeVisible();
+
+    await selectResponsiveState(page, 'Four mastery states', 'progress-overview');
+    await expect(page.getByText('Readiness by objective', { exact: true })).toHaveCount(0);
+    await expect(page.getByText('Attached exam overlay', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Edit exam plan' })).toHaveCount(0);
+    expect(readinessRequests).toEqual([]);
+
+    await selectResponsiveState(page, 'Attached exam readiness', 'readiness-objectives');
+    await expect(page.getByRole('heading', { name: 'Readiness by objective' })).toBeVisible();
+    await expect(page.getByText('Trace the treatment flow', { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Trace the treatment flow.*72%/u }),
+    ).toBeVisible();
+
+    await selectResponsiveState(page, 'Readiness not started', 'readiness-not-started');
+    await expect(
+      page.getByRole('button', { name: /Trace the treatment flow.*Not started/u }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: /Locate generic chamber parts.*Not started/u }),
+    ).toBeVisible();
+  });
+
+  test('runs the answer-free Review boundary from the keyboard and advances immediately', async ({
+    page,
+  }) => {
+    await openStudyState(page, { label: 'Review start', stateId: 'review-start' }, 375);
+    const review = page.getByTestId('learningbored-review-panel');
+    await expect(review).toHaveAttribute('data-lb-review-state', 'start');
+    await expect(review.getByText('2 questions are due now.', { exact: true })).toBeVisible();
+    await review.getByRole('button', { name: 'Begin review' }).click();
+
+    const firstQuestion = review.getByRole('heading', {
+      name: 'What happens after water slows inside the fictional settling chamber?',
+    });
+    await expect(firstQuestion).toBeVisible();
+    await expect(firstQuestion).toBeFocused();
+    await expect(review.getByText('Answer', { exact: true })).toHaveCount(0);
+    await expect(
+      review.getByText('Why each choice works or does not', { exact: true }),
+    ).toHaveCount(0);
+    await expect(review.getByText('Source anchor', { exact: true })).toHaveCount(0);
+    await expect(review.getByRole('group', { name: 'Recall grade' })).toHaveCount(0);
+
+    await review.getByRole('radio', { name: 'Denser particles settle downward.' }).check();
+    await expect(review).toHaveAttribute('data-lb-review-state', 'selected-choice');
+    await firstQuestion.focus();
+    await page.keyboard.press('Space');
+
+    const answerLabel = review.getByText('Answer', { exact: true });
+    await expect(answerLabel).toBeVisible();
+    await expect(answerLabel.locator('..')).toBeFocused();
+    await expect(
+      review.getByText('Why each choice works or does not', { exact: true }),
+    ).toBeVisible();
+    await expect(review.getByText('Source anchor', { exact: true })).toBeVisible();
+    await expect(review.getByTestId('learningbored-review-status')).toContainText(
+      'Answer revealed',
+    );
+
+    for (const label of [
+      'Again, next review 1 min',
+      'Hard, next review 2 min',
+      'Good, next review 2 days',
+      'Easy, next review 4 days',
+    ]) {
+      await expect(review.getByRole('button', { name: label })).toBeVisible();
+    }
+
+    await page.keyboard.press('3');
+    const secondQuestion = review.getByRole('heading', {
+      name: 'Where does clarified water leave the fictional chamber?',
+    });
+    await expect(secondQuestion).toBeVisible();
+    await expect(secondQuestion).toBeFocused();
+    await expect(review.getByText('Answer', { exact: true })).toHaveCount(0);
+  });
+
   test('keeps one panel and the reading marker through theme, close, and reopen; reloads cleanly', async ({
     page,
   }) => {
@@ -926,6 +1052,33 @@ test.describe('Reader LearningBored deterministic matrix', () => {
         .withTags([...axeWcagTags])
         .analyze();
       expect(results.violations).toEqual([]);
+    });
+
+    test('keeps the primary Review path one-handed at 375px', async ({ page }) => {
+      await openPreview(page);
+      await page.getByRole('button', { name: 'Show Review start', exact: true }).tap();
+      await setResponsiveProductPlane(page, true);
+      const review = page.getByTestId('learningbored-review-panel');
+
+      await review.getByRole('button', { name: 'Begin review' }).tap();
+      await review.getByRole('button', { name: 'Reveal answer' }).tap();
+      await review.getByRole('button', { name: 'Good, next review 2 days' }).tap();
+      await expect(
+        review.getByRole('heading', {
+          name: 'Where does clarified water leave the fictional chamber?',
+        }),
+      ).toBeVisible();
+
+      const primaryTargets = await review.locator('button:visible').evaluateAll((buttons) =>
+        buttons.map((button) => {
+          const rect = button.getBoundingClientRect();
+          return { height: rect.height, width: rect.width };
+        }),
+      );
+      for (const target of primaryTargets) {
+        expect.soft(target.height).toBeGreaterThanOrEqual(44);
+        expect.soft(target.width).toBeGreaterThanOrEqual(44);
+      }
     });
   });
 

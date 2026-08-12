@@ -289,28 +289,128 @@ export const LEARNINGBORED_PREVIEW_GROUPS = [
   },
   {
     id: 'progress',
-    label: 'Progress topology',
+    label: 'Progress and readiness',
     description:
-      'The existing progress surface proves the same non-occluding Reader sibling geometry.',
+      'Actionable concept mastery, Board drill-ins, and the strictly opt-in exam overlay.',
     states: [
       {
+        id: 'progress-loading',
+        label: 'Loading progress',
+        description: 'The current document stays visible while grounded mastery is derived.',
+      },
+      {
+        id: 'progress-error',
+        label: 'Progress unavailable',
+        description: 'A bounded read failure names the local retry without inventing progress.',
+      },
+      {
+        id: 'progress-empty',
+        label: 'No concepts yet',
+        description: 'The empty state explains that grounded recall must exist before mastery can.',
+      },
+      {
         id: 'progress-overview',
-        label: 'Progress overview',
-        description: 'Fictional concept attention stays beside or below the visible book.',
+        label: 'Four mastery states',
+        description:
+          'New, learning, retained, and lapsed concepts are labelled and ordered by attention.',
+      },
+      {
+        id: 'progress-concept',
+        label: 'Concept actions',
+        description:
+          'One selected concept exposes due recall, exact Board links, and its review action.',
+      },
+      {
+        id: 'progress-board',
+        label: 'Progress Board drill-in',
+        description: 'A source Board opens inside the same non-occluding work surface.',
+      },
+      {
+        id: 'progress-board-error',
+        label: 'Board drill-in unavailable',
+        description: 'A failed Board read preserves progress and offers a local retry.',
+      },
+      {
+        id: 'readiness-objectives',
+        label: 'Attached exam readiness',
+        description:
+          'An explicitly attached fictional blueprint adds weighted objectives beside concept actions.',
+      },
+      {
+        id: 'readiness-not-started',
+        label: 'Readiness not started',
+        description: 'Unstarted objectives remain truthful and never collapse into a zero score.',
       },
     ],
   },
   {
     id: 'review',
-    label: 'Review topology',
+    label: 'Review session',
     description:
-      'The dedicated review surface proves its taller mobile sibling geometry before §7 migrates review content.',
+      'The complete answer-free retrieval, reveal, grade, replay, recovery, and continuation sequence.',
     states: [
       {
-        id: 'review-topology',
-        label: 'Review work surface',
+        id: 'review-start',
+        label: 'Review start',
+        description: 'Due work and the daily target are named before the learner begins.',
+      },
+      {
+        id: 'review-question',
+        label: 'Answer-free question',
+        description: 'Only the question and safe choices exist before deliberate reveal.',
+      },
+      {
+        id: 'review-selected-choice',
+        label: 'Selected choice',
+        description: 'A learner choice is visible without exposing correctness or rationale.',
+      },
+      {
+        id: 'review-reveal-request',
+        label: 'Reveal in progress',
+        description: 'The deliberate answer read is pending while the question remains available.',
+      },
+      {
+        id: 'review-revealed',
+        label: 'Revealed answer',
+        description: 'The answer, rationale, exact source, and four interval choices now appear.',
+      },
+      {
+        id: 'review-grading',
+        label: 'Grade in progress',
+        description: 'One replay-safe scheduling write is pending after a revealed answer.',
+      },
+      {
+        id: 'review-outbox-pending',
+        label: 'Pending grade outbox',
+        description: 'An uncertain write keeps its exact answer-free request identity for retry.',
+      },
+      {
+        id: 'review-recovery',
+        label: 'Grade recovery',
+        description: 'A rejected or stale occurrence stops safely and offers a truthful reload.',
+      },
+      {
+        id: 'review-suppression',
+        label: 'Question removed',
         description:
-          'Fictional review content occupies the dedicated 78dvh mobile sibling without a backdrop, drag handle, or document occlusion.',
+          'An ambiguous item leaves this session while its prior review history remains.',
+      },
+      {
+        id: 'review-continuation',
+        label: 'More review available',
+        description:
+          'A bounded page ends with an explicit continuation instead of false completion.',
+      },
+      {
+        id: 'review-empty',
+        label: 'Nothing due',
+        description: 'An honest empty queue offers no invented review task.',
+      },
+      {
+        id: 'review-complete',
+        label: 'Review complete',
+        description:
+          'Confirmed grades are counted and the learner can return to reading or progress.',
       },
     ],
   },

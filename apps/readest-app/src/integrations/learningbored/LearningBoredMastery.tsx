@@ -1,7 +1,7 @@
 'use client';
 
-import { BookOpenText, RotateCcw } from 'lucide-react';
-import { useId } from 'react';
+import { BookOpenText, ChevronDown, RotateCcw } from 'lucide-react';
+import { useId, useState } from 'react';
 
 import type {
   LearningBoredConceptMastery,
@@ -9,6 +9,7 @@ import type {
   LearningBoredMasteryTier,
 } from './client';
 import { useLearningBoredTranslation } from './presentation/context';
+import { learningBoredProgressStyles as styles } from './progress/LearningBoredProgressShell';
 
 const TIER_PRIORITY: Record<LearningBoredMasteryTier, number> = {
   lapsed: 0,
@@ -23,6 +24,8 @@ const TIER_LABELS: Record<LearningBoredMasteryTier, string> = {
   retained: 'Retained',
   lapsed: 'Lapsed',
 };
+
+const MASTERY_TIERS = ['new', 'learning', 'retained', 'lapsed'] as const;
 
 export function sortLearningBoredConceptsByAttention(
   concepts: readonly LearningBoredConceptMastery[],
@@ -48,6 +51,11 @@ function reviewedDateLabel(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date);
 }
 
+function dueLabel(concept: LearningBoredConceptMastery): string {
+  if (concept.dueCount === 0) return 'No items due';
+  return concept.dueCount === 1 ? '1 due' : `${concept.dueCount} due`;
+}
+
 export interface LearningBoredMasterySummaryProps {
   mastery: LearningBoredMasteryResult;
   selectedTier: LearningBoredMasteryTier | null;
@@ -63,58 +71,43 @@ export const LearningBoredMasterySummary: React.FC<LearningBoredMasterySummaryPr
   const total = mastery.concepts.length;
 
   return (
-    <section aria-labelledby='learningbored-mastery-heading'>
-      <div className='flex items-end justify-between gap-3'>
+    <section aria-labelledby='learningbored-mastery-heading' className={styles['section']}>
+      <div className={styles['sectionHeader']}>
         <div>
-          <p className='text-xs font-semibold uppercase tracking-[0.12em] text-[var(--lb-progress-muted)]'>
-            {_('Anchored recall only')}
-          </p>
-          <h2 id='learningbored-mastery-heading' className='mt-1 text-2xl font-semibold'>
+          <h2 className={styles['sectionTitle']} id='learningbored-mastery-heading'>
             {_('Concept progress')}
           </h2>
+          <p className={styles['sectionCopy']}>
+            {_('Mastery reflects anchored recall only. Added explanations never affect it.')}
+          </p>
         </div>
         <button
-          type='button'
-          className='btn btn-ghost btn-sm min-h-11 text-[var(--lb-progress-muted)]'
           aria-pressed={selectedTier === null}
+          className={`${styles['secondaryButton']} ${styles['filterReset']}`}
           onClick={() => onSelectTier(null)}
+          type='button'
         >
           {total === 1 ? _('1 concept') : _(`${total} concepts`)}
         </button>
       </div>
 
-      <div
-        className='mt-4 flex h-3 overflow-hidden rounded-full border border-[var(--lb-progress-border)] bg-[var(--lb-progress-raised)]'
-        aria-hidden='true'
-      >
-        {(['new', 'learning', 'retained', 'lapsed'] as const).map((tier) => {
-          const count = mastery.summary[tier];
-          return count > 0 ? (
-            <span
-              key={tier}
-              className={`learningbored-mastery-fill learningbored-mastery-fill-${tier}`}
-              style={{ width: `${(count / Math.max(1, total)) * 100}%` }}
-              title={`${TIER_LABELS[tier]}: ${count}`}
-            />
-          ) : null;
-        })}
-      </div>
-
-      <ul className='mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4'>
-        {(['new', 'learning', 'retained', 'lapsed'] as const).map((tier) => (
+      <ul aria-label={_('Filter concepts by mastery state')} className={styles['tierFilters']}>
+        {MASTERY_TIERS.map((tier) => (
           <li key={tier}>
             <button
-              type='button'
-              className='btn btn-ghost min-h-11 w-full justify-start gap-2 px-2 text-xs'
+              aria-label={`${_(TIER_LABELS[tier])}: ${mastery.summary[tier]}`}
               aria-pressed={selectedTier === tier}
+              className={styles['filterButton']}
+              disabled={mastery.summary[tier] === 0}
               onClick={() => onSelectTier(tier)}
+              type='button'
             >
-              <span
-                className={`learningbored-mastery-marker learningbored-mastery-marker-${tier}`}
-                aria-hidden='true'
-              />
-              <span>
-                {_(TIER_LABELS[tier])}: {mastery.summary[tier]}
+              <span aria-hidden='true' className={styles['tierLabel']}>
+                <span aria-hidden='true' className={styles['tierMarker']} data-tier={tier} />
+                <span>{_(TIER_LABELS[tier])}</span>
+              </span>
+              <span aria-hidden='true' className={styles['tierCount']}>
+                {mastery.summary[tier]}
               </span>
             </button>
           </li>
@@ -129,6 +122,8 @@ export interface LearningBoredConceptListProps {
   onOpenBoard: (boardId: string) => void;
   onStartReview: (conceptId: string) => void;
   heading?: string;
+  emptyMessage?: string;
+  initialExpandedConceptId?: string | null;
 }
 
 export const LearningBoredConceptList: React.FC<LearningBoredConceptListProps> = ({
@@ -136,133 +131,154 @@ export const LearningBoredConceptList: React.FC<LearningBoredConceptListProps> =
   onOpenBoard,
   onStartReview,
   heading = 'Needs your attention',
+  emptyMessage = 'No grounded concepts are available yet.',
+  initialExpandedConceptId = null,
 }) => {
   const _ = useLearningBoredTranslation();
   const headingId = useId();
+  const instanceId = useId();
+  const [expandedConceptId, setExpandedConceptId] = useState<string | null>(
+    initialExpandedConceptId,
+  );
   const sortedConcepts = sortLearningBoredConceptsByAttention(concepts);
 
   return (
-    <section className='mt-6' aria-labelledby={headingId}>
-      <h3 id={headingId} className='text-base font-semibold'>
+    <section aria-labelledby={headingId} className={styles['section']}>
+      <h3 className={styles['sectionTitle']} id={headingId}>
         {_(heading)}
       </h3>
       {sortedConcepts.length > 0 ? (
-        <ol className='mt-3 space-y-3'>
+        <ol className={styles['conceptList']}>
           {sortedConcepts.map((concept) => {
-            const firstBoardId = concept.boardIds[0];
-            const hasProgressAction = concept.dueCount > 0 || firstBoardId !== undefined;
+            const detailsId = `${instanceId}-${concept.conceptId}`;
+            const expanded = expandedConceptId === concept.conceptId;
             const basis =
               concept.itemCount === 1
                 ? _('Based on 1 anchored recall item')
                 : _(`Based on ${concept.itemCount} anchored recall items`);
-            const action =
-              concept.dueCount > 0
-                ? _('Review due')
-                : firstBoardId !== undefined
-                  ? _('Open Board')
-                  : null;
-
-            const progressContent = (
-              <>
-                <span className='min-w-0 text-left text-xs leading-5 text-[var(--lb-progress-muted)]'>
-                  <span className='block'>{basis}</span>
-                  <span className='block'>
-                    {concept.lastReviewedAt === null ? (
-                      _('Not reviewed yet')
-                    ) : (
-                      <>
-                        {_('Last reviewed')}{' '}
-                        <time dateTime={concept.lastReviewedAt}>
-                          {reviewedDateLabel(concept.lastReviewedAt)}
-                        </time>
-                      </>
-                    )}
-                  </span>
-                </span>
-                <span className='shrink-0 text-right'>
-                  <span className='learningbored-mastery-tier inline-flex rounded-full border px-2 py-1 text-xs font-semibold'>
-                    {_(TIER_LABELS[concept.tier])}
-                  </span>
-                  <strong className='mt-1 block text-sm'>{_(scoreLabel(concept))}</strong>
-                  {action ? (
-                    <span className='mt-1 block text-xs font-semibold text-[var(--lb-progress-focus)]'>
-                      {action}
-                    </span>
-                  ) : null}
-                </span>
-                {hasProgressAction ? (
-                  <span className='sr-only'>
-                    {concept.dueCount > 0
-                      ? concept.dueCount === 1
-                        ? _(`Review 1 due item for ${concept.name}`)
-                        : _(`Review ${concept.dueCount} due items for ${concept.name}`)
-                      : _(`Open the first Board for ${concept.name}`)}
-                  </span>
-                ) : null}
-              </>
-            );
+            const reviewDate =
+              concept.lastReviewedAt === null
+                ? _('Not reviewed yet')
+                : reviewedDateLabel(concept.lastReviewedAt);
 
             return (
               <li
+                className={styles['conceptCard']}
+                data-expanded={expanded ? 'true' : 'false'}
+                data-tier={concept.tier}
                 key={concept.conceptId}
-                className={`learningbored-mastery-card learningbored-mastery-card-${concept.tier} rounded-xl border p-4`}
               >
-                <h4 className='font-semibold leading-6'>{concept.name}</h4>
+                <h4 className={styles['conceptCardHeading']}>{concept.name}</h4>
+                <button
+                  aria-label={`${concept.name}. ${_(TIER_LABELS[concept.tier])}. ${_(scoreLabel(concept))}. ${_(dueLabel(concept))}. ${basis}. ${
+                    concept.lastReviewedAt === null
+                      ? reviewDate
+                      : `${_('Last reviewed')} ${reviewDate}`
+                  }`}
+                  aria-controls={detailsId}
+                  aria-expanded={expanded}
+                  className={styles['conceptToggle']}
+                  onClick={() => setExpandedConceptId(expanded ? null : concept.conceptId)}
+                  type='button'
+                >
+                  <span>
+                    <span className={styles['conceptMeta']}>
+                      {basis} ·{' '}
+                      {concept.lastReviewedAt === null ? (
+                        reviewDate
+                      ) : (
+                        <>
+                          {_('Last reviewed')}{' '}
+                          <time dateTime={concept.lastReviewedAt}>{reviewDate}</time>
+                        </>
+                      )}
+                    </span>
+                  </span>
+                  <span className={styles['conceptValueRow']}>
+                    <span className={styles['tierBadge']} data-tier={concept.tier}>
+                      {_(TIER_LABELS[concept.tier])}
+                    </span>
+                    <strong className={styles['score']}>{_(scoreLabel(concept))}</strong>
+                    <span className={styles['dueLabel']}>{_(dueLabel(concept))}</span>
+                    <ChevronDown aria-hidden='true' className={styles['conceptChevron']} />
+                  </span>
+                </button>
 
-                {hasProgressAction ? (
-                  <button
-                    type='button'
-                    className='mt-3 flex min-h-11 w-full items-start justify-between gap-3 rounded-lg border border-[var(--lb-progress-border)] bg-[var(--lb-progress-raised)] p-3'
-                    onClick={() => {
-                      if (concept.dueCount > 0) onStartReview(concept.conceptId);
-                      else if (firstBoardId !== undefined) onOpenBoard(firstBoardId);
-                    }}
-                  >
-                    {progressContent}
-                  </button>
-                ) : (
-                  <div className='mt-3 flex items-start justify-between gap-3'>
-                    {progressContent}
-                  </div>
-                )}
+                {expanded ? (
+                  <div className={styles['conceptDetails']} id={detailsId}>
+                    <dl className={styles['evidence']}>
+                      <dt>{_('Anchored recall')}</dt>
+                      <dd>{concept.itemCount}</dd>
+                      <dt>{_('Last review')}</dt>
+                      <dd>{reviewDate}</dd>
+                    </dl>
 
-                <div className='mt-3 flex flex-wrap gap-2'>
-                  {concept.boardIds.length > 0
-                    ? concept.boardIds.map((boardId, index) => (
+                    {concept.dueCount > 0 ? (
+                      <section
+                        aria-label={
+                          concept.dueCount === 1
+                            ? _(`1 due item for ${concept.name}`)
+                            : _(`${concept.dueCount} due items for ${concept.name}`)
+                        }
+                        className={styles['dueRegion']}
+                      >
+                        <h5 className={styles['dueHeading']}>
+                          {concept.dueCount === 1
+                            ? _('1 due recall item')
+                            : _(`${concept.dueCount} due recall items`)}
+                        </h5>
+                        <ul className={styles['dueList']}>
+                          {concept.dueItemIds.map((itemId, index) => (
+                            <li
+                              className={styles['dueItem']}
+                              data-recall-item-id={itemId}
+                              key={itemId}
+                            >
+                              {_(`Due recall item ${index + 1}`)}
+                            </li>
+                          ))}
+                        </ul>
+                        {concept.dueCount > concept.dueItemIds.length ? (
+                          <p className={styles['supportCopy']}>
+                            {_(`${concept.dueCount - concept.dueItemIds.length} more due`)}
+                          </p>
+                        ) : null}
+                      </section>
+                    ) : null}
+
+                    <div className={styles['actionRow']}>
+                      {concept.boardIds.map((boardId, index) => (
                         <button
+                          className={styles['secondaryButton']}
                           key={boardId}
-                          type='button'
-                          className='btn btn-outline btn-sm min-h-11'
                           onClick={() => onOpenBoard(boardId)}
+                          type='button'
                         >
-                          <BookOpenText className='size-4' />
+                          <BookOpenText aria-hidden='true' />
                           {concept.boardIds.length === 1
                             ? _('Open Board')
                             : _(`Open Board ${index + 1}`)}
                         </button>
-                      ))
-                    : null}
-                  {concept.dueCount > 0 ? (
-                    <button
-                      type='button'
-                      className='btn btn-primary btn-sm min-h-11'
-                      onClick={() => onStartReview(concept.conceptId)}
-                    >
-                      <RotateCcw className='size-4' />
-                      {concept.dueCount === 1
-                        ? _('Review 1 due')
-                        : _(`Review ${concept.dueCount} due`)}
-                    </button>
-                  ) : null}
-                </div>
+                      ))}
+                      {concept.dueCount > 0 ? (
+                        <button
+                          className={styles['primaryButton']}
+                          onClick={() => onStartReview(concept.conceptId)}
+                          type='button'
+                        >
+                          <RotateCcw aria-hidden='true' />
+                          {_('Review this concept')}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </li>
             );
           })}
         </ol>
       ) : (
-        <p className='mt-3 text-sm text-[var(--lb-progress-muted)]'>
-          {_('No grounded concepts are available yet.')}
-        </p>
+        <p className={styles['sectionCopy']}>{_(emptyMessage)}</p>
       )}
     </section>
   );
