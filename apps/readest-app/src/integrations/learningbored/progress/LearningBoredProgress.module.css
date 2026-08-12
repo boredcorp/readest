@@ -84,7 +84,6 @@
   white-space: nowrap;
 }
 
-.iconButton,
 .backButton,
 .primaryButton,
 .secondaryButton,
@@ -99,23 +98,12 @@
   cursor: pointer;
 }
 
-.iconButton {
-  display: inline-grid;
-  width: var(--lb-touch-target);
-  min-width: var(--lb-touch-target);
-  place-items: center;
-  border: 0;
-  background: transparent;
-}
-
-.iconButton:hover,
 .backButton:hover,
 .filterButton:hover,
 .mappingSummary:hover {
   background: var(--lb-color-action-soft);
 }
 
-.iconButton > svg,
 .backButton > svg,
 .primaryButton > svg,
 .secondaryButton > svg,
@@ -165,8 +153,7 @@
 }
 
 .primaryButton:disabled,
-.secondaryButton:disabled,
-.iconButton:disabled {
+.secondaryButton:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }

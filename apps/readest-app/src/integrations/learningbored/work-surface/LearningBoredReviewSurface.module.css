@@ -14,6 +14,7 @@
   --lb-review-weight-control: 700;
   --lb-review-weight-heading: 750;
   --lb-review-disabled-opacity: 0.55;
+  --lb-close-control-icon-size: var(--lb-review-icon);
   position: relative;
   z-index: var(--lb-review-layer);
   display: flex;
@@ -90,7 +91,6 @@
   font-size: var(--lb-review-text-xs);
 }
 
-.iconButton,
 .primaryButton,
 .secondaryButton,
 .textButton,
@@ -101,7 +101,6 @@
   font: inherit;
 }
 
-.iconButton,
 .primaryButton,
 .secondaryButton,
 .textButton,
@@ -109,22 +108,10 @@
   cursor: pointer;
 }
 
-.iconButton {
-  display: inline-grid;
-  width: var(--lb-touch-target);
-  min-width: var(--lb-touch-target);
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--lb-color-ink);
-}
-
-.iconButton:hover:not(:disabled),
 .textButton:hover:not(:disabled) {
   background: var(--lb-color-action-soft);
 }
 
-.iconButton > svg,
 .buttonIcon,
 .sourceIcon,
 .flagIcon {
@@ -356,7 +343,6 @@
   margin-top: var(--lb-space-6);
 }
 
-.iconButton:disabled,
 .primaryButton:disabled,
 .secondaryButton:disabled,
 .textButton:disabled,

@@ -1,6 +1,6 @@
 'use client';
 
-import { AlertTriangle, Check, ChevronDown, Pencil, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronDown, Pencil } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
@@ -15,6 +15,7 @@ import type {
   LearningBoredReadinessResult,
 } from './client';
 import { LearningBoredConceptList } from './LearningBoredMastery';
+import LearningBoredCloseButton from './presentation/LearningBoredCloseButton';
 import { useLearningBoredTranslation } from './presentation/context';
 import { learningBoredProgressStyles as styles } from './progress/LearningBoredProgressShell';
 
@@ -193,14 +194,7 @@ const ExamPlanEditor: React.FC<ExamPlanEditorProps> = ({
           <h3 className={styles['sectionTitle']}>{_('Edit exam plan')}</h3>
           <p className={styles['supportCopy']}>{_('Attached exam overlay')}</p>
         </div>
-        <button
-          aria-label={_('Close exam plan editor')}
-          className={styles['iconButton']}
-          onClick={onClose}
-          type='button'
-        >
-          <X aria-hidden='true' />
-        </button>
+        <LearningBoredCloseButton label={_('Close exam plan editor')} onClose={onClose} />
       </div>
 
       {loading ? (

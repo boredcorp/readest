@@ -19,6 +19,7 @@
   --lb-work-surface-tracking-title: -0.025em;
   --lb-work-surface-disabled-opacity: 0.55;
   --lb-work-surface-control-pad: calc(var(--lb-space-2) + var(--lb-space-1));
+  --lb-close-control-icon-size: var(--lb-work-surface-icon);
   position: relative;
   z-index: var(--lb-work-surface-layer);
   display: flex;
@@ -96,7 +97,6 @@
   white-space: nowrap;
 }
 
-.iconButton,
 .secondaryButton,
 .primaryButton,
 .dangerButton,
@@ -108,22 +108,6 @@
   cursor: pointer;
 }
 
-.iconButton {
-  display: inline-grid;
-  width: var(--lb-touch-target);
-  min-width: var(--lb-touch-target);
-  place-items: center;
-  border: 0;
-  background: transparent;
-  color: var(--lb-color-ink);
-}
-
-.iconButton > svg {
-  width: var(--lb-work-surface-icon);
-  height: var(--lb-work-surface-icon);
-}
-
-.iconButton:hover:not(:disabled),
 .textButton:hover:not(:disabled) {
   background: var(--lb-color-action-soft);
 }
@@ -184,7 +168,6 @@
   color: var(--lb-color-ink);
 }
 
-.iconButton:disabled,
 .primaryButton:disabled,
 .secondaryButton:disabled,
 .dangerButton:disabled,

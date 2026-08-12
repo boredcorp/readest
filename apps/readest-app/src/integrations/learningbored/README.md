@@ -18,3 +18,16 @@ A standalone `boredcorp/readest` checkout does not contain that parent workspace
 
 Never add deployment credentials, Supabase keys, generated action links, or other operator secrets to
 this directory. Managed deployment configuration owns those values.
+
+## Presentation component ownership
+
+Repeated Reader presentation behavior stays inside this integration. `LearningBoredCloseButton` is the
+local close affordance proven by the Board, Review, Progress, and attached exam-plan surfaces. It owns the
+accessible label and matching title, canonical icon, 44px target, hover, and focus treatment; each panel
+still owns whether the control renders, its callback, height, heading, notices, live regions, back state,
+and content topology. The matching native title intentionally brings the exam-plan close action into the
+same named-tooltip contract already used by the other three close controls.
+
+Similarity alone is not an extraction contract. The Board, Review, and Progress shells remain separate
+because their semantic and responsive compositions differ. Public-web components remain in the parent
+web workspace; this integration never imports a shared web/Reader React package.

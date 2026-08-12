@@ -1,9 +1,9 @@
 'use client';
 
-import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import LearningBoredBrandMark from '../presentation/LearningBoredBrandMark';
+import LearningBoredCloseButton from '../presentation/LearningBoredCloseButton';
 import type { LearningBoredTranslationFunc } from '../presentation/context';
 import {
   formatLearningBoredCopy,
@@ -55,15 +55,7 @@ export default function LearningBoredReviewSurfaceShell({
           </div>
         </div>
         {onClose ? (
-          <button
-            type='button'
-            className={styles['iconButton']}
-            aria-label={translate('Close review')}
-            title={translate('Close review')}
-            onClick={onClose}
-          >
-            <X aria-hidden='true' />
-          </button>
+          <LearningBoredCloseButton label={translate('Close review')} onClose={onClose} />
         ) : null}
       </header>
       <div

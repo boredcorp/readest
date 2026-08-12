@@ -1,0 +1,27 @@
+.button {
+  display: inline-grid;
+  width: var(--lb-touch-target);
+  min-width: var(--lb-touch-target);
+  min-height: var(--lb-touch-target);
+  place-items: center;
+  border: 0;
+  border-radius: var(--lb-radius-control);
+  background: transparent;
+  color: var(--lb-color-ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--lb-color-action-soft);
+}
+
+.button:focus-visible {
+  outline: calc(var(--lb-seam) * 3) solid var(--lb-color-action);
+  outline-offset: calc(var(--lb-seam) * 3);
+}
+
+.button > svg {
+  width: var(--lb-close-control-icon-size, var(--lb-space-4));
+  height: var(--lb-close-control-icon-size, var(--lb-space-4));
+}

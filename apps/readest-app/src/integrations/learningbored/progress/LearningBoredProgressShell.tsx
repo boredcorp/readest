@@ -1,9 +1,10 @@
 'use client';
 
-import { AlertTriangle, ArrowLeft, Inbox, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Inbox, RefreshCw } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import LearningBoredBrandMark from '../presentation/LearningBoredBrandMark';
+import LearningBoredCloseButton from '../presentation/LearningBoredCloseButton';
 import type {
   LearningBoredPresentationTheme,
   LearningBoredTranslationFunc,
@@ -59,15 +60,7 @@ export function LearningBoredProgressShell({
             </>
           )}
         </div>
-        <button
-          aria-label={translate('Close progress')}
-          className={styles['iconButton']}
-          onClick={onClose}
-          title={translate('Close progress')}
-          type='button'
-        >
-          <X aria-hidden='true' />
-        </button>
+        <LearningBoredCloseButton label={translate('Close progress')} onClose={onClose} />
       </header>
       <div className={styles['body']}>{children}</div>
     </aside>

@@ -1,10 +1,11 @@
 'use client';
 
-import { BookOpenText, X } from 'lucide-react';
+import { BookOpenText } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 import type { LearningBoredCapturedPassage } from '../types';
 import LearningBoredBrandMark from '../presentation/LearningBoredBrandMark';
+import LearningBoredCloseButton from '../presentation/LearningBoredCloseButton';
 import type {
   LearningBoredPresentationTheme,
   LearningBoredTranslationFunc,
@@ -64,15 +65,10 @@ export default function LearningBoredWorkSurfaceShell({
           </div>
         </div>
         {onClose ? (
-          <button
-            type='button'
-            className={styles['iconButton']}
-            aria-label={translate('Close LearningBored panel')}
-            title={translate('Close LearningBored panel')}
-            onClick={onClose}
-          >
-            <X aria-hidden='true' />
-          </button>
+          <LearningBoredCloseButton
+            label={translate('Close LearningBored panel')}
+            onClose={onClose}
+          />
         ) : null}
       </header>
 
