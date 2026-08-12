@@ -250,6 +250,15 @@ describe('LearningBored review panel', () => {
     vi.restoreAllMocks();
   });
 
+  it('does not present a false mobile drag affordance', async () => {
+    const client = createClient([dueItem('recall-one', 'Which fictional component moves?')]);
+    render(<LearningBoredReviewPanel client={client} onClose={vi.fn()} />);
+
+    await screen.findByText('1 question is due now.');
+    const panel = screen.getByTestId('learningbored-review-panel');
+    expect(panel.querySelector('[aria-hidden="true"] > .h-1.w-10.rounded-full')).toBeNull();
+  });
+
   it('keeps the AI-generated source-check notice visible throughout recall study', async () => {
     const client = createClient([dueItem('recall-one', 'Which fictional component moves?')]);
     render(<LearningBoredReviewPanel client={client} onClose={vi.fn()} />);

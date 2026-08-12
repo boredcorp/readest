@@ -2,6 +2,7 @@ import {
   LearningBoredClient as SdkLearningBoredClient,
   type AccessTokenProvider,
   type LearningBoredFetch,
+  type MiuraBoardThemeId,
 } from '@learningbored/sdk';
 
 import type {
@@ -68,6 +69,8 @@ export interface CreateLearningBoredSdkClientOptions {
   transport?: LearningBoredFetch;
   /** Optional application-session bearer token provider; cookie sessions work without one. */
   getAccessToken?: AccessTokenProvider;
+  /** Read at render time so a theme change does not recreate the client or an active poll. */
+  getLocalRenderThemeId?: () => MiuraBoardThemeId;
 }
 
 function apiV1BaseUrl(value: string): string {
@@ -456,6 +459,7 @@ export function createLearningBoredSdkClient(
         sdk.rerenderBoard(boardId, {
           kind: input.kind ?? board.kind,
           includeScaffold: true,
+          ...(options.getLocalRenderThemeId ? { themeId: options.getLocalRenderThemeId() } : {}),
         }),
       requestOptions,
     );
@@ -558,6 +562,7 @@ export function createLearningBoredSdkClient(
         status: generation.status,
         boardId: generation.boardId,
         failureReason: generation.failureReason,
+        droppedClaimCount: generation.droppedClaimCount,
       };
     },
 

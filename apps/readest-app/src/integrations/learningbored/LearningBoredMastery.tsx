@@ -3,12 +3,12 @@
 import { BookOpenText, RotateCcw } from 'lucide-react';
 import { useId } from 'react';
 
-import { useTranslation } from '@/hooks/useTranslation';
 import type {
   LearningBoredConceptMastery,
   LearningBoredMasteryResult,
   LearningBoredMasteryTier,
 } from './client';
+import { useLearningBoredTranslation } from './presentation/context';
 
 const TIER_PRIORITY: Record<LearningBoredMasteryTier, number> = {
   lapsed: 0,
@@ -59,7 +59,7 @@ export const LearningBoredMasterySummary: React.FC<LearningBoredMasterySummaryPr
   selectedTier,
   onSelectTier,
 }) => {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const total = mastery.concepts.length;
 
   return (
@@ -137,7 +137,7 @@ export const LearningBoredConceptList: React.FC<LearningBoredConceptListProps> =
   onStartReview,
   heading = 'Needs your attention',
 }) => {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const headingId = useId();
   const sortedConcepts = sortLearningBoredConceptsByAttention(concepts);
 

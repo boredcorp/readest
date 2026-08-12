@@ -1,11 +1,24 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
+import type { MiuraBoardThemeId } from '@learningbored/sdk';
 
 import { useSettingsStore } from '@/store/settingsStore';
 import { useThemeStore } from '@/store/themeStore';
 
 import type { LearningBoredPresentationTheme } from './context';
+
+export const LEARNINGBORED_BOARD_THEME_BY_PRESENTATION = {
+  light: 'miura-deployment-light-v1',
+  dark: 'miura-deployment-dark-v1',
+  eink: 'miura-deployment-eink-v1',
+} as const satisfies Record<LearningBoredPresentationTheme, MiuraBoardThemeId>;
+
+export function getReaderLearningBoredBoardThemeId(
+  theme: LearningBoredPresentationTheme,
+): MiuraBoardThemeId {
+  return LEARNINGBORED_BOARD_THEME_BY_PRESENTATION[theme];
+}
 
 function getDocumentEinkSnapshot(): boolean {
   return typeof document !== 'undefined' && document.documentElement.dataset['eink'] === 'true';

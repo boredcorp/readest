@@ -15,6 +15,7 @@ import {
   LEARNINGBORED_PREVIEW_ENV_KEY,
   LEARNINGBORED_PREVIEW_PATH,
 } from '@/integrations/learningbored/preview/gate';
+import { getReaderLearningBoredBoardThemeId } from '@/integrations/learningbored/presentation/theme';
 
 vi.mock('@/hooks/useTranslation', () => ({
   useTranslation: () => (message: string, values?: Record<string, string | number>) => {
@@ -54,6 +55,30 @@ const expectedStateCopy = {
   'account-chalk-error': /Chalk is temporarily unavailable/u,
   'account-session-expired': /Your session has expired/u,
   'account-storage-empty': /No synchronized files/u,
+  'capture-ready': /Ready to make this passage clear/u,
+  'capture-pdf-unavailable': /Board it is unavailable for PDF/u,
+  'generation-starting': /Starting your Board/u,
+  'generation-queued': /Waiting to begin/u,
+  'generation-extracting': /Reading the passage/u,
+  'generation-composing': /Drawing the Board and writing questions/u,
+  'generation-illustrating': /^Illustrating$/u,
+  'generation-rendering': /Finishing the Board/u,
+  'generation-poll-error': /latest status could not be loaded/u,
+  'generation-cancelled-refunded': /Your Chalk was refunded/u,
+  'generation-failed-refunded': /This Board could not be completed/u,
+  'generation-retry-recovery': /Retry queued/u,
+  'board-complete': /How the fictional settling chamber separates particles/u,
+  'board-svg-unavailable': /Board visual unavailable/u,
+  'figure-load-failure': /Figure unavailable/u,
+  'figure-replacement-confirm': /Replace this figure/u,
+  'figure-replacement-progress': /Drawing the replacement figure/u,
+  'figure-replacement-success': /Replacement figure ready/u,
+  'figure-replacement-failed-refunded': /previous figure is unchanged/u,
+  'comprehension-unanswered': /Did this Board make the passage click/u,
+  'comprehension-breakthrough': /Thanks — your answer was recorded/u,
+  'comprehension-still-unclear': /Try a different Board kind/u,
+  'progress-overview': /Concept progress/u,
+  'review-topology': /0 questions are due now/u,
   'primitive-loading': /Loading a deterministic preview region/u,
   'primitive-error': /The Board status could not be refreshed/u,
   'primitive-empty': /Nothing is waiting here/u,
@@ -123,12 +148,34 @@ describe('LearningBored Reader preview gate', () => {
 });
 
 describe('LearningBored Reader preview inventory', () => {
+  it('maps each Reader presentation theme to its exact renderer theme ID', () => {
+    expect(
+      Object.fromEntries(
+        LEARNINGBORED_PREVIEW_THEMES.map((theme) => [
+          theme,
+          getReaderLearningBoredBoardThemeId(theme),
+        ]),
+      ),
+    ).toEqual({
+      light: 'miura-deployment-light-v1',
+      dark: 'miura-deployment-dark-v1',
+      eink: 'miura-deployment-eink-v1',
+    });
+  });
+
   it('covers every required Operate family and each Reader theme', () => {
     expect(LEARNINGBORED_PREVIEW_THEMES).toEqual(['light', 'dark', 'eink']);
     expect(LEARNINGBORED_PREVIEW_GROUPS.map((group) => group.id)).toEqual([
       'auth',
       'library',
       'account',
+      'capture',
+      'generation',
+      'board',
+      'figure',
+      'comprehension',
+      'progress',
+      'review',
       'primitives',
     ]);
 
@@ -160,6 +207,30 @@ describe('LearningBored Reader preview inventory', () => {
         'account-chalk-error',
         'account-session-expired',
         'account-storage-empty',
+        'capture-ready',
+        'capture-pdf-unavailable',
+        'generation-starting',
+        'generation-queued',
+        'generation-extracting',
+        'generation-composing',
+        'generation-illustrating',
+        'generation-rendering',
+        'generation-poll-error',
+        'generation-cancelled-refunded',
+        'generation-failed-refunded',
+        'generation-retry-recovery',
+        'board-complete',
+        'board-svg-unavailable',
+        'figure-load-failure',
+        'figure-replacement-confirm',
+        'figure-replacement-progress',
+        'figure-replacement-success',
+        'figure-replacement-failed-refunded',
+        'comprehension-unanswered',
+        'comprehension-breakthrough',
+        'comprehension-still-unclear',
+        'progress-overview',
+        'review-topology',
         'primitive-loading',
         'primitive-error',
         'primitive-empty',
@@ -252,7 +323,9 @@ describe('LearningBored Reader preview inventory', () => {
   it('reuses production presentation pieces without importing side-effect clients or stores', () => {
     const previewSources = [
       readSource('integrations/learningbored/preview/LearningBoredPreview.tsx'),
+      readSource('integrations/learningbored/preview/LearningBoredStudyPreview.tsx'),
       readSource('integrations/learningbored/preview/fixtures.ts'),
+      readSource('integrations/learningbored/preview/study-fixtures.ts'),
       readSource('integrations/learningbored/preview/contract.ts'),
       readSource('app/design/learningbored/page.preview.tsx'),
       readSource('app/error.tsx'),
@@ -268,6 +341,14 @@ describe('LearningBored Reader preview inventory', () => {
     expect(previewSources).toContain('LearningBoredAccountPresentation');
     expect(previewSources).toContain('LearningBoredClientProvider');
     expect(previewSources).toContain('LearningBoredPresentationThemeProvider');
+    expect(previewSources).toContain('LearningBoredWorkSurfaceShell');
+    expect(previewSources).toContain('LearningBoredGenerationState');
+    expect(previewSources).toContain('LearningBoredBoardSurface');
+    expect(previewSources).toContain('LearningBoredFigureSurface');
+    expect(previewSources).toContain('LearningBoredComprehensionState');
+    expect(previewSources).toContain('LearningBoredProgressPanel');
+    expect(previewSources).toContain('LearningBoredReviewSurfaceShell');
+    expect(previewSources).not.toContain("from '../LearningBoredReviewPanel'");
     expect(previewSources).toContain('example.invalid');
     expect(previewSources).toContain("lazy(() => import('@/components/ReaderApplicationError'))");
 

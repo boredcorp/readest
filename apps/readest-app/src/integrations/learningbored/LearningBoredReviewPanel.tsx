@@ -1,9 +1,8 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BarChart3, BookOpenText, Check, Flag, RefreshCw, X } from 'lucide-react';
+import { BarChart3, BookOpenText, Check, Flag, RefreshCw } from 'lucide-react';
 
-import { useTranslation } from '@/hooks/useTranslation';
 import {
   LEARNINGBORED_REVIEW_GRADES,
   type LearningBoredClient,
@@ -21,6 +20,8 @@ import {
   writeLearningBoredReviewGradeOutbox,
   type LearningBoredReviewGradeOutboxEntry,
 } from './review-grade-outbox';
+import { useLearningBoredTranslation } from './presentation/context';
+import LearningBoredReviewSurfaceShell from './work-surface/LearningBoredReviewSurfaceShell';
 
 const GRADE_LABELS: Record<LearningBoredReviewGrade, string> = {
   again: 'Again',
@@ -83,7 +84,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
   onClose,
   onOpenProgress,
 }) => {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const [items, setItems] = useState<LearningBoredDueReviewItem[]>([]);
   const [queue, setQueue] = useState<LearningBoredReviewQueueSummary | null>(null);
   const [sessionPlannedCount, setSessionPlannedCount] = useState(0);
@@ -627,110 +628,12 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
   ) : null;
 
   return (
-    <aside
-      aria-label={_('LearningBored review panel')}
-      data-testid='learningbored-review-panel'
-      className='learningbored-review-panel relative z-10 flex min-h-72 w-full min-w-0 shrink-0 flex-col border-t sm:max-h-none sm:w-[clamp(360px,32vw,520px)] sm:border-l sm:border-t-0'
+    <LearningBoredReviewSurfaceShell
+      subtitle={documentId ? 'From this Board' : 'Your due questions'}
+      statusMessage={statusMessage}
+      onClose={onClose}
+      translate={_}
     >
-      <style>{`
-        .learningbored-review-panel {
-          --lb-review-paper: #faf7f0;
-          --lb-review-raised: #fffdf8;
-          --lb-review-recessed: #eee7da;
-          --lb-review-border: #d8cdbd;
-          --lb-review-ink: #172633;
-          --lb-review-muted: #586873;
-          --lb-review-focus: #0d6870;
-          --lb-review-focus-soft: #dceceb;
-          --lb-review-anchor: #9b6b16;
-          --lb-review-danger: #8a3f36;
-          background: var(--lb-review-paper);
-          border-color: var(--lb-review-border);
-          color: var(--lb-review-ink);
-          height: 78dvh;
-        }
-        .learningbored-review-card {
-          background: var(--lb-review-raised);
-          border-color: var(--lb-review-border);
-        }
-        .learningbored-review-question {
-          font-family: Georgia, 'Times New Roman', serif;
-          text-wrap: balance;
-        }
-        .learningbored-review-panel :focus-visible {
-          outline: 3px solid var(--lb-review-focus);
-          outline-offset: 3px;
-        }
-        .learningbored-review-primary {
-          background: var(--lb-review-focus);
-          color: white;
-        }
-        .learningbored-review-grade {
-          background: var(--lb-review-raised);
-          border-color: var(--lb-review-border);
-          color: var(--lb-review-ink);
-        }
-        .learningbored-review-grade:hover:not(:disabled) {
-          background: var(--lb-review-focus-soft);
-          border-color: var(--lb-review-focus);
-        }
-        .learningbored-review-anchor {
-          border-color: var(--lb-review-anchor);
-          background: var(--lb-review-raised);
-        }
-        @media (min-width: 640px) {
-          .learningbored-review-panel {
-            height: 100%;
-          }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .learningbored-review-panel * {
-            scroll-behavior: auto !important;
-            transition-duration: 0ms !important;
-            animation-duration: 0ms !important;
-          }
-        }
-      `}</style>
-
-      <div className='flex h-6 shrink-0 items-center justify-center sm:hidden' aria-hidden='true'>
-        <span className='h-1 w-10 rounded-full bg-[var(--lb-review-muted)] opacity-40' />
-      </div>
-
-      <header className='flex min-h-14 shrink-0 items-center justify-between gap-3 border-b border-[var(--lb-review-border)] px-4'>
-        <div className='flex min-w-0 items-center gap-3'>
-          <BookOpenText
-            className='size-5 shrink-0 text-[var(--lb-review-focus)]'
-            aria-hidden='true'
-          />
-          <div className='min-w-0'>
-            <h1 className='truncate text-base font-semibold'>{_('Review')}</h1>
-            <p className='truncate text-xs text-[var(--lb-review-muted)]'>
-              {documentId ? _('From this Board') : _('Your due questions')}
-            </p>
-          </div>
-        </div>
-        <button
-          type='button'
-          className='btn btn-ghost btn-sm min-h-11 min-w-11'
-          aria-label={_('Close review')}
-          onClick={onClose}
-        >
-          <X className='size-5' />
-        </button>
-      </header>
-
-      <div
-        role='note'
-        aria-label={_('AI-generated review notice')}
-        className='shrink-0 border-b border-[var(--lb-review-border)] bg-[var(--lb-review-recessed)] px-4 py-2 text-xs leading-5 text-[var(--lb-review-muted)]'
-      >
-        {_('AI-generated study aid. Check important details against the source.')}
-      </div>
-
-      <p className='sr-only' aria-live='polite' aria-atomic='true'>
-        {statusMessage}
-      </p>
-
       {loading ? (
         <div className='flex flex-1 items-center justify-center p-6' role='status'>
           <span className='loading loading-spinner text-[var(--lb-review-focus)]' />
@@ -1034,7 +937,7 @@ const LearningBoredReviewPanel: React.FC<LearningBoredReviewPanelProps> = ({
           )}
         </>
       )}
-    </aside>
+    </LearningBoredReviewSurfaceShell>
   );
 };
 

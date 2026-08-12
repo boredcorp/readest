@@ -9,11 +9,14 @@ vi.mock('@/hooks/useTranslation', () => ({
 import LearningBoredCapturePanel, {
   type LearningBoredCapturePanelProps,
 } from '@/integrations/learningbored/LearningBoredCapturePanel';
-import type {
+import {
+  LEARNINGBORED_BOARD_KINDS,
+  type LearningBoredBoardKind,
   LearningBoredBoardResult,
   LearningBoredClient,
   LearningBoredGenerationSnapshot,
 } from '@/integrations/learningbored/client';
+import { LearningBoredPresentationThemeProvider } from '@/integrations/learningbored/presentation/context';
 import type { LearningBoredReaderSession } from '@/integrations/learningbored/session';
 
 const passage = {
@@ -228,6 +231,7 @@ function renderPanel(input?: {
   onStartReview?: NonNullable<LearningBoredCapturePanelProps['onStartReview']>;
   onSourceSpanEnter?: NonNullable<LearningBoredCapturePanelProps['onSourceSpanEnter']>;
   onSourceSpanLeave?: NonNullable<LearningBoredCapturePanelProps['onSourceSpanLeave']>;
+  theme?: 'light' | 'dark' | 'eink';
 }) {
   const session = input?.session ?? createSession();
   const client = input?.client ?? createClient();
@@ -251,7 +255,11 @@ function renderPanel(input?: {
     onSourceSpanEnter,
     onSourceSpanLeave,
   };
-  const rendered = render(<LearningBoredCapturePanel {...props} />);
+  const rendered = render(
+    <LearningBoredPresentationThemeProvider value={input?.theme ?? 'light'}>
+      <LearningBoredCapturePanel {...props} />
+    </LearningBoredPresentationThemeProvider>,
+  );
   return {
     ...rendered,
     client,
@@ -265,6 +273,24 @@ function renderPanel(input?: {
 async function advancePoll(): Promise<void> {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(2_000);
+  });
+}
+
+async function flushProjectionEffects(): Promise<void> {
+  await act(async () => {
+    for (let pass = 0; pass < 8; pass += 1) await Promise.resolve();
+  });
+}
+
+function waitForProjectionAbort(signal?: AbortSignal): Promise<LearningBoredBoardResult> {
+  return new Promise((_resolve, reject) => {
+    const rejectWithAbort = () => {
+      const error = new Error('superseded');
+      error.name = 'AbortError';
+      reject(error);
+    };
+    if (signal?.aborted) rejectWithAbort();
+    else signal?.addEventListener('abort', rejectWithAbort, { once: true });
   });
 }
 
@@ -402,9 +428,9 @@ describe('LearningBored reader result panel', () => {
       });
     renderPanel({ client: createClient({ getGeneration }) });
 
-    expect(
-      screen.getByRole('complementary', { name: 'AI-generated content notice' }).textContent,
-    ).toContain('AI-generated study aid. Check important details against the source.');
+    expect(screen.getByRole('note', { name: 'AI-generated content notice' }).textContent).toContain(
+      'AI-generated study aid. Check important details against the source.',
+    );
     expect(screen.getAllByText('Waiting to begin')).toHaveLength(2);
     await advancePoll();
     expect(screen.getAllByText('Illustrating')).toHaveLength(2);
@@ -415,8 +441,413 @@ describe('LearningBored reader result panel', () => {
     expect(
       screen.getByText('Three unbranded boxes connected by arrows.', { exact: false }),
     ).toBeTruthy();
+    expect(
+      screen.getByRole('button', {
+        name: 'Replace figure: Three unbranded boxes connected by arrows.',
+      }),
+    ).toBeTruthy();
     expect(screen.queryByRole('img', { name: board.figures[0]!.description })).toBeNull();
     expect(screen.getByText('What order do the three fictional stages follow?')).toBeTruthy();
+  });
+
+  it.each([
+    ['queued', 'Waiting to begin'],
+    ['extracting', 'Reading the passage'],
+    ['composing', 'Drawing the Board and writing questions'],
+    ['illustrating', 'Illustrating'],
+    ['rendering', 'Finishing the Board'],
+  ] as const)(
+    'shows the exact %s generation stage without fake progress',
+    async (status, label) => {
+      vi.useFakeTimers();
+      renderPanel({
+        client: createClient({
+          getGeneration: vi.fn(async () => ({ id: 'generation-1', status, boardId: null })),
+        }),
+      });
+
+      await advancePoll();
+      expect(screen.getAllByText(label)).toHaveLength(2);
+      expect(screen.queryByText(/\d+%/u)).toBeNull();
+      expect(document.querySelector('.animate-spin')).toBeNull();
+    },
+  );
+
+  it('keeps polling after a transient status error and recovers without overlapping requests', async () => {
+    vi.useFakeTimers();
+    let activeRequests = 0;
+    let maximumActiveRequests = 0;
+    const getGeneration = vi
+      .fn<LearningBoredClient['getGeneration']>()
+      .mockImplementationOnce(async () => {
+        activeRequests += 1;
+        maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+        activeRequests -= 1;
+        throw new Error('temporary');
+      })
+      .mockImplementationOnce(async () => {
+        activeRequests += 1;
+        maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+        activeRequests -= 1;
+        return { id: 'generation-1', status: 'composing', boardId: null };
+      });
+    renderPanel({ client: createClient({ getGeneration }) });
+
+    await advancePoll();
+    expect(
+      screen.getByText('The latest status could not be loaded. LearningBored will keep trying.'),
+    ).toBeTruthy();
+    await advancePoll();
+    expect(screen.getAllByText('Drawing the Board and writing questions')).toHaveLength(2);
+    expect(maximumActiveRequests).toBe(1);
+  });
+
+  it('discloses only a non-zero truthful dropped-claim count', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    renderPanel({
+      client: createClient({
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+          droppedClaimCount: 2,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    expect(
+      screen.getByText('Two claims were dropped because the passage did not support them.'),
+    ).toBeTruthy();
+  });
+
+  it('rerenders only a completed Board when the presentation theme changes', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const rerenderBoard = vi.fn(async () => board);
+    const createGeneration = vi.fn();
+    const requestFigureRegeneration = vi.fn();
+    const client = createClient({
+      createGeneration,
+      requestFigureRegeneration,
+      rerenderBoard,
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+    });
+    const rendered = renderPanel({ client, theme: 'light' });
+    await advancePoll();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(rerenderBoard).toHaveBeenCalledTimes(1);
+    expect(rerenderBoard).toHaveBeenCalledWith(
+      board.id,
+      { kind: board.kind, includeScaffold: true },
+      { signal: expect.any(AbortSignal) },
+    );
+    expect(createGeneration).not.toHaveBeenCalled();
+    expect(requestFigureRegeneration).not.toHaveBeenCalled();
+  });
+
+  it('does not surface an error when a superseded theme rerender is aborted', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const rerenderBoard = vi.fn<LearningBoredClient['rerenderBoard']>(
+      (_boardId, _input, options) =>
+        new Promise((_resolve, reject) => {
+          options?.signal?.addEventListener(
+            'abort',
+            () => {
+              const error = new Error('aborted');
+              error.name = 'AbortError';
+              reject(error);
+            },
+            { once: true },
+          );
+        }),
+    );
+    const rendered = renderPanel({
+      theme: 'light',
+      client: createClient({
+        rerenderBoard,
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='eink'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(rerenderBoard).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('The Board theme could not be refreshed yet.')).toBeNull();
+  });
+
+  it('retries one transient theme refresh and commits the recovered projection', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const refreshedBoard = createBoard({ title: 'Dark theme Board' });
+    const rerenderBoard = vi
+      .fn<LearningBoredClient['rerenderBoard']>()
+      .mockRejectedValueOnce(new Error('temporary render failure'))
+      .mockResolvedValueOnce(refreshedBoard);
+    const rendered = renderPanel({
+      theme: 'light',
+      client: createClient({
+        rerenderBoard,
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(rerenderBoard).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('The Board theme could not be refreshed yet.')).toBeTruthy();
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(rerenderBoard).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('heading', { name: 'Dark theme Board' })).toBeTruthy();
+    expect(screen.queryByText('The Board theme could not be refreshed yet.')).toBeNull();
+  });
+
+  it('does not let a stale theme response overwrite a newer Board kind', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const timelineBoard = createBoard({ kind: 'timeline', title: 'Newest timeline Board' });
+    let resolveTheme: ((value: LearningBoredBoardResult) => void) | undefined;
+    const staleThemeResponse = new Promise<LearningBoredBoardResult>((resolve) => {
+      resolveTheme = resolve;
+    });
+    const rerenderBoard = vi.fn<LearningBoredClient['rerenderBoard']>(async (_boardId, input) =>
+      input.kind === 'timeline' ? timelineBoard : await staleThemeResponse,
+    );
+    const rendered = renderPanel({
+      theme: 'light',
+      client: createClient({
+        rerenderBoard,
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const staleSignal = rerenderBoard.mock.calls[0]?.[2]?.signal;
+    fireEvent.change(screen.getByLabelText('Board shape'), { target: { value: 'timeline' } });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(staleSignal?.aborted).toBe(true);
+    expect(screen.getByRole('heading', { name: 'Newest timeline Board' })).toBeTruthy();
+
+    resolveTheme?.(createBoard({ title: 'Stale themed Board' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('heading', { name: 'Newest timeline Board' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Stale themed Board' })).toBeNull();
+  });
+
+  it('unlocks the Board shape control when a theme supersedes its redraw', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const themedBoard = createBoard({ kind: 'concept_map', title: 'Dark concept map' });
+    let rejectKind: ((reason?: unknown) => void) | undefined;
+    const kindRedraw = new Promise<LearningBoredBoardResult>((_resolve, reject) => {
+      rejectKind = reject;
+    });
+    const rerenderBoard = vi
+      .fn<LearningBoredClient['rerenderBoard']>()
+      .mockImplementationOnce(async (_boardId, _input, options) => {
+        options?.signal?.addEventListener(
+          'abort',
+          () => {
+            const error = new Error('superseded');
+            error.name = 'AbortError';
+            rejectKind?.(error);
+          },
+          { once: true },
+        );
+        return await kindRedraw;
+      })
+      .mockResolvedValueOnce(themedBoard);
+    const client = createClient({
+      rerenderBoard,
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+    });
+    const rendered = renderPanel({ client, theme: 'light' });
+    await advancePoll();
+
+    const kindSelect = screen.getByLabelText('Board shape') as HTMLSelectElement;
+    fireEvent.change(kindSelect, { target: { value: 'concept_map' } });
+    expect(kindSelect.disabled).toBe(true);
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('heading', { name: themedBoard.title })).toBeTruthy();
+    expect((screen.getByLabelText('Board shape') as HTMLSelectElement).disabled).toBe(false);
+    expect(screen.queryByText('Changing the Board shape…')).toBeNull();
+  });
+
+  it('restores the committed kind and recovers the current theme after a superseding kind redraw fails', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const recoveredThemeBoard = createBoard({ title: 'Recovered dark process Board' });
+    const rerenderBoard = vi
+      .fn<LearningBoredClient['rerenderBoard']>()
+      .mockImplementationOnce(
+        async (_boardId, _input, options) => await waitForProjectionAbort(options?.signal),
+      )
+      .mockRejectedValueOnce(new Error('kind redraw failed'))
+      .mockResolvedValueOnce(recoveredThemeBoard);
+    const onSessionPatch = vi.fn<LearningBoredCapturePanelProps['onSessionPatch']>();
+    const rendered = renderPanel({
+      theme: 'light',
+      onSessionPatch,
+      client: createClient({
+        rerenderBoard,
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await flushProjectionEffects();
+    fireEvent.change(screen.getByLabelText('Board shape'), { target: { value: 'timeline' } });
+    await flushProjectionEffects();
+
+    expect(rerenderBoard).toHaveBeenCalledTimes(3);
+    expect(rerenderBoard.mock.calls[2]?.[1]).toEqual({
+      kind: board.kind,
+      includeScaffold: true,
+    });
+    expect(onSessionPatch).toHaveBeenCalledWith({ kind: 'timeline' });
+    expect(onSessionPatch).toHaveBeenCalledWith({ kind: board.kind });
+    expect(onSessionPatch.mock.calls.at(-1)?.[0]).toEqual({
+      boardId: recoveredThemeBoard.id,
+      kind: board.kind,
+    });
+    expect(screen.getByRole('heading', { name: recoveredThemeBoard.title })).toBeTruthy();
+    const restoredKindSelect = screen.getByLabelText('Board shape') as HTMLSelectElement;
+    expect(restoredKindSelect.disabled).toBe(false);
+    expect(restoredKindSelect.value).toBe(board.kind);
+  });
+
+  it('clears a failed theme alert when the presentation returns to the already-rendered theme', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const rerenderBoard = vi.fn<LearningBoredClient['rerenderBoard']>(async () => {
+      throw new Error('dark render failed');
+    });
+    const rendered = renderPanel({
+      theme: 'light',
+      client: createClient({
+        rerenderBoard,
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await flushProjectionEffects();
+    expect(screen.getByText('The Board theme could not be refreshed yet.')).toBeTruthy();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='light'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await flushProjectionEffects();
+
+    expect(rerenderBoard).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('The Board theme could not be refreshed yet.')).toBeNull();
+    expect(screen.getByRole('heading', { name: board.title })).toBeTruthy();
   });
 
   it('filters Added help immediately without a request and keeps it hidden across kind changes', async () => {
@@ -465,13 +896,55 @@ describe('LearningBored reader result panel', () => {
       await Promise.resolve();
     });
     expect(rerenderBoard).toHaveBeenCalledTimes(1);
-    expect(rerenderBoard).toHaveBeenCalledWith(board.id, {
-      kind: 'timeline',
-      includeScaffold: true,
-    });
+    expect(rerenderBoard).toHaveBeenCalledWith(
+      board.id,
+      {
+        kind: 'timeline',
+        includeScaffold: true,
+      },
+      { signal: expect.any(AbortSignal) },
+    );
     expect(onSessionPatch).toHaveBeenCalledWith({ kind: 'timeline' });
     expect(screen.getByRole('heading', { name: 'Signal timeline' })).toBeTruthy();
     expect(screen.queryByText('Helpful bridge')).toBeNull();
+    expect(screen.getByText('Changing Board shape is free.')).toBeTruthy();
+    expect(screen.getByText('No Chalk is charged.')).toBeTruthy();
+    expect(screen.queryByText('Free and instant.')).toBeNull();
+  });
+
+  it('offers every Board kind as a free local rerender without starting another generation', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const rerenderBoard = vi.fn(async (_boardId: string, input: { kind: LearningBoredBoardKind }) =>
+      createBoard({ kind: input.kind }),
+    );
+    const createGeneration = vi.fn();
+    renderPanel({
+      client: createClient({
+        createGeneration,
+        rerenderBoard,
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    const select = screen.getByLabelText('Board shape') as HTMLSelectElement;
+    expect(Array.from(select.options, (option) => option.value)).toEqual([
+      ...LEARNINGBORED_BOARD_KINDS,
+    ]);
+    for (const kind of LEARNINGBORED_BOARD_KINDS.filter((kind) => kind !== board.kind)) {
+      await act(async () => {
+        fireEvent.change(select, { target: { value: kind } });
+        await Promise.resolve();
+      });
+    }
+    expect(rerenderBoard).toHaveBeenCalledTimes(LEARNINGBORED_BOARD_KINDS.length - 1);
+    expect(createGeneration).not.toHaveBeenCalled();
   });
 
   it('restores Added help from the retained Board while offline', async () => {
@@ -498,6 +971,42 @@ describe('LearningBored reader result panel', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Added help' }));
     expect(screen.getByText('Helpful bridge')).toBeTruthy();
     expect(rerenderBoard).not.toHaveBeenCalled();
+  });
+
+  it('never exposes the canonical desktop SVG when its scaffold-free projection is absent', async () => {
+    vi.useFakeTimers();
+    vi.spyOn(window, 'matchMedia').mockImplementation(
+      (query) =>
+        ({
+          matches: query === '(min-width: 640px)',
+          media: query,
+          onchange: null,
+          addEventListener: vi.fn(),
+          removeEventListener: vi.fn(),
+          addListener: vi.fn(),
+          removeListener: vi.fn(),
+          dispatchEvent: vi.fn(() => false),
+        }) as MediaQueryList,
+    );
+    const board = createBoard({
+      svg: '<svg xmlns="http://www.w3.org/2000/svg" data-canonical-with-scaffold="true"></svg>',
+      svgWithoutScaffold: null,
+    });
+    const rendered = renderPanel({
+      session: createSession({ showScaffold: false }),
+      client: createClient({
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    expect(rendered.container.querySelector('[data-canonical-with-scaffold="true"]')).toBeNull();
+    expect(screen.queryByText('Helpful bridge')).toBeNull();
   });
 
   it('uses the canonical mobile Figure projection and exposes its text once through the outline', async () => {
@@ -580,6 +1089,44 @@ describe('LearningBored reader result panel', () => {
     expect(rendered.onSourceSpanEnter).toHaveBeenCalledWith(board.titleSourceSpan);
   });
 
+  it('gives every mobile Figure pan region a unique contextual name', async () => {
+    vi.useFakeTimers();
+    const firstFigure = createBoard().figures[0]!;
+    const board = createBoard({
+      figures: [
+        {
+          ...firstFigure,
+          projectionSvg: createFigureProjection(firstFigure.id, 'data:image/png;base64,AA=='),
+        },
+        {
+          ...firstFigure,
+          id: 'figure-2',
+          nodeId: 'node-figure-2',
+          description: 'A second fictional chamber arrangement.',
+          projectionSvg: createFigureProjection('figure-2', 'data:image/png;base64,AQ=='),
+        },
+      ],
+    });
+    renderPanel({
+      client: createClient({
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    const regions = screen.getAllByRole('region', { name: /scroll to explore/u });
+    expect(regions.map((region) => region.getAttribute('aria-label'))).toEqual([
+      'Figure 1 — scroll to explore: Three unbranded boxes connected by arrows.',
+      'Figure 2 — scroll to explore: A second fictional chamber arrangement.',
+    ]);
+    expect(regions.every((region) => region.getAttribute('tabindex') === '0')).toBe(true);
+  });
+
   it('keeps Figure replacement operable without duplicating the canonical desktop Board', async () => {
     vi.useFakeTimers();
     vi.spyOn(window, 'matchMedia').mockImplementation(
@@ -595,8 +1142,18 @@ describe('LearningBored reader result panel', () => {
           dispatchEvent: vi.fn(() => false),
         }) as MediaQueryList,
     );
+    const firstFigure = createBoard().figures[0]!;
     const board = createBoard({
       svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 240"><g data-figure-id="figure-1"><image href="data:image/png;base64,AA=="/></g></svg>',
+      figures: [
+        firstFigure,
+        {
+          ...firstFigure,
+          id: 'figure-2',
+          nodeId: 'node-figure-2',
+          description: 'Two fictional chambers separated by a narrow bridge.',
+        },
+      ],
     });
     const rendered = renderPanel({
       client: createClient({
@@ -616,10 +1173,305 @@ describe('LearningBored reader result panel', () => {
     expect(rendered.container.querySelector('.learningbored-svg')).toBeTruthy();
     expect(rendered.container.querySelector('.learningbored-figure-projection')).toBeNull();
     expect(screen.queryByRole('heading', { name: 'Figures' })).toBeNull();
+    expect(
+      screen.getByRole('button', {
+        name: 'Replace figure 1: Three unbranded boxes connected by arrows.',
+      }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', {
+        name: 'Replace figure 2: Two fictional chambers separated by a narrow bridge.',
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText('Replace figure 1')).toBeTruthy();
+    expect(screen.getByText('Replace figure 2')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Replace figure' }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Replace figure 1: Three unbranded boxes connected by arrows.',
+      }),
+    );
     expect(screen.getByRole('heading', { name: 'Replace this figure?' })).toBeTruthy();
     expect(screen.getByText(/This uses 1 Chalk/u)).toBeTruthy();
+  });
+
+  it('keeps disclosures in study order and moves focus to newly revealed controls', async () => {
+    vi.useFakeTimers();
+    const board = createBoard({
+      outline: Array.from({ length: 12 }, (_, index) => ({
+        id: `node-long-${index}`,
+        kind: 'content' as const,
+        label: `Long outline item ${index + 1}`,
+        description: 'A generic grounded explanation item.',
+        provenance: 'anchored' as const,
+        sourceSpan: { sourceStart: 0, sourceEnd: 8 },
+      })),
+    });
+    renderPanel({
+      client: createClient({
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: /Replace figure/u }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const replacementHeading = screen.getByRole('heading', { name: 'Replace this figure?' });
+    const recallHeading = screen.getByRole('heading', { name: 'Recall preview' });
+    const comprehensionHeading = screen.getByRole('heading', {
+      name: 'Did this Board make the passage click?',
+    });
+    const reportButton = screen.getByRole('button', { name: 'Report' });
+    expect(document.activeElement).toBe(replacementHeading);
+    expect(
+      replacementHeading.compareDocumentPosition(recallHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      recallHeading.compareDocumentPosition(comprehensionHeading) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      comprehensionHeading.compareDocumentPosition(reportButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(reportButton.getAttribute('aria-expanded')).toBe('false');
+    expect(reportButton.getAttribute('aria-controls')).toBe('learningbored-report-form');
+
+    fireEvent.click(reportButton);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const reportCategory = screen.getByLabelText('What needs attention?');
+    const reportForm = document.getElementById('learningbored-report-form');
+    expect(reportButton.getAttribute('aria-expanded')).toBe('true');
+    expect(reportForm).toBeTruthy();
+    expect(document.activeElement).toBe(reportCategory);
+    expect(
+      reportButton.compareDocumentPosition(reportForm!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('returns focus to the originating Figure action after dismiss and terminal confirmation', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const client = createClient({
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+      requestFigureRegeneration: vi.fn(async (_boardId, nodeId, input) => ({
+        id: 'figure-regeneration-focus',
+        boardId: board.id,
+        nodeId,
+        clientRequestId: input.clientRequestId,
+        issue: input.issue,
+        status: 'completed' as const,
+        chalkCost: 1,
+        failureReason: null,
+        refundConfirmed: false,
+      })),
+      rerenderBoard: vi.fn(async () => board),
+    });
+    renderPanel({ client });
+    await advancePoll();
+
+    const replaceButton = screen.getByRole('button', { name: /Replace figure/u });
+    replaceButton.focus();
+    fireEvent.click(replaceButton);
+    expect(document.activeElement).toBe(
+      screen.getByRole('heading', { name: 'Replace this figure?' }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Keep current figure' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(document.activeElement).toBe(replaceButton);
+
+    fireEvent.click(replaceButton);
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Use 1 Chalk' }));
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('heading', { name: 'Replacement figure ready' })).toBeTruthy();
+    expect(document.activeElement).toBe(replaceButton);
+  });
+
+  it('keeps feedback single-flight while a theme projection commits', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const themedBoard = createBoard({ title: 'Dark Board during feedback' });
+    let resolveFeedback: (() => void) | undefined;
+    const feedbackRequest = new Promise<void>((resolve) => {
+      resolveFeedback = resolve;
+    });
+    const submitFeedback = vi.fn(async () => await feedbackRequest);
+    const client = createClient({
+      submitFeedback,
+      rerenderBoard: vi.fn(async () => themedBoard),
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+    });
+    const rendered = renderPanel({ client, theme: 'light' });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send report' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(submitFeedback).toHaveBeenCalledTimes(1);
+    expect(
+      (screen.getByRole('button', { name: 'Send report' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('heading', { name: themedBoard.title })).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Send report' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+
+    fireEvent.submit(document.getElementById('learningbored-report-form')!);
+    expect(submitFeedback).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      resolveFeedback?.();
+      await feedbackRequest;
+    });
+    expect(screen.getByText('Thanks — your feedback was recorded.')).toBeTruthy();
+  });
+
+  it('keeps the kind control locked when feedback resolves during its redraw', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const redrawnBoard = createBoard({ kind: 'concept_map', title: 'Concept map redraw' });
+    let resolveRedraw: ((value: LearningBoredBoardResult) => void) | undefined;
+    const redraw = new Promise<LearningBoredBoardResult>((resolve) => {
+      resolveRedraw = resolve;
+    });
+    const client = createClient({
+      submitFeedback: vi.fn(async () => undefined),
+      rerenderBoard: vi.fn(async () => await redraw),
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+    });
+    renderPanel({ client });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+    const kindSelect = screen.getByLabelText('Board shape');
+    fireEvent.change(kindSelect, { target: { value: 'concept_map' } });
+    expect((kindSelect as HTMLSelectElement).disabled).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Send report' }));
+      await Promise.resolve();
+    });
+    expect(screen.getByText('Thanks — your feedback was recorded.')).toBeTruthy();
+    expect((kindSelect as HTMLSelectElement).disabled).toBe(true);
+
+    await act(async () => {
+      resolveRedraw?.(redrawnBoard);
+      await redraw;
+    });
+    expect(screen.getByRole('heading', { name: redrawnBoard.title })).toBeTruthy();
+    expect((screen.getByLabelText('Board shape') as HTMLSelectElement).disabled).toBe(false);
+  });
+
+  it('preserves a feedback failure when a later theme projection succeeds', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const themedBoard = createBoard({ title: 'Dark Board after feedback failure' });
+    const rendered = renderPanel({
+      theme: 'light',
+      client: createClient({
+        submitFeedback: vi.fn(async () => {
+          throw new Error('feedback unavailable');
+        }),
+        rerenderBoard: vi.fn(async () => themedBoard),
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send report' }));
+    await flushProjectionEffects();
+    expect(screen.getByText('Your feedback could not be sent. Please try again.')).toBeTruthy();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await flushProjectionEffects();
+
+    expect(screen.getByRole('heading', { name: themedBoard.title })).toBeTruthy();
+    expect(screen.getByText('Your feedback could not be sent. Please try again.')).toBeTruthy();
+  });
+
+  it('preserves a projection failure when feedback later succeeds', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const rendered = renderPanel({
+      theme: 'light',
+      client: createClient({
+        submitFeedback: vi.fn(async () => undefined),
+        rerenderBoard: vi.fn(async () => {
+          throw new Error('theme render unavailable');
+        }),
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await flushProjectionEffects();
+    expect(screen.getByText('The Board theme could not be refreshed yet.')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Report' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send report' }));
+    await flushProjectionEffects();
+
+    expect(screen.getByText('Thanks — your feedback was recorded.')).toBeTruthy();
+    expect(screen.getByText('The Board theme could not be refreshed yet.')).toBeTruthy();
   });
 
   it('launches a document-scoped review from a completed Board recall preview', async () => {
@@ -785,7 +1637,7 @@ describe('LearningBored reader result panel', () => {
     const rendered = renderPanel({ client });
     await advancePoll();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Replace figure' }));
+    fireEvent.click(screen.getByRole('button', { name: /Replace figure/u }));
     expect(screen.getByText(/This uses 1 Chalk/u)).toBeTruthy();
     expect(requestFigureRegeneration).not.toHaveBeenCalled();
     fireEvent.change(screen.getByLabelText('What should improve?'), {
@@ -822,6 +1674,318 @@ describe('LearningBored reader result panel', () => {
     );
     expect(screen.getByRole('heading', { name: 'Board with replacement figure' })).toBeTruthy();
     expect(screen.getByText('1 Chalk charged exactly once.')).toBeTruthy();
+  });
+
+  it('keeps completed Figure hydration alive when the terminal status stops its poller', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const refreshed = createBoard({ title: 'Board hydrated after the poll stopped' });
+    let resolveProjection: ((value: LearningBoredBoardResult) => void) | undefined;
+    const projection = new Promise<LearningBoredBoardResult>((resolve) => {
+      resolveProjection = resolve;
+    });
+    let statusSignal: AbortSignal | undefined;
+    let projectionSignal: AbortSignal | undefined;
+    const getFigureRegeneration = vi.fn<LearningBoredClient['getFigureRegeneration']>(
+      async (_regenerationId, options) => {
+        statusSignal = options?.signal;
+        return {
+          id: 'figure-regeneration-terminal',
+          boardId: board.id,
+          nodeId: 'node-figure-1',
+          clientRequestId: 'reader-request-terminal',
+          issue: 'unclear',
+          status: 'completed',
+          chalkCost: 1,
+          failureReason: null,
+          refundConfirmed: false,
+        };
+      },
+    );
+    const rerenderBoard = vi.fn<LearningBoredClient['rerenderBoard']>(
+      async (_boardId, _input, options) => {
+        projectionSignal = options?.signal;
+        return await projection;
+      },
+    );
+    const client = createClient({
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+      requestFigureRegeneration: vi.fn(async (_boardId, nodeId, input) => ({
+        id: 'figure-regeneration-terminal',
+        boardId: board.id,
+        nodeId,
+        clientRequestId: input.clientRequestId,
+        issue: input.issue,
+        status: 'queued' as const,
+        chalkCost: 1,
+        failureReason: null,
+        refundConfirmed: false,
+      })),
+      getFigureRegeneration,
+      rerenderBoard,
+    });
+    renderPanel({ client });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: /Replace figure/u }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Use 1 Chalk' }));
+      await Promise.resolve();
+    });
+
+    act(() => {
+      vi.advanceTimersByTime(2_000);
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(rerenderBoard).toHaveBeenCalledTimes(1);
+    expect(statusSignal?.aborted).toBe(true);
+    expect(projectionSignal?.aborted).toBe(false);
+
+    await act(async () => {
+      resolveProjection?.(refreshed);
+      await Promise.resolve();
+    });
+    expect(
+      screen.getByRole('heading', { name: 'Board hydrated after the poll stopped' }),
+    ).toBeTruthy();
+  });
+
+  it('reports a completed Figure request truthfully when immediate Board hydration fails', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const client = createClient({
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+      requestFigureRegeneration: vi.fn(async (_boardId, nodeId, input) => ({
+        id: 'figure-regeneration-immediate',
+        boardId: board.id,
+        nodeId,
+        clientRequestId: input.clientRequestId,
+        issue: input.issue,
+        status: 'completed' as const,
+        chalkCost: 1,
+        failureReason: null,
+        refundConfirmed: false,
+      })),
+      rerenderBoard: vi.fn(async () => {
+        throw new Error('temporary hydration failure');
+      }),
+    });
+    renderPanel({ client });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: /Replace figure/u }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Use 1 Chalk' }));
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('heading', { name: 'Replacement figure ready' })).toBeTruthy();
+    expect(screen.getByText('1 Chalk charged exactly once.')).toBeTruthy();
+    expect(
+      screen.getByText('The new figure is ready, but the Board could not be refreshed yet.'),
+    ).toBeTruthy();
+    expect(
+      screen.queryByText(
+        'The figure replacement could not be started. No new request will be made if you retry.',
+      ),
+    ).toBeNull();
+  });
+
+  it('recovers the current theme after a Figure hydration supersedes it and fails', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const recoveredBoard = createBoard({ title: 'Dark Board after Figure recovery' });
+    let resolveRecovery: ((value: LearningBoredBoardResult) => void) | undefined;
+    const recovery = new Promise<LearningBoredBoardResult>((resolve) => {
+      resolveRecovery = resolve;
+    });
+    const rerenderBoard = vi
+      .fn<LearningBoredClient['rerenderBoard']>()
+      .mockImplementationOnce(
+        async (_boardId, _input, options) => await waitForProjectionAbort(options?.signal),
+      )
+      .mockRejectedValueOnce(new Error('Figure hydration failed'))
+      .mockImplementationOnce(async () => await recovery);
+    const client = createClient({
+      rerenderBoard,
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+      requestFigureRegeneration: vi.fn(async (_boardId, nodeId, input) => ({
+        id: 'figure-regeneration-theme-recovery',
+        boardId: board.id,
+        nodeId,
+        clientRequestId: input.clientRequestId,
+        issue: input.issue,
+        status: 'completed' as const,
+        chalkCost: 1,
+        failureReason: null,
+        refundConfirmed: false,
+      })),
+    });
+    const rendered = renderPanel({ client, theme: 'light' });
+    await advancePoll();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await flushProjectionEffects();
+    fireEvent.click(screen.getByRole('button', { name: /Replace figure/u }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use 1 Chalk' }));
+    await flushProjectionEffects();
+
+    expect(rerenderBoard).toHaveBeenCalledTimes(3);
+    expect(
+      screen.getByText('The new figure is ready, but the Board could not be refreshed yet.'),
+    ).toBeTruthy();
+
+    await act(async () => {
+      resolveRecovery?.(recoveredBoard);
+      await recovery;
+    });
+
+    expect(screen.getByRole('heading', { name: recoveredBoard.title })).toBeTruthy();
+    expect(
+      screen.queryByText('The new figure is ready, but the Board could not be refreshed yet.'),
+    ).toBeNull();
+  });
+
+  it('records the theme rendered by a successful Figure hydration before a later theme toggle', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const darkFigureBoard = createBoard({ title: 'Dark Board with the new Figure' });
+    const restoredLightBoard = createBoard({ title: 'Restored light Board' });
+    const rerenderBoard = vi
+      .fn<LearningBoredClient['rerenderBoard']>()
+      .mockImplementationOnce(
+        async (_boardId, _input, options) => await waitForProjectionAbort(options?.signal),
+      )
+      .mockResolvedValueOnce(darkFigureBoard)
+      .mockResolvedValueOnce(restoredLightBoard);
+    const client = createClient({
+      rerenderBoard,
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+      requestFigureRegeneration: vi.fn(async (_boardId, nodeId, input) => ({
+        id: 'figure-regeneration-theme-bookkeeping',
+        boardId: board.id,
+        nodeId,
+        clientRequestId: input.clientRequestId,
+        issue: input.issue,
+        status: 'completed' as const,
+        chalkCost: 1,
+        failureReason: null,
+        refundConfirmed: false,
+      })),
+    });
+    const rendered = renderPanel({ client, theme: 'light' });
+    await advancePoll();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await flushProjectionEffects();
+    fireEvent.click(screen.getByRole('button', { name: /Replace figure/u }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use 1 Chalk' }));
+    await flushProjectionEffects();
+    expect(screen.getByRole('heading', { name: darkFigureBoard.title })).toBeTruthy();
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='light'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await flushProjectionEffects();
+
+    expect(rerenderBoard).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole('heading', { name: restoredLightBoard.title })).toBeTruthy();
+  });
+
+  it('does not let a stale Figure refresh overwrite a newer theme projection', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const staleFigureBoard = createBoard({ title: 'Stale Figure refresh' });
+    const currentThemeBoard = createBoard({ title: 'Current dark theme Board' });
+    let resolveFigureRefresh: ((value: LearningBoredBoardResult) => void) | undefined;
+    const figureRefresh = new Promise<LearningBoredBoardResult>((resolve) => {
+      resolveFigureRefresh = resolve;
+    });
+    const rerenderBoard = vi
+      .fn<LearningBoredClient['rerenderBoard']>()
+      .mockImplementationOnce(async () => await figureRefresh)
+      .mockResolvedValueOnce(currentThemeBoard);
+    const client = createClient({
+      rerenderBoard,
+      getGeneration: vi.fn(async () => ({
+        id: 'generation-1',
+        status: 'completed' as const,
+        boardId: board.id,
+        board,
+      })),
+      requestFigureRegeneration: vi.fn(async (_boardId, nodeId, input) => ({
+        id: 'figure-regeneration-complete',
+        boardId: board.id,
+        nodeId,
+        clientRequestId: input.clientRequestId,
+        issue: input.issue,
+        status: 'completed' as const,
+        chalkCost: 1,
+        failureReason: null,
+        refundConfirmed: false,
+      })),
+    });
+    const rendered = renderPanel({ client, theme: 'light' });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: /Replace figure/u }));
+    fireEvent.click(screen.getByRole('button', { name: 'Use 1 Chalk' }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const staleSignal = rerenderBoard.mock.calls[0]?.[2]?.signal;
+
+    rendered.rerender(
+      <LearningBoredPresentationThemeProvider value='dark'>
+        <LearningBoredCapturePanel {...rendered.props} />
+      </LearningBoredPresentationThemeProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(staleSignal?.aborted).toBe(true);
+    expect(screen.getByRole('heading', { name: 'Current dark theme Board' })).toBeTruthy();
+
+    resolveFigureRefresh?.(staleFigureBoard);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('heading', { name: 'Current dark theme Board' })).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Stale Figure refresh' })).toBeNull();
   });
 
   it('keeps the old figure and confirms a refund on terminal replacement failure', async () => {
@@ -863,7 +2027,7 @@ describe('LearningBored reader result panel', () => {
     const rendered = renderPanel({ client });
     await advancePoll();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Replace figure' }));
+    fireEvent.click(screen.getByRole('button', { name: /Replace figure/u }));
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: 'Use 1 Chalk' }));
       await Promise.resolve();
@@ -948,4 +2112,37 @@ describe('LearningBored reader result panel', () => {
     );
     expect(screen.getByText(/Try a different Board kind/u)).toBeTruthy();
   });
+
+  it.each(['failed', 'cancelled'] as const)(
+    'announces a %s generation retry request failure with recovery guidance',
+    async (status) => {
+      vi.useFakeTimers();
+      const retryGeneration = vi.fn(async () => {
+        throw new Error('offline');
+      });
+      renderPanel({
+        client: createClient({
+          retryGeneration,
+          getGeneration: vi.fn(async () => ({
+            id: 'generation-1',
+            status,
+            failureReason: status === 'failed' ? 'provider_unavailable' : null,
+          })),
+        }),
+      });
+      await advancePoll();
+
+      fireEvent.click(
+        screen.getByRole('button', { name: status === 'failed' ? 'Try again' : 'Start again' }),
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(retryGeneration).toHaveBeenCalledWith('generation-1');
+      expect(
+        screen.getByText('The retry could not be started. Check your connection and try again.'),
+      ).toBeTruthy();
+    },
+  );
 });

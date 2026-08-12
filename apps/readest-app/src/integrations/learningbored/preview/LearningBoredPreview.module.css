@@ -260,6 +260,132 @@
   padding-block: clamp(2rem, 6vw, 5rem);
 }
 
+.studyScene {
+  display: flex;
+  width: 100%;
+  height: min(100dvh, 56rem);
+  min-height: 42rem;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--lb-seam) solid var(--lb-color-seam-strong);
+  background: var(--lb-color-canvas);
+}
+
+.readerBook {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--lb-color-plane-recessed);
+}
+
+.readerToolbar {
+  display: flex;
+  min-height: 3.75rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--lb-space-3);
+  padding-inline: var(--lb-space-4);
+  border-block-end: var(--lb-seam) solid var(--lb-color-seam);
+  background: var(--lb-color-plane-raised);
+  color: var(--lb-color-ink-muted);
+  font-size: 0.75rem;
+}
+
+.readerToolbar strong {
+  overflow: hidden;
+  color: var(--lb-color-ink);
+  font-size: 0.875rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.readerViewport {
+  min-height: 0;
+  overflow: auto;
+  padding: clamp(1.25rem, 4vw, 3.5rem);
+}
+
+.readerPage {
+  width: min(100%, 43rem);
+  min-height: 100%;
+  margin-inline: auto;
+  padding: clamp(1.5rem, 4vw, 3.5rem);
+  border: var(--lb-seam) solid var(--lb-color-seam);
+  background: var(--lb-color-plane-raised);
+}
+
+.readerPage h3 {
+  max-width: 18ch;
+  margin: 0;
+  color: var(--lb-color-ink);
+  font-size: clamp(1.45rem, 4vw, 2.4rem);
+  font-weight: 680;
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+  text-wrap: balance;
+}
+
+.readerPage p {
+  max-width: 62ch;
+  margin: var(--lb-space-5) 0 0;
+  color: var(--lb-color-ink);
+  font-family: var(--lb-font-reading);
+  font-size: clamp(1rem, 1.7vw, 1.16rem);
+  line-height: 1.8;
+}
+
+.readerPage mark {
+  padding: 0.08em 0.12em;
+  background: var(--lb-color-anchor-soft);
+  color: var(--lb-color-ink);
+  box-decoration-break: clone;
+}
+
+.readerLocation {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--lb-space-2);
+  white-space: nowrap;
+}
+
+.readerLocation::before {
+  width: 0.55rem;
+  height: 0.55rem;
+  border: var(--lb-seam) solid var(--lb-color-anchor-strong);
+  background: var(--lb-color-anchor-soft);
+  content: '';
+}
+
+.reviewTopology {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  align-content: start;
+  gap: var(--lb-space-4);
+  overflow-y: auto;
+  padding: var(--lb-space-5);
+}
+
+.reviewTopology h2,
+.reviewTopology p {
+  margin: 0;
+}
+
+.reviewTopology h2 {
+  font-family: var(--lb-font-reading);
+  font-size: clamp(1.75rem, 5vw, 2.5rem);
+  line-height: 1.1;
+}
+
+.reviewTopology p {
+  max-width: 52ch;
+  color: var(--lb-color-ink-muted);
+  line-height: 1.6;
+}
+
 .stateFooter {
   display: flex;
   align-items: flex-start;
@@ -938,6 +1064,12 @@
 
   .chalkLedger > div:nth-child(-n + 2) {
     border-block-end: var(--lb-seam) solid var(--lb-color-seam);
+  }
+}
+
+@media (min-width: 640px) {
+  .studyScene {
+    flex-direction: row;
   }
 }
 

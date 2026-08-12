@@ -135,6 +135,186 @@ export const LEARNINGBORED_PREVIEW_GROUPS = [
     ],
   },
   {
+    id: 'capture',
+    label: 'Passage capture',
+    description: 'Selection readiness and the exact-text boundary for unsupported PDFs.',
+    states: [
+      {
+        id: 'capture-ready',
+        label: 'Selection ready',
+        description:
+          'A source passage ready for one grounded Board request beside the still-visible book.',
+      },
+      {
+        id: 'capture-pdf-unavailable',
+        label: 'Unsupported PDF',
+        description:
+          'The exact-text safeguard explains why PDF capture is unavailable at this Reader pin.',
+      },
+    ],
+  },
+  {
+    id: 'generation',
+    label: 'Board generation',
+    description: 'Truthful stages, connection recovery, cancellation, failure, refund, and retry.',
+    states: [
+      {
+        id: 'generation-starting',
+        label: 'Starting Board',
+        description:
+          'The single request is being reserved and started without duplicate submission.',
+      },
+      {
+        id: 'generation-queued',
+        label: 'Queued',
+        description: 'The request is durable and waiting for the generation worker.',
+      },
+      {
+        id: 'generation-extracting',
+        label: 'Extracting concepts',
+        description: 'The source passage is being read for anchored concepts.',
+      },
+      {
+        id: 'generation-composing',
+        label: 'Composing Board',
+        description: 'One extraction is becoming both the Board and its grounded recall items.',
+      },
+      {
+        id: 'generation-illustrating',
+        label: 'Illustrating Figure',
+        description:
+          'A depictive Figure is being generated and checked without blocking the outline.',
+      },
+      {
+        id: 'generation-rendering',
+        label: 'Rendering Board',
+        description:
+          'The validated spec is being rendered deterministically with its complete outline.',
+      },
+      {
+        id: 'generation-poll-error',
+        label: 'Status recovery',
+        description: 'The last confirmed stage remains visible while the serial poller reconnects.',
+      },
+      {
+        id: 'generation-cancelled-refunded',
+        label: 'Cancelled and refunded',
+        description: 'Cancelled work saved no partial artifact and returned its reserved Chalk.',
+      },
+      {
+        id: 'generation-failed-refunded',
+        label: 'Failed and refunded',
+        description: 'A terminal safety failure names the problem, refund, and retry action.',
+      },
+      {
+        id: 'generation-retry-recovery',
+        label: 'Retry recovery',
+        description: 'A new attempt is queued while the prior terminal record remains intact.',
+      },
+    ],
+  },
+  {
+    id: 'board',
+    label: 'Board result',
+    description: 'Source, outline, provenance, free projections, and media-independent completion.',
+    states: [
+      {
+        id: 'board-complete',
+        label: 'Complete Board',
+        description:
+          'An anchored Board with added help, source links, an undefined concept, and dropped-claim disclosure.',
+      },
+      {
+        id: 'board-svg-unavailable',
+        label: 'Board without SVG',
+        description:
+          'The complete outline and Figure description remain usable without the Board SVG.',
+      },
+    ],
+  },
+  {
+    id: 'figure',
+    label: 'Figure resilience',
+    description: 'Structural fallback and the charged, durable single-Figure replacement boundary.',
+    states: [
+      {
+        id: 'figure-load-failure',
+        label: 'Figure fallback',
+        description:
+          'Private bytes failed to load, leaving the description and structural form intact.',
+      },
+      {
+        id: 'figure-replacement-confirm',
+        label: 'Replace Figure',
+        description: 'The learner sees the one-Chalk cost before confirming one closed issue.',
+      },
+      {
+        id: 'figure-replacement-progress',
+        label: 'Replacement in progress',
+        description: 'The current Figure remains published while its replacement is checked.',
+      },
+      {
+        id: 'figure-replacement-success',
+        label: 'Replacement complete',
+        description: 'The accepted Figure is published and one Chalk is charged exactly once.',
+      },
+      {
+        id: 'figure-replacement-failed-refunded',
+        label: 'Replacement failed and refunded',
+        description: 'The old Figure remains unchanged and the replacement Chalk is returned.',
+      },
+    ],
+  },
+  {
+    id: 'comprehension',
+    label: 'Comprehension feedback',
+    description: 'One passage-specific answer records whether the Board resolved the difficulty.',
+    states: [
+      {
+        id: 'comprehension-unanswered',
+        label: 'Comprehension check',
+        description: 'The two-state question is ready after the Board, not before it.',
+      },
+      {
+        id: 'comprehension-breakthrough',
+        label: 'Passage clicked',
+        description: 'A fictional breakthrough response is recorded once for this passage.',
+      },
+      {
+        id: 'comprehension-still-unclear',
+        label: 'Still unclear',
+        description: 'The response suggests a different Board shape or a wider source passage.',
+      },
+    ],
+  },
+  {
+    id: 'progress',
+    label: 'Progress topology',
+    description:
+      'The existing progress surface proves the same non-occluding Reader sibling geometry.',
+    states: [
+      {
+        id: 'progress-overview',
+        label: 'Progress overview',
+        description: 'Fictional concept attention stays beside or below the visible book.',
+      },
+    ],
+  },
+  {
+    id: 'review',
+    label: 'Review topology',
+    description:
+      'The dedicated review surface proves its taller mobile sibling geometry before §7 migrates review content.',
+    states: [
+      {
+        id: 'review-topology',
+        label: 'Review work surface',
+        description:
+          'Fictional review content occupies the dedicated 78dvh mobile sibling without a backdrop, drag handle, or document occlusion.',
+      },
+    ],
+  },
+  {
     id: 'primitives',
     label: 'Primitive resilience',
     description: 'Shared loading, error, empty, action, and disabled treatments.',

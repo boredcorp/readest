@@ -1,11 +1,14 @@
-import { act, cleanup, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { LearningBoredFetch } from '@learningbored/sdk';
+import type { LearningBoredFetch, MiuraBoardThemeId } from '@learningbored/sdk';
 
 const readerContext = vi.hoisted(() => ({ sideBarBookKey: 'book-key' }));
+const readerTranslation = vi.hoisted(() => ({
+  translate: (message: string) => message,
+}));
 
 vi.mock('@/hooks/useTranslation', () => ({
-  useTranslation: () => (message: string) => message,
+  useTranslation: () => readerTranslation.translate,
 }));
 
 vi.mock('@/store/sidebarStore', () => ({
@@ -32,6 +35,7 @@ vi.mock('@/store/readerStore', () => ({
 import { publishLearningBoredCapture } from '@/integrations/learningbored/bridge';
 import LearningBoredPanelHost from '@/integrations/learningbored/LearningBoredPanelHost';
 import LearningBoredSdkClientProvider from '@/integrations/learningbored/LearningBoredSdkClientProvider';
+import { useLearningBoredTranslation } from '@/integrations/learningbored/presentation/context';
 import {
   createLearningBoredSdkClient,
   type LearningBoredSdkPort,
@@ -211,12 +215,32 @@ function passage() {
   };
 }
 
+function TranslationProbe() {
+  const translate = useLearningBoredTranslation();
+  return <span>{translate('Board it')}</span>;
+}
+
 describe('LearningBored SDK Reader adapter', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {
+    localStorage.clear();
+    readerTranslation.translate = (message: string) => message;
+  });
 
   afterEach(() => {
     cleanup();
     localStorage.clear();
+  });
+
+  it('provides the application translation function at the SDK integration boundary', () => {
+    readerTranslation.translate = (message: string) => `Reader: ${message}`;
+
+    render(
+      <LearningBoredSdkClientProvider>
+        <TranslationProbe />
+      </LearningBoredSdkClientProvider>,
+    );
+
+    expect(screen.getByText('Reader: Board it')).toBeTruthy();
   });
 
   it('mounts the real host with an SDK-backed client from the application provider', async () => {
@@ -345,6 +369,84 @@ describe('LearningBored SDK Reader adapter', () => {
       );
     }
     expect(getAccessToken).toHaveBeenCalledTimes(transport.requests.length);
+  });
+
+  it('projects the terminal dropped-claim count through the Reader adapter', async () => {
+    const getStudyGeneration = vi.fn(async () => ({
+      id: 'generation_123',
+      status: 'completed' as const,
+      documentId: 'document_123',
+      passageId: 'passage_123',
+      boardId: 'board_123',
+      compositionVersion: '2.0.0',
+      requestedBoardKind: 'concept_map' as const,
+      recallItemTarget: 5,
+      allowFigures: true,
+      allowScaffold: true,
+      attempt: 1,
+      droppedClaimCount: 2,
+      droppedScaffoldCount: 1,
+      droppedFigurePlanCount: 0,
+      failureReason: null,
+      startedAt: '2026-08-03T10:00:00.000Z',
+      completedAt: '2026-08-03T10:00:10.000Z',
+      createdAt: '2026-08-03T10:00:00.000Z',
+      updatedAt: '2026-08-03T10:00:10.000Z',
+    }));
+    const client = createLearningBoredSdkClient({
+      sdkClient: { getStudyGeneration } as unknown as LearningBoredSdkPort,
+    });
+
+    await expect(client.getGeneration('generation_123')).resolves.toMatchObject({
+      id: 'generation_123',
+      status: 'completed',
+      boardId: 'board_123',
+      droppedClaimCount: 2,
+    });
+    expect(getStudyGeneration).toHaveBeenCalledWith('generation_123');
+  });
+
+  it('reads the current local Board theme through a stable getter at rerender time', async () => {
+    let themeId: MiuraBoardThemeId = 'miura-deployment-light-v1';
+    const renderedBoard = {
+      boardId: BOARD.id,
+      rendererVersion: '1.3.0',
+      effectiveKind: 'concept_map' as const,
+      svg: '<svg xmlns="http://www.w3.org/2000/svg"/>',
+      widthPx: 960,
+      heightPx: 540,
+      outline: {
+        title: BOARD.title,
+        titleSourceSpan: SOURCE_SPAN,
+        nodes: [],
+        relationships: [],
+        groups: [],
+      },
+      figureProjections: {},
+      missingFigureIds: [],
+    };
+    const rerenderBoard = vi.fn(async () => renderedBoard);
+    const sdk = {
+      getBoard: vi.fn(async () => BOARD),
+      rerenderBoard,
+    } as unknown as LearningBoredSdkPort;
+    const client = createLearningBoredSdkClient({
+      sdkClient: sdk,
+      getLocalRenderThemeId: () => themeId,
+    });
+
+    await client.getBoard(BOARD.id, { includeScaffold: true });
+    expect(rerenderBoard).toHaveBeenLastCalledWith(
+      BOARD.id,
+      expect.objectContaining({ themeId: 'miura-deployment-light-v1' }),
+    );
+
+    themeId = 'miura-deployment-dark-v1';
+    await client.rerenderBoard(BOARD.id, { kind: 'concept_map', includeScaffold: true });
+    expect(rerenderBoard).toHaveBeenLastCalledWith(
+      BOARD.id,
+      expect.objectContaining({ themeId: 'miura-deployment-dark-v1' }),
+    );
   });
 
   it('retains one full authorized projection so scaffold toggles stay local and reversible', async () => {

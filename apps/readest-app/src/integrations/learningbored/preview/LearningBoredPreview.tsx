@@ -46,6 +46,7 @@ import {
   LEARNINGBORED_PREVIEW_DOCUMENTS,
   createLearningBoredPreviewClient,
 } from './fixtures';
+import LearningBoredStudyPreview from './LearningBoredStudyPreview';
 import styles from './LearningBoredPreview.module.css';
 
 type PreviewAction = (message: string) => void;
@@ -663,6 +664,17 @@ function RenderedState({
     return <LibraryFixture onAction={onAction} stateId={stateId} />;
   if (stateId.startsWith('account-'))
     return <AccountFixture onAction={onAction} stateId={stateId} />;
+  if (
+    stateId.startsWith('capture-') ||
+    stateId.startsWith('generation-') ||
+    stateId.startsWith('board-') ||
+    stateId.startsWith('figure-') ||
+    stateId.startsWith('comprehension-') ||
+    stateId.startsWith('progress-') ||
+    stateId.startsWith('review-')
+  ) {
+    return <LearningBoredStudyPreview onAction={onAction} stateId={stateId} theme={theme} />;
+  }
   return <PrimitiveFixture onAction={onAction} stateId={stateId} />;
 }
 

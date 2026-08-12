@@ -7,7 +7,6 @@ import { useBookDataStore } from '@/store/bookDataStore';
 import { useReaderStore } from '@/store/readerStore';
 import { useSidebarStore } from '@/store/sidebarStore';
 import type { BookNote } from '@/types/book';
-import { useTranslation } from '@/hooks/useTranslation';
 import { getLearningBoredBookId } from './book';
 import { subscribeToLearningBoredCaptures } from './bridge';
 import type { LearningBoredClient, LearningBoredReaderDocument } from './client';
@@ -23,6 +22,7 @@ import {
   type LearningBoredReaderSession,
 } from './session';
 import { createLearningBoredTemporaryHighlightCallbacks } from './source-span';
+import { useLearningBoredTranslation } from './presentation/context';
 
 interface ActiveLearningBoredPanel {
   bookKey: string;
@@ -47,7 +47,7 @@ function persistSession(session: LearningBoredReaderSession): void {
 const LearningBoredPanelHost: React.FC<LearningBoredPanelHostProps> = ({
   client: clientOverride,
 }) => {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const contextClient = useLearningBoredClient();
   const client = clientOverride === undefined ? contextClient : clientOverride;
   const { sideBarBookKey } = useSidebarStore();

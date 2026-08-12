@@ -21,8 +21,9 @@ describe('LearningBored brand contract', () => {
   it('uses the canonical mark component instead of a competing inline fold identity', () => {
     const presentationRoot = resolve(sourceRoot, 'integrations/learningbored/presentation');
     const previewRoot = resolve(sourceRoot, 'integrations/learningbored/preview');
+    const workSurfaceRoot = resolve(sourceRoot, 'integrations/learningbored/work-surface');
     const consumers = [
-      resolve(sourceRoot, 'integrations/learningbored/LearningBoredCapturePanel.tsx'),
+      resolve(workSurfaceRoot, 'LearningBoredWorkSurfaceShell.tsx'),
       resolve(presentationRoot, 'LearningBoredAuthPresentation.tsx'),
       resolve(presentationRoot, 'LearningBoredLibraryPresentation.tsx'),
       resolve(previewRoot, 'LearningBoredPreview.tsx'),
@@ -33,6 +34,11 @@ describe('LearningBored brand contract', () => {
       expect(source).not.toContain('LearningBoredFoldMark');
     }
 
-    expect(consumers[0]).toContain('eink:grayscale');
+    const workSurfaceStyles = readFileSync(
+      resolve(workSurfaceRoot, 'LearningBoredWorkSurface.module.css'),
+      'utf8',
+    );
+    expect(workSurfaceStyles).toContain("[data-lb-theme='eink'] .brandMark");
+    expect(workSurfaceStyles).toContain('grayscale(1)');
   });
 });

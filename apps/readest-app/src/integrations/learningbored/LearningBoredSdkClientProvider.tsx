@@ -1,11 +1,20 @@
 'use client';
 
-import React, { useMemo, type ReactNode } from 'react';
+import React, { useMemo, useRef, type ReactNode } from 'react';
 import type { AccessTokenProvider, LearningBoredFetch } from '@learningbored/sdk';
 
+import { useTranslation } from '@/hooks/useTranslation';
 import { LearningBoredClientProvider } from './LearningBoredClientContext';
 import { getLearningBoredReaderConfig } from './config';
 import { createLearningBoredSdkClient, type LearningBoredSdkPort } from './sdk-client';
+import {
+  getReaderLearningBoredBoardThemeId,
+  useReaderLearningBoredPresentationTheme,
+} from './presentation/theme';
+import {
+  LearningBoredPresentationThemeProvider,
+  LearningBoredTranslationProvider,
+} from './presentation/context';
 
 export interface LearningBoredSdkClientProviderProps {
   children: ReactNode;
@@ -24,8 +33,13 @@ const LearningBoredSdkClientProvider: React.FC<LearningBoredSdkClientProviderPro
   sdkClient,
 }) => {
   const config = getLearningBoredReaderConfig();
+  const translate = useTranslation();
+  const presentationTheme = useReaderLearningBoredPresentationTheme();
+  const localRenderThemeRef = useRef(getReaderLearningBoredBoardThemeId(presentationTheme));
+  localRenderThemeRef.current = getReaderLearningBoredBoardThemeId(presentationTheme);
   const client = useMemo(() => {
-    if (sdkClient) return createLearningBoredSdkClient({ sdkClient });
+    const getLocalRenderThemeId = () => localRenderThemeRef.current;
+    if (sdkClient) return createLearningBoredSdkClient({ sdkClient, getLocalRenderThemeId });
     if (!config.enabled) return null;
 
     const resolvedTransport = transport ?? globalThis.fetch?.bind(globalThis);
@@ -35,10 +49,17 @@ const LearningBoredSdkClientProvider: React.FC<LearningBoredSdkClientProviderPro
       apiBaseUrl: config.apiBaseUrl,
       transport: resolvedTransport,
       ...(getAccessToken ? { getAccessToken } : {}),
+      getLocalRenderThemeId,
     });
   }, [config.apiBaseUrl, config.enabled, getAccessToken, sdkClient, transport]);
 
-  return <LearningBoredClientProvider value={client}>{children}</LearningBoredClientProvider>;
+  return (
+    <LearningBoredTranslationProvider value={translate}>
+      <LearningBoredPresentationThemeProvider value={presentationTheme}>
+        <LearningBoredClientProvider value={client}>{children}</LearningBoredClientProvider>
+      </LearningBoredPresentationThemeProvider>
+    </LearningBoredTranslationProvider>
+  );
 };
 
 export default LearningBoredSdkClientProvider;

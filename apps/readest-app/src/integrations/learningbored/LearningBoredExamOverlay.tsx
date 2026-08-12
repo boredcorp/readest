@@ -3,7 +3,6 @@
 import { AlertTriangle, Check, ChevronDown, Pencil, X } from 'lucide-react';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
-import { useTranslation } from '@/hooks/useTranslation';
 import type {
   LearningBoredBlueprint,
   LearningBoredClient,
@@ -16,6 +15,7 @@ import type {
   LearningBoredReadinessResult,
 } from './client';
 import { LearningBoredConceptList } from './LearningBoredMastery';
+import { useLearningBoredTranslation } from './presentation/context';
 
 export function sortLearningBoredObjectivesByWeightedWeakness(
   objectives: readonly LearningBoredObjectiveReadiness[],
@@ -75,7 +75,7 @@ const ExamPlanEditor: React.FC<ExamPlanEditorProps> = ({
   onReadinessChanged,
   onClose,
 }) => {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const translateRef = useRef(_);
   translateRef.current = _;
   const [blueprint, setBlueprint] = useState<LearningBoredBlueprint | null>(null);
@@ -413,7 +413,7 @@ const LearningBoredExamOverlay: React.FC<LearningBoredExamOverlayProps> = ({
   onOpenBoard,
   onStartReview,
 }) => {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const [editorOpen, setEditorOpen] = useState(false);
   const [expandedObjectiveId, setExpandedObjectiveId] = useState<string | null>(null);
   const [currentReadiness, setCurrentReadiness] = useState(readiness);

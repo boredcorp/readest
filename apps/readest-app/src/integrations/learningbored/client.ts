@@ -183,6 +183,8 @@ export interface LearningBoredGenerationSnapshot {
   boardId?: string | null;
   board?: LearningBoredBoardResult | null;
   failureReason?: string | null;
+  /** Unsupported claims dropped by the grounding gate; absent until the server reports it. */
+  droppedClaimCount?: number;
 }
 
 export interface LearningBoredCreateGenerationInput {

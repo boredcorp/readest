@@ -38,7 +38,10 @@ vi.mock('@/store/readerStore', () => ({
 
 import { publishLearningBoredCapture } from '@/integrations/learningbored/bridge';
 import LearningBoredPanelHost from '@/integrations/learningbored/LearningBoredPanelHost';
-import { readLearningBoredReaderSession } from '@/integrations/learningbored/session';
+import {
+  readLearningBoredReaderSession,
+  writeLearningBoredReaderSession,
+} from '@/integrations/learningbored/session';
 
 function createPassage(selectedText: string) {
   return {
@@ -68,7 +71,7 @@ describe('LearningBored panel host', () => {
   });
 
   it('owns one panel, replaces its capture, and restores it from a persisted close state', () => {
-    render(<LearningBoredPanelHost client={null} />);
+    const rendered = render(<LearningBoredPanelHost client={null} />);
 
     act(() => {
       publishLearningBoredCapture({
@@ -78,8 +81,8 @@ describe('LearningBored panel host', () => {
     });
     const panels = screen.getAllByRole('complementary', { name: 'LearningBored Board panel' });
     expect(panels).toHaveLength(1);
-    expect(panels[0]?.className).toContain('relative');
-    expect(panels[0]?.className).not.toContain('fixed');
+    expect(panels[0]?.getAttribute('data-lb-work-surface-height')).toBe('study');
+    expect(panels[0]?.hasAttribute('aria-modal')).toBe(false);
     expect(screen.queryByRole('button', { name: 'Close LearningBored Board panel' })).toBeNull();
     expect(screen.getByText('First generic selected passage.')).toBeTruthy();
 
@@ -107,6 +110,25 @@ describe('LearningBored panel host', () => {
       boardId: null,
       showScaffold: true,
       kind: null,
+      panelOpen: true,
+    });
+
+    const persistedSession = readLearningBoredReaderSession('book-1');
+    expect(persistedSession).not.toBeNull();
+    writeLearningBoredReaderSession({
+      ...persistedSession!,
+      generationId: 'generation-persisted',
+      boardId: 'board-persisted',
+    });
+    rendered.unmount();
+    render(<LearningBoredPanelHost client={null} />);
+    expect(
+      screen.getAllByRole('complementary', { name: 'LearningBored Board panel' }),
+    ).toHaveLength(1);
+    expect(screen.getByText('Replacement generic selected passage.')).toBeTruthy();
+    expect(readLearningBoredReaderSession('book-1')).toMatchObject({
+      generationId: 'generation-persisted',
+      boardId: 'board-persisted',
       panelOpen: true,
     });
   });

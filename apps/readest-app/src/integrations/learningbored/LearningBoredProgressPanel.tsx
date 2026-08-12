@@ -3,7 +3,6 @@
 import { ArrowLeft, BookOpenText, RefreshCw, X } from 'lucide-react';
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { useTranslation } from '@/hooks/useTranslation';
 import type {
   LearningBoredBoardResult,
   LearningBoredClient,
@@ -14,6 +13,7 @@ import type {
 } from './client';
 import { LearningBoredConceptList, LearningBoredMasterySummary } from './LearningBoredMastery';
 import type { LearningBoredExamOverlayProps } from './LearningBoredExamOverlay';
+import { useLearningBoredTranslation } from './presentation/context';
 
 type LearningBoredExamOverlayModule = {
   default: React.ComponentType<LearningBoredExamOverlayProps>;
@@ -102,7 +102,7 @@ const LearningBoredProgressPanel: React.FC<LearningBoredProgressPanelProps> = ({
   onStartReview,
   loadExamOverlay = loadLearningBoredExamOverlay,
 }) => {
-  const _ = useTranslation();
+  const _ = useLearningBoredTranslation();
   const translateRef = useRef(_);
   translateRef.current = _;
   const [data, setData] = useState<ProgressData | null>(null);
@@ -171,7 +171,7 @@ const LearningBoredProgressPanel: React.FC<LearningBoredProgressPanelProps> = ({
     return (
       <aside
         aria-label={_('LearningBored Board drill-in')}
-        className='learningbored-progress relative z-10 flex h-[44dvh] min-h-64 w-full shrink-0 flex-col border-t sm:h-full sm:w-[clamp(360px,32vw,520px)] sm:border-l sm:border-t-0'
+        className='learningbored-progress relative z-10 flex h-[44dvh] w-full shrink-0 flex-col border-t sm:h-full sm:w-[clamp(360px,32vw,520px)] sm:border-l sm:border-t-0'
       >
         <style>{PROGRESS_STYLES}</style>
         <header className='flex min-h-14 items-center justify-between gap-3 border-b border-[var(--lb-progress-border)] px-3'>
@@ -242,7 +242,7 @@ const LearningBoredProgressPanel: React.FC<LearningBoredProgressPanelProps> = ({
   return (
     <aside
       aria-label={_('LearningBored progress panel')}
-      className='learningbored-progress relative z-10 flex h-[44dvh] min-h-64 w-full shrink-0 flex-col border-t sm:h-full sm:w-[clamp(360px,32vw,520px)] sm:border-l sm:border-t-0'
+      className='learningbored-progress relative z-10 flex h-[44dvh] w-full shrink-0 flex-col border-t sm:h-full sm:w-[clamp(360px,32vw,520px)] sm:border-l sm:border-t-0'
     >
       <style>{PROGRESS_STYLES}</style>
       <header className='flex min-h-14 items-center justify-between gap-3 border-b border-[var(--lb-progress-border)] px-4'>
