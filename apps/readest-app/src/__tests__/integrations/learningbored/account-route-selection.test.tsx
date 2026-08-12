@@ -90,7 +90,8 @@ vi.mock('@/integrations/learningbored/presentation/LearningBoredAccountPresentat
   ),
 }));
 
-import ProfilePage, { ReadestAccountRouteController } from '@/app/user/page';
+import ProfilePage from '@/app/user/page';
+import { ReadestAccountRouteController } from '@/app/user/route-controllers';
 
 afterEach(() => {
   cleanup();

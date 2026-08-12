@@ -613,6 +613,10 @@
   color: var(--lb-color-ink);
 }
 
+.documentStatus :global(.lb-library-status-due strong) {
+  color: var(--lb-color-ink);
+}
+
 .accountFixture {
   display: grid;
   min-width: 0;

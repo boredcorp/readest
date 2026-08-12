@@ -21,8 +21,12 @@
     "test": "dotenv -e .env -e .env.test.local -- vitest",
     "test:coverage": "dotenv -e .env -e .env.test.local -- vitest run --coverage",
     "test:browser": "dotenv -e .env -e .env.test.local -- vitest run --config vitest.browser.config.mts",
+    "test:learningbored:browser": "playwright test --config playwright.learningbored.config.ts --grep-invert \"@visual\"",
+    "test:learningbored:browser:nonvisual": "playwright test --config playwright.learningbored.config.ts --grep-invert \"@visual\"",
+    "test:learningbored:browser:visual:windows": "node -e \"if (process.platform !== 'win32') { console.error('Reader visual baselines are canonical on Windows.'); process.exit(1); }\" && playwright test --config playwright.learningbored.config.ts --grep \"@visual\"",
+    "test:learningbored:browser:update:windows": "node -e \"if (process.platform !== 'win32') { console.error('Reader visual baselines are canonical on Windows.'); process.exit(1); } console.log('Rewriting all four approved Windows Reader visual references.');\" && playwright test --config playwright.learningbored.config.ts --grep \"@visual\" --update-snapshots=all",
     "test:tauri": "bash scripts/test-tauri.sh",
-    "test:pr:web": "pnpm test -- --watch=false && pnpm test:browser",
+    "test:pr:web": "pnpm test -- --watch=false && pnpm test:browser && pnpm test:learningbored:browser:nonvisual",
     "test:pr:tauri": "bash scripts/test-tauri.sh",
     "test:all": "pnpm test -- --watch=false && pnpm test:browser && bash scripts/test-tauri.sh",
     "test:e2e": "wdio run wdio.conf.ts",
@@ -179,7 +183,9 @@
     "zustand": "5.0.10"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.11.0",
     "@next/bundle-analyzer": "^15.4.2",
+    "@playwright/test": "1.58.2",
     "@tailwindcss/typography": "^0.5.16",
     "@tauri-apps/cli": "2.11.3",
     "@testing-library/dom": "^10.4.0",

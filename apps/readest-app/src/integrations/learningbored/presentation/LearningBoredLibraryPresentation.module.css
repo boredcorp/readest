@@ -127,7 +127,9 @@ button.brand {
 
 .topologyHeader {
   display: grid;
-  grid-template-columns: minmax(12rem, 19rem) minmax(0, 1fr);
+  grid-template-columns:
+    minmax(12rem, 19rem)
+    minmax(calc(var(--lb-touch-target) + var(--lb-touch-target)), 1fr);
   align-items: center;
   min-height: 6.5rem;
   border-bottom: var(--lb-seam) solid var(--lb-color-seam);
@@ -169,6 +171,10 @@ button.brand {
   padding-top: var(--lb-space-2);
   padding-bottom: var(--lb-space-2);
   color: var(--lb-color-ink);
+}
+
+.controlBar :global(button) {
+  white-space: nowrap;
 }
 
 .controlBar :global(.search-input) {

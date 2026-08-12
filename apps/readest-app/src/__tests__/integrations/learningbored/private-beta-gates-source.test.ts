@@ -81,7 +81,7 @@ describe('LearningBored private-beta source gates', () => {
 
   it('replaces self-service deletion with the staged support route and hides purchase UI', () => {
     const accountActions = readSource('app/user/components/AccountActions.tsx');
-    const profile = readSource('app/user/page.tsx');
+    const accountControllers = readSource('app/user/route-controllers.tsx');
     const plansHook = readSource('hooks/useAvailablePlans.ts');
     const subscriptionSuccess = readSource('app/user/subscription/success/page.tsx');
 
@@ -89,7 +89,7 @@ describe('LearningBored private-beta source gates', () => {
     expect(accountActions).toContain('Request account deletion');
     expect(accountActions).toContain('privateBetaPolicy.allowSelfServiceAccountDeletion');
     expect(accountActions).toContain('privateBetaPolicy.allowPayments');
-    expect(profile).toContain('privateBetaPolicy.allowPayments &&');
+    expect(accountControllers).toContain('privateBetaPolicy.allowPayments &&');
     expect(plansHook).toContain('if (!privateBetaPolicy.allowPayments)');
     expect(subscriptionSuccess).toContain('if (!privateBetaPolicy.allowPayments)');
   });
@@ -115,15 +115,20 @@ describe('LearningBored private-beta source gates', () => {
       ['app/auth/callback/page.tsx', 'LearningBoredAuthPresentation'],
       ['app/auth/error/page.tsx', 'LearningBoredAuthPresentation'],
       ['app/auth/recovery/page.tsx', 'LearningBoredAuthPresentation'],
-      ['app/auth/update/page.tsx', 'LearningBoredAuthPresentation'],
+      [
+        'app/auth/update/page.tsx',
+        'LearningBoredAuthPresentation',
+        'app/auth/update/route-controller.tsx',
+      ],
       ['app/library/page.tsx', 'LearningBoredLibraryPresentation'],
-      ['app/user/page.tsx', 'LearningBoredAccountPresentation'],
+      ['app/user/page.tsx', 'LearningBoredAccountPresentation', 'app/user/route-controllers.tsx'],
     ] as const;
 
-    for (const [route, learningBoredRenderer] of routes) {
+    for (const [route, learningBoredRenderer, rendererSourcePath] of routes) {
       const source = readSource(route);
+      const rendererSource = readSource(rendererSourcePath ?? route);
       expect(source, route).toContain('SelectedRoutePresentation');
-      expect(source, route).toContain(learningBoredRenderer);
+      expect(rendererSource, rendererSourcePath ?? route).toContain(learningBoredRenderer);
       expect(source, route).toContain(
         'const routePresentation = getLearningBoredRoutePresentation();',
       );

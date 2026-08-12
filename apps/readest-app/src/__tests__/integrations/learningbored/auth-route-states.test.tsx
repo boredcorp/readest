@@ -103,10 +103,12 @@ vi.mock('@/helpers/auth', () => ({
   },
 }));
 
-import AuthCallback, { getCallbackFailureReason } from '@/app/auth/callback/page';
+import { getCallbackFailureReason } from '@/app/auth/callback/callback-failure';
+import AuthCallback from '@/app/auth/callback/page';
 import AuthErrorPage from '@/app/auth/error/page';
 import ResetPasswordPage from '@/app/auth/recovery/page';
-import UpdateEmailPage, { UpdateEmailRouteController } from '@/app/auth/update/page';
+import UpdateEmailPage from '@/app/auth/update/page';
+import { UpdateEmailRouteController } from '@/app/auth/update/route-controller';
 
 beforeEach(() => {
   probes.authStateCallback = null;
