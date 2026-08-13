@@ -349,13 +349,15 @@ function LibraryBookFixture({
   return (
     <li className={styles['bookRow']} data-selected={selected || undefined}>
       {selected && (
-        <input
-          aria-label={`Select ${document.title}`}
-          checked
-          className={styles['bookSelection']}
-          readOnly
-          type='checkbox'
-        />
+        <label className={styles['bookSelectionTarget']}>
+          <input
+            aria-label={`Select ${document.title}`}
+            checked
+            className={styles['bookSelection']}
+            readOnly
+            type='checkbox'
+          />
+        </label>
       )}
       <span aria-hidden='true' className={styles['bookGlyph']}>
         <BookOpen />

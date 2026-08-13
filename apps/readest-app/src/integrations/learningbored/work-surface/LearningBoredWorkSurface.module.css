@@ -635,6 +635,106 @@
   width: 100%;
 }
 
+.clearAction {
+  min-width: 0;
+}
+
+.footerControls {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.menuTrigger {
+  max-width: 100%;
+  white-space: normal;
+}
+
+.actionLabel {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.actionMenu {
+  width: min(100%, 28rem);
+  margin-block-start: var(--lb-space-2);
+  margin-inline-start: auto;
+  padding: var(--lb-space-1);
+  border: var(--lb-seam) solid var(--lb-color-seam-strong);
+  border-radius: var(--lb-radius-control);
+  background: var(--lb-color-plane);
+}
+
+.dangerMenuItem {
+  display: flex;
+  width: 100%;
+  min-height: var(--lb-touch-target);
+  align-items: center;
+  gap: var(--lb-space-2);
+  padding: var(--lb-work-surface-control-pad) var(--lb-space-3);
+  border: 0;
+  border-radius: var(--lb-radius-control);
+  background: transparent;
+  color: var(--lb-color-danger);
+  font: inherit;
+  font-size: var(--lb-work-surface-text-sm);
+  font-weight: var(--lb-work-surface-weight-control);
+  text-align: start;
+  cursor: pointer;
+}
+
+.dangerMenuItem:hover {
+  background: var(--lb-color-action-soft);
+}
+
+.dangerMenuItem > svg {
+  width: var(--lb-work-surface-icon-small);
+  height: var(--lb-work-surface-icon-small);
+  flex: none;
+}
+
+.clearConfirmation {
+  margin-block-start: var(--lb-space-3);
+  padding: var(--lb-space-3);
+  border: var(--lb-seam) solid var(--lb-color-seam);
+  border-radius: var(--lb-radius-surface);
+  background: var(--lb-color-plane-recessed);
+}
+
+.confirmationTitle,
+.confirmationDescription {
+  overflow-wrap: anywhere;
+}
+
+.confirmationTitle {
+  margin: 0;
+  color: var(--lb-color-ink);
+  font-size: var(--lb-work-surface-text-sm);
+  font-weight: var(--lb-work-surface-weight-heading);
+  line-height: var(--lb-work-surface-line-compact);
+}
+
+.confirmationDescription {
+  margin: var(--lb-space-1) 0 0;
+  color: var(--lb-color-ink-muted);
+  font-size: var(--lb-work-surface-text-xs);
+  line-height: var(--lb-work-surface-line-body);
+}
+
+.confirmationActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--lb-space-2);
+  margin-block-start: var(--lb-space-3);
+}
+
+.confirmationActions > button {
+  min-width: 0;
+  flex: 1 1 8rem;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 @media (min-width: 640px) {
   :global(.lb-presentation).root,
   :global(.lb-presentation).root[data-lb-work-surface-height] {

@@ -10,6 +10,7 @@ import type {
   LearningBoredReviewGrade,
   LearningBoredSourceSpan,
 } from '../client';
+import { LearningBoredClearActionMenu } from '../LearningBoredCapturePanel';
 import LearningBoredBoardSurface from '../work-surface/LearningBoredBoardSurface';
 import LearningBoredProgressPanel from '../LearningBoredProgressPanel';
 import LearningBoredReviewPanel, {
@@ -27,6 +28,7 @@ import LearningBoredFigureSurface, {
 import LearningBoredGenerationState, {
   type LearningBoredGenerationViewState,
 } from '../work-surface/LearningBoredGenerationState';
+import { formatLearningBoredCopy, useLearningBoredTranslation } from '../presentation/context';
 import LearningBoredWorkSurfaceShell, {
   learningBoredWorkSurfaceStyles,
 } from '../work-surface/LearningBoredWorkSurfaceShell';
@@ -49,6 +51,26 @@ import {
 } from './study-fixtures';
 
 type PreviewAction = (message: string) => void;
+
+const expandedPassageActionCopy: Readonly<Record<string, string>> = Object.freeze({
+  'Passage actions':
+    'Aktionen für den vollständig erfassten und ausführlich beschriebenen Textabschnitt',
+  'Clear captured passage':
+    'Den vollständig erfassten und ausführlich beschriebenen Textabschnitt dauerhaft leeren',
+  'Clear this captured passage?':
+    'Diesen vollständig erfassten und ausführlich beschriebenen Textabschnitt wirklich leeren?',
+  'This removes the captured passage before a Board is created.':
+    'Dadurch wird der vollständig erfasste Textabschnitt entfernt, bevor eine Lerntafel erstellt wird.',
+  Cancel: 'Vorgang abbrechen und zum sicheren Ausgangspunkt zurückkehren',
+  'Clear passage': 'Erfassten Textabschnitt leeren',
+});
+
+function formatExpandedPassageActionCopy(
+  message: string,
+  values: Record<string, number | string> = {},
+): string {
+  return expandedPassageActionCopy[message] ?? formatLearningBoredCopy(message, values);
+}
 
 const generationStates: Partial<
   Record<LearningBoredPreviewStateId, LearningBoredGenerationViewState>
@@ -375,11 +397,19 @@ export default function LearningBoredStudyPreview({
   onAction: PreviewAction;
   theme: LearningBoredPreviewTheme;
 }) {
+  const translate = useLearningBoredTranslation();
   const [panelOpen, setPanelOpen] = useState(true);
   const [highlightedSpan, setHighlightedSpan] = useState<LearningBoredSourceSpan | null>(null);
   const generationState = generationStates[stateId];
   const isProgress = stateId.startsWith('progress-') || stateId.startsWith('readiness-');
   const isReview = stateId.startsWith('review-');
+  const clearActionTarget = stateId.startsWith('capture-')
+    ? 'passage'
+    : stateId.startsWith('board-')
+      ? 'board'
+      : null;
+  const clearActionTranslate =
+    stateId === 'capture-pdf-unavailable' ? formatExpandedPassageActionCopy : translate;
   const progressMode: LearningBoredStudyPanelPreviewMode =
     stateId === 'progress-loading'
       ? 'loading'
@@ -459,6 +489,24 @@ export default function LearningBoredStudyPreview({
           passageOpen={stateId.startsWith('capture-')}
           stageLabel={stageLabel}
           theme={theme}
+          footer={
+            clearActionTarget ? (
+              <footer className={learningBoredWorkSurfaceStyles['footer']}>
+                <LearningBoredClearActionMenu
+                  onClear={() => {
+                    setPanelOpen(false);
+                    onAction(
+                      clearActionTarget === 'board'
+                        ? 'Removed the deterministic Board from this Reader preview.'
+                        : 'Cleared the deterministic captured passage from this Reader preview.',
+                    );
+                  }}
+                  target={clearActionTarget}
+                  translate={clearActionTranslate}
+                />
+              </footer>
+            ) : null
+          }
         >
           {generationState ? (
             <GenerationFixture onAction={onAction} state={generationState} />

@@ -1,7 +1,7 @@
 'use client';
 
-import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { Check, Send } from 'lucide-react';
+import React, { useCallback, useEffect, useId, useReducer, useRef, useState } from 'react';
+import { Check, Ellipsis, Send, Trash2 } from 'lucide-react';
 
 import {
   isLearningBoredTerminalStatus,
@@ -122,6 +122,184 @@ export interface LearningBoredCapturePanelProps {
   ) => void;
   onSourceSpanEnter?: (span: LearningBoredSourceSpan) => void;
   onSourceSpanLeave?: () => void;
+}
+
+interface LearningBoredClearActionMenuProps {
+  target: 'board' | 'passage';
+  onClear: () => void;
+  translate: (message: string) => string;
+}
+
+export function LearningBoredClearActionMenu({
+  target,
+  onClear,
+  translate,
+}: LearningBoredClearActionMenuProps) {
+  const [step, setStep] = useState<'closed' | 'menu' | 'confirm'>('closed');
+  const menuId = useId();
+  const confirmationId = useId();
+  const confirmationTitleId = useId();
+  const confirmationDescriptionId = useId();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const clearActionRef = useRef<HTMLButtonElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  const isBoard = target === 'board';
+  const triggerLabel = isBoard ? translate('Board actions') : translate('Passage actions');
+  const clearActionLabel = isBoard
+    ? translate('Remove this Board from the reader')
+    : translate('Clear captured passage');
+  const confirmationTitle = isBoard
+    ? translate('Remove this Board?')
+    : translate('Clear this captured passage?');
+  const confirmationDescription = isBoard
+    ? translate('This removes the Board and captured passage from the reader.')
+    : translate('This removes the captured passage before a Board is created.');
+  const confirmLabel = isBoard ? translate('Remove Board') : translate('Clear passage');
+
+  useEffect(() => {
+    if (step === 'menu') clearActionRef.current?.focus();
+    if (step === 'confirm') cancelRef.current?.focus();
+  }, [step]);
+
+  useEffect(() => {
+    if (step !== 'menu') return;
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) setStep('closed');
+    };
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer);
+    return () => document.removeEventListener('pointerdown', closeOnOutsidePointer);
+  }, [step]);
+
+  const closeAndReturnFocus = () => {
+    setStep('closed');
+    triggerRef.current?.focus();
+  };
+
+  const handleContainerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape' && step !== 'closed') {
+      event.preventDefault();
+      event.stopPropagation();
+      closeAndReturnFocus();
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+  };
+
+  const handleTriggerKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      event.preventDefault();
+      event.stopPropagation();
+      setStep('menu');
+      return;
+    }
+
+    if (event.key === 'Enter' || event.key === ' ') event.stopPropagation();
+  };
+
+  const handleMenuKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      event.stopPropagation();
+      clearActionRef.current?.focus();
+    }
+  };
+
+  const handleConfirm = () => {
+    setStep('closed');
+    onClear();
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className={learningBoredWorkSurfaceStyles['clearAction']}
+      onKeyDown={handleContainerKeyDown}
+    >
+      <div className={learningBoredWorkSurfaceStyles['footerControls']}>
+        <button
+          ref={triggerRef}
+          type='button'
+          className={`${learningBoredWorkSurfaceStyles['secondaryButton']} ${learningBoredWorkSurfaceStyles['menuTrigger']}`}
+          aria-haspopup='menu'
+          aria-expanded={step === 'menu'}
+          aria-controls={step === 'menu' ? menuId : undefined}
+          onClick={() => setStep((current) => (current === 'menu' ? 'closed' : 'menu'))}
+          onKeyDown={handleTriggerKeyDown}
+        >
+          <Ellipsis aria-hidden='true' />
+          <span className={learningBoredWorkSurfaceStyles['actionLabel']}>{triggerLabel}</span>
+        </button>
+      </div>
+
+      {step === 'menu' ? (
+        <div
+          id={menuId}
+          role='menu'
+          aria-label={triggerLabel}
+          className={learningBoredWorkSurfaceStyles['actionMenu']}
+          onKeyDown={handleMenuKeyDown}
+        >
+          <button
+            ref={clearActionRef}
+            type='button'
+            role='menuitem'
+            className={learningBoredWorkSurfaceStyles['dangerMenuItem']}
+            onClick={() => setStep('confirm')}
+          >
+            <Trash2 aria-hidden='true' />
+            <span className={learningBoredWorkSurfaceStyles['actionLabel']}>
+              {clearActionLabel}
+            </span>
+          </button>
+        </div>
+      ) : null}
+
+      {step === 'confirm' ? (
+        <section
+          id={confirmationId}
+          aria-labelledby={confirmationTitleId}
+          aria-describedby={confirmationDescriptionId}
+          aria-live='polite'
+          className={learningBoredWorkSurfaceStyles['clearConfirmation']}
+        >
+          <p
+            id={confirmationTitleId}
+            className={learningBoredWorkSurfaceStyles['confirmationTitle']}
+          >
+            {confirmationTitle}
+          </p>
+          <p
+            id={confirmationDescriptionId}
+            className={learningBoredWorkSurfaceStyles['confirmationDescription']}
+          >
+            {confirmationDescription}
+          </p>
+          <div className={learningBoredWorkSurfaceStyles['confirmationActions']}>
+            <button
+              ref={cancelRef}
+              type='button'
+              className={learningBoredWorkSurfaceStyles['secondaryButton']}
+              onClick={closeAndReturnFocus}
+            >
+              {translate('Cancel')}
+            </button>
+            <button
+              type='button'
+              className={learningBoredWorkSurfaceStyles['dangerButton']}
+              onClick={handleConfirm}
+            >
+              {confirmLabel}
+            </button>
+          </div>
+        </section>
+      ) : null}
+    </div>
+  );
 }
 
 function getStageLabel(status: LearningBoredGenerationStatus): string {
@@ -715,15 +893,11 @@ const LearningBoredCapturePanel: React.FC<LearningBoredCapturePanelProps> = ({
       footer={
         !status || isLearningBoredTerminalStatus(status) ? (
           <footer className={learningBoredWorkSurfaceStyles['footer']}>
-            <button
-              type='button'
-              className={`${learningBoredWorkSurfaceStyles['dangerButton']} ${learningBoredWorkSurfaceStyles['fullWidth']}`}
-              onClick={onClear}
-            >
-              {status === 'completed'
-                ? _('Remove this Board from the reader')
-                : _('Clear captured passage')}
-            </button>
+            <LearningBoredClearActionMenu
+              target={status === 'completed' ? 'board' : 'passage'}
+              onClear={onClear}
+              translate={_}
+            />
           </footer>
         ) : null
       }

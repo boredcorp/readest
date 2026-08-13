@@ -677,6 +677,14 @@
   accent-color: var(--lb-color-action);
 }
 
+.bookSelectionTarget {
+  display: grid;
+  width: var(--lb-touch-target);
+  height: var(--lb-touch-target);
+  place-items: center;
+  cursor: pointer;
+}
+
 .bookGlyph {
   display: grid;
   width: 3rem;

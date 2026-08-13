@@ -1,5 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type Page, type TestInfo } from '@playwright/test';
+import { expect, test, type Locator, type Page, type TestInfo } from '@playwright/test';
 
 import { LEARNINGBORED_BOARD_KINDS } from '../../src/integrations/learningbored/client';
 import {
@@ -47,6 +47,13 @@ const responsiveHarnessCss = `
 const previewStates = LEARNINGBORED_PREVIEW_GROUPS.flatMap<LearningBoredPreviewState>(
   (group) => group.states as readonly LearningBoredPreviewState[],
 );
+const controlInventoryStateChunks = LEARNINGBORED_PREVIEW_GROUPS.flatMap((group) =>
+  Array.from({ length: Math.ceil(group.states.length / 3) }, (_, chunkIndex) => ({
+    chunkIndex: chunkIndex + 1,
+    groupId: group.id,
+    states: group.states.slice(chunkIndex * 3, chunkIndex * 3 + 3),
+  })),
+);
 
 const themeLabels = {
   light: 'Light',
@@ -55,8 +62,53 @@ const themeLabels = {
 } as const satisfies Record<LearningBoredPreviewTheme, string>;
 
 const themes = LEARNINGBORED_PREVIEW_THEMES;
-const responsiveWidths = [375, 639, 640, 1440] as const;
+const responsiveWidths = [375, 639, 640, 768, 1440] as const;
+const clearActionWidths = [375, 639, 640, 768, 1440] as const;
+const assistiveWidths = [375, 1440] as const;
 const axeWcagTags = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] as const;
+
+const assistiveRepresentativeStates = [
+  { groupId: 'auth', stateId: 'auth-sign-in', label: 'Sign in' },
+  { groupId: 'library', stateId: 'library-imported', label: 'Imported library' },
+  { groupId: 'account', stateId: 'account-ready', label: 'Active beta account' },
+  { groupId: 'capture', stateId: 'capture-ready', label: 'Selection ready' },
+  {
+    groupId: 'generation',
+    stateId: 'generation-failed-refunded',
+    label: 'Failed and refunded',
+  },
+  { groupId: 'board', stateId: 'board-complete', label: 'Complete Board' },
+  {
+    groupId: 'figure',
+    stateId: 'figure-replacement-confirm',
+    label: 'Replace Figure',
+  },
+  {
+    groupId: 'comprehension',
+    stateId: 'comprehension-unanswered',
+    label: 'Comprehension check',
+  },
+  { groupId: 'progress', stateId: 'progress-overview', label: 'Four mastery states' },
+  { groupId: 'review', stateId: 'review-start', label: 'Review start' },
+  { groupId: 'primitives', stateId: 'primitive-action', label: 'Action primitive' },
+] as const satisfies readonly {
+  groupId: (typeof LEARNINGBORED_PREVIEW_GROUPS)[number]['id'];
+  stateId: LearningBoredPreviewState['id'];
+  label: string;
+}[];
+
+const reachableControlSelector =
+  ':is(a[href], button, input:not([type="hidden"]), select, textarea, summary, [role="button"], [role="menuitem"], [role="checkbox"], [role="radio"], [role="switch"], [tabindex="0"]):not(:disabled):not([aria-disabled="true"])';
+
+const expandedPassageActionLabels = {
+  trigger: 'Aktionen für den vollständig erfassten und ausführlich beschriebenen Textabschnitt',
+  menuItem:
+    'Den vollständig erfassten und ausführlich beschriebenen Textabschnitt dauerhaft leeren',
+  confirmation:
+    'Diesen vollständig erfassten und ausführlich beschriebenen Textabschnitt wirklich leeren?',
+  cancel: 'Vorgang abbrechen und zum sicheren Ausgangspunkt zurückkehren',
+  confirm: 'Erfassten Textabschnitt leeren',
+} as const;
 
 const screenshotCases = [
   { stateId: 'auth-sign-in', label: 'Sign in', theme: 'dark', width: 375 },
@@ -204,6 +256,226 @@ async function selectResponsiveState(page: Page, label: string, stateId: string)
   await setResponsiveProductPlane(page, true);
 }
 
+async function selectResponsiveInventoryState(
+  page: Page,
+  label: string,
+  stateId: string,
+): Promise<void> {
+  await setResponsiveProductPlane(page, false);
+  await page
+    .getByRole('button', { name: `Show ${label}`, exact: true })
+    .evaluate((button: HTMLButtonElement) => button.click());
+  await expect(page.getByRole('region', { name: previewRegionName })).toHaveAttribute(
+    'data-lb-preview-state',
+    stateId,
+  );
+  await setResponsiveProductPlane(page, true);
+}
+
+function productRenderStage(page: Page): Locator {
+  return page.locator('#preview-state-plane > div').first();
+}
+
+async function expectNoHorizontalOverflow(
+  page: Page,
+  width: number,
+  context: string,
+): Promise<void> {
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() => ({
+          body: document.body.scrollWidth,
+          document: document.documentElement.scrollWidth,
+          viewport: document.documentElement.clientWidth,
+        })),
+      { message: `${context} has no horizontal page overflow` },
+    )
+    .toEqual({ body: width, document: width, viewport: width });
+}
+
+async function expectRenderedContent(page: Page, context: string): Promise<void> {
+  const stage = productRenderStage(page);
+  await expect(stage, `${context} render stage`).toBeVisible();
+  const content = await stage.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const visibleText = Array.from(element.querySelectorAll<HTMLElement>('*'))
+      .filter((candidate) => candidate.getClientRects().length > 0)
+      .map((candidate) => candidate.textContent?.trim() ?? '')
+      .find((text) => text.length > 0);
+    return { height: rect.height, textLength: visibleText?.length ?? 0, width: rect.width };
+  });
+  expect.soft(content.height, `${context} render height`).toBeGreaterThan(0);
+  expect.soft(content.width, `${context} render width`).toBeGreaterThan(0);
+  expect.soft(content.textLength, `${context} retains visible text`).toBeGreaterThan(0);
+}
+
+async function expectNoClippedText(page: Page, context: string): Promise<void> {
+  const clipped = await productRenderStage(page).evaluate((stage) =>
+    Array.from(
+      stage.querySelectorAll<HTMLElement>(
+        'a, button, dd, dt, figcaption, h1, h2, h3, h4, label, legend, li, p, summary',
+      ),
+    )
+      .filter((element) => {
+        if (element.getClientRects().length === 0 || !element.innerText.trim()) return false;
+        const style = getComputedStyle(element);
+        if (
+          (style.clipPath !== 'none' && style.clipPath !== '') ||
+          (style.position === 'absolute' && element.clientHeight <= 1 && element.clientWidth <= 1)
+        ) {
+          return false;
+        }
+        const clipsInline = ['clip', 'hidden'].includes(style.overflowX);
+        const clipsBlock = ['clip', 'hidden'].includes(style.overflowY);
+        return (
+          (clipsInline && element.scrollWidth > element.clientWidth + 1) ||
+          (clipsBlock && element.scrollHeight > element.clientHeight + 1)
+        );
+      })
+      .map((element) =>
+        (element.getAttribute('aria-label') ?? element.innerText)
+          .replace(/\s+/gu, ' ')
+          .slice(0, 90),
+      ),
+  );
+  expect.soft(clipped, `${context} has no clipped text`).toEqual([]);
+}
+
+async function getVisibleControls(root: Locator): Promise<Locator[]> {
+  const candidates = root.locator(reachableControlSelector);
+  const controls: Locator[] = [];
+  for (let index = 0; index < (await candidates.count()); index += 1) {
+    const candidate = candidates.nth(index);
+    if (await candidate.isVisible()) controls.push(candidate);
+  }
+  return controls;
+}
+
+async function expectControlInventory(page: Page, root: Locator, context: string): Promise<number> {
+  const controls = await getVisibleControls(root);
+
+  for (let index = 0; index < controls.length; index += 1) {
+    const control = controls[index];
+    const identity = await control.evaluate((element, controlIndex) => {
+      const text = element.textContent?.replace(/\s+/gu, ' ').trim();
+      return (
+        element.getAttribute('aria-label') ??
+        element.getAttribute('name') ??
+        text ??
+        `${element.tagName.toLowerCase()} ${controlIndex + 1}`
+      ).slice(0, 90);
+    }, index);
+    const controlContext = `${context}: ${identity || `control ${index + 1}`}`;
+
+    await expect
+      .soft(control, `${controlContext} has an accessible name`)
+      .toHaveAccessibleName(/\S/u);
+
+    const target = await control.evaluate((element) => {
+      const activationTargets = new Set<HTMLElement>();
+      if (element instanceof HTMLElement) activationTargets.add(element);
+      if (element instanceof HTMLInputElement) {
+        for (const label of Array.from(element.labels ?? [])) activationTargets.add(label);
+      }
+      const wrappingLabel = element.closest('label');
+      if (wrappingLabel) activationTargets.add(wrappingLabel);
+
+      const candidates = Array.from(activationTargets, (targetElement) => {
+        const rect = targetElement.getBoundingClientRect();
+        return { height: rect.height, width: rect.width };
+      });
+      return candidates.sort(
+        (left, right) => right.height * right.width - left.height * left.width,
+      )[0];
+    });
+    expect
+      .soft(target?.height ?? 0, `${controlContext} activation height`)
+      .toBeGreaterThanOrEqual(44);
+    expect
+      .soft(target?.width ?? 0, `${controlContext} activation width`)
+      .toBeGreaterThanOrEqual(44);
+
+    await page.keyboard.press('Tab');
+    const focus = await control.evaluate(async (element) => {
+      const candidates = new Set<Element>();
+      const addCandidate = (candidate: Element | null | undefined) => {
+        if (candidate) candidates.add(candidate);
+      };
+
+      addCandidate(element);
+      addCandidate(element.previousElementSibling);
+      addCandidate(element.nextElementSibling);
+      if (element instanceof HTMLInputElement) {
+        for (const label of Array.from(element.labels ?? [])) addCandidate(label);
+      }
+
+      let ancestor = element.parentElement;
+      for (let depth = 0; ancestor && depth < 4; depth += 1) {
+        addCandidate(ancestor);
+        addCandidate(ancestor.previousElementSibling);
+        addCandidate(ancestor.nextElementSibling);
+        ancestor = ancestor.parentElement;
+      }
+
+      const styleSignature = (candidate: Element): string => {
+        const serialize = (style: CSSStyleDeclaration) =>
+          [
+            style.outlineColor,
+            style.outlineOffset,
+            style.outlineStyle,
+            style.outlineWidth,
+            style.boxShadow,
+            style.borderBlockEndColor,
+            style.borderBlockStartColor,
+            style.borderInlineEndColor,
+            style.borderInlineStartColor,
+            style.backgroundColor,
+            style.color,
+            style.textDecorationColor,
+            style.textDecorationLine,
+            style.textDecorationStyle,
+            style.opacity,
+          ].join('|');
+        return [
+          serialize(getComputedStyle(candidate)),
+          serialize(getComputedStyle(candidate, '::before')),
+          serialize(getComputedStyle(candidate, '::after')),
+        ].join('||');
+      };
+      const visibleOutline = (candidate: Element): boolean => {
+        const style = getComputedStyle(candidate);
+        return (
+          ((style.outlineStyle !== 'none' && style.outlineStyle !== 'hidden') ||
+            style.boxShadow !== 'none') &&
+          candidate.getClientRects().length > 0
+        );
+      };
+
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const targets = Array.from(candidates);
+      const before = targets.map(styleSignature);
+      if (element instanceof HTMLElement) element.focus({ preventScroll: true });
+      await new Promise<void>((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+      );
+      const after = targets.map(styleSignature);
+
+      return {
+        focused: document.activeElement === element,
+        visible:
+          after.some((signature, candidateIndex) => signature !== before[candidateIndex]) ||
+          targets.some(visibleOutline),
+      };
+    });
+    expect.soft(focus.focused, `${controlContext} accepts focus`).toBe(true);
+    expect.soft(focus.visible, `${controlContext} has visible focus treatment`).toBe(true);
+  }
+
+  return controls.length;
+}
+
 test.beforeEach(async ({ page }) => {
   observeRuntime(page);
 });
@@ -226,28 +498,23 @@ test.describe('Reader LearningBored deterministic matrix', () => {
     }
   });
 
-  test('has no horizontal page overflow at the responsive boundary widths', async ({ page }) => {
-    await openPreview(page);
-
+  for (const theme of themes) {
     for (const width of responsiveWidths) {
-      await page.setViewportSize({ width, height: 900 });
-      for (const state of previewStates) {
-        await setResponsiveProductPlane(page, false);
-        await selectState(page, state.label, state.id);
-        await setResponsiveProductPlane(page, true);
-        await expectProductPlaneWidth(page, width);
-        await expect
-          .poll(() =>
-            page.evaluate(() => ({
-              body: document.body.scrollWidth,
-              document: document.documentElement.scrollWidth,
-              viewport: document.documentElement.clientWidth,
-            })),
-          )
-          .toEqual({ body: width, document: width, viewport: width });
+      for (const group of LEARNINGBORED_PREVIEW_GROUPS) {
+        test(`responsive matrix: ${group.id} in ${theme} at ${width}px`, async ({ page }) => {
+          await page.setViewportSize({ width, height: 900 });
+          await openPreview(page);
+          await selectTheme(page, theme);
+
+          for (const state of group.states) {
+            await selectResponsiveState(page, state.label, state.id);
+            await expectProductPlaneWidth(page, width);
+            await expectNoHorizontalOverflow(page, width, `${state.id} in ${theme} at ${width}px`);
+          }
+        });
       }
     }
-  });
+  }
 
   test('keeps the 640px library header action on one line', async ({ page }) => {
     await page.setViewportSize({ width: 640, height: 900 });
@@ -865,6 +1132,188 @@ test.describe('Reader LearningBored deterministic matrix', () => {
     ).toEqual({ localStorage: [], sessionStorage: [] });
   });
 
+  test('keeps the secondary passage and Board actions safe across responsive boundaries', async ({
+    page,
+  }) => {
+    await openStudyState(page, { label: 'Selection ready', stateId: 'capture-ready' }, 375);
+
+    const actionStates = [
+      {
+        state: { label: 'Selection ready', stateId: 'capture-ready' },
+        trigger: 'Passage actions',
+        menuItem: 'Clear captured passage',
+        confirmation: 'Clear this captured passage?',
+      },
+      {
+        state: { label: 'Complete Board', stateId: 'board-complete' },
+        trigger: 'Board actions',
+        menuItem: 'Remove this Board from the reader',
+        confirmation: 'Remove this Board?',
+      },
+    ] as const;
+
+    for (const width of clearActionWidths) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectProductPlaneWidth(page, width);
+
+      for (const actionState of actionStates) {
+        await selectResponsiveState(page, actionState.state.label, actionState.state.stateId);
+        const trigger = page.getByRole('button', { name: actionState.trigger, exact: true });
+        await expect(trigger).toHaveAttribute('aria-haspopup', 'menu');
+        await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+        const triggerBox = await trigger.boundingBox();
+        expect(triggerBox, `${actionState.trigger} at ${width}px has geometry`).not.toBeNull();
+        expect(triggerBox!.height).toBeGreaterThanOrEqual(44);
+        expect(triggerBox!.width).toBeGreaterThanOrEqual(44);
+
+        await trigger.click();
+        const menuItem = page.getByRole('menuitem', {
+          name: actionState.menuItem,
+          exact: true,
+        });
+        await expect(menuItem).toBeFocused();
+        await expect(page.getByText(/deterministic (?:Board|captured passage) from/u)).toHaveCount(
+          0,
+        );
+
+        await menuItem.click();
+        const confirmation = page.getByRole('region', {
+          name: actionState.confirmation,
+          exact: true,
+        });
+        await expect(confirmation).toBeVisible();
+        await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
+        await expect(page.locator('[data-testid="learningbored-work-surface"]')).toHaveCount(1);
+
+        await confirmation.getByRole('button', { name: 'Cancel' }).click();
+        await expect(confirmation).toHaveCount(0);
+        await expect(trigger).toBeFocused();
+        await expect(page.locator('[data-testid="learningbored-work-surface"]')).toHaveCount(1);
+        expect(
+          await page.evaluate(() => document.documentElement.scrollWidth),
+          `${actionState.trigger} at ${width}px does not widen the page`,
+        ).toBe(width);
+      }
+    }
+  });
+
+  test('supports keyboard dismissal and requires an explicit Board-removal confirmation', async ({
+    page,
+  }) => {
+    await openStudyState(page, { label: 'Selection ready', stateId: 'capture-ready' }, 375);
+    const passageTrigger = page.getByRole('button', { name: 'Passage actions', exact: true });
+    await passageTrigger.focus();
+    await page.keyboard.press('ArrowDown');
+    await expect(page.getByRole('menuitem', { name: 'Clear captured passage' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(page.getByRole('menu')).toHaveCount(0);
+    await expect(passageTrigger).toBeFocused();
+    await expect(
+      page.getByText('Cleared the deterministic captured passage', { exact: false }),
+    ).toHaveCount(0);
+
+    await page.setViewportSize({ width: 640, height: 900 });
+    await selectResponsiveState(page, 'Complete Board', 'board-complete');
+    const boardTrigger = page.getByRole('button', { name: 'Board actions', exact: true });
+    await boardTrigger.focus();
+    await page.keyboard.press('Enter');
+    const removeItem = page.getByRole('menuitem', {
+      name: 'Remove this Board from the reader',
+    });
+    await expect(removeItem).toBeFocused();
+    await page.keyboard.press('Enter');
+    const confirmation = page.getByRole('region', { name: 'Remove this Board?' });
+    await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(confirmation).toHaveCount(0);
+    await expect(boardTrigger).toBeFocused();
+    await expect(page.getByText('Removed the deterministic Board', { exact: false })).toHaveCount(
+      0,
+    );
+
+    await boardTrigger.click();
+    await removeItem.click();
+    const confirmationAxe = await new AxeBuilder({ page })
+      .include('[data-testid="learningbored-work-surface"]')
+      .withTags([...axeWcagTags])
+      .analyze();
+    expect(confirmationAxe.violations).toEqual([]);
+    await page.getByRole('button', { name: 'Remove Board' }).click();
+    await expect(page.locator('[data-testid="learningbored-work-surface"]')).toHaveCount(0);
+    await expect(
+      page.getByText('Removed the deterministic Board from this Reader preview.'),
+    ).toBeAttached();
+  });
+
+  test('wraps expanded action copy without clipping at mobile, boundary, tablet, or desktop widths', async ({
+    page,
+  }) => {
+    await openStudyState(
+      page,
+      { label: 'Unsupported PDF', stateId: 'capture-pdf-unavailable' },
+      375,
+    );
+
+    for (const width of clearActionWidths) {
+      await page.setViewportSize({ width, height: 900 });
+      await expectProductPlaneWidth(page, width);
+      const trigger = page.getByRole('button', {
+        name: expandedPassageActionLabels.trigger,
+        exact: true,
+      });
+      await trigger.click();
+      await page
+        .getByRole('menuitem', { name: expandedPassageActionLabels.menuItem, exact: true })
+        .click();
+
+      const confirmation = page.getByRole('region', {
+        name: expandedPassageActionLabels.confirmation,
+        exact: true,
+      });
+      await expect(confirmation).toBeVisible();
+      await expect(
+        confirmation.getByRole('button', {
+          name: expandedPassageActionLabels.cancel,
+          exact: true,
+        }),
+      ).toBeFocused();
+      await expect(
+        confirmation.getByRole('button', {
+          name: expandedPassageActionLabels.confirm,
+          exact: true,
+        }),
+      ).toBeVisible();
+
+      const overflow = await page
+        .locator('[data-testid="learningbored-work-surface"] > footer')
+        .evaluate((footer) => {
+          const visibleText = Array.from(
+            footer.querySelectorAll<HTMLElement>('button, p, span'),
+          ).filter((element) => element.getClientRects().length > 0);
+          return {
+            page: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            text: visibleText
+              .filter(
+                (element) =>
+                  element.scrollWidth > element.clientWidth + 1 ||
+                  element.scrollHeight > element.clientHeight + 1,
+              )
+              .map((element) => element.textContent?.trim() ?? element.tagName),
+          };
+        });
+      expect(overflow, `expanded action copy at ${width}px remains fully readable`).toEqual({
+        page: 0,
+        text: [],
+      });
+
+      await confirmation
+        .getByRole('button', { name: expandedPassageActionLabels.cancel, exact: true })
+        .click();
+      await expect(trigger).toBeFocused();
+    }
+  });
+
   test('keeps 44px touch controls, reduced motion, and structural scaffold cues in greyscale', async ({
     page,
   }) => {
@@ -954,6 +1403,173 @@ test.describe('Reader LearningBored deterministic matrix', () => {
     ).toBeAttached();
   });
 
+  for (const width of assistiveWidths) {
+    test(`assistive representatives: reduced motion at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await openPreview(page);
+
+      for (const state of assistiveRepresentativeStates) {
+        await selectResponsiveState(page, state.label, state.stateId);
+        await expectProductPlaneWidth(page, width);
+        const movingElements = await productRenderStage(page).evaluate((stage) =>
+          Array.from(stage.querySelectorAll<HTMLElement>('*'))
+            .filter((element) => element.getClientRects().length > 0)
+            .filter((element) => {
+              const style = getComputedStyle(element);
+              const durationInSeconds = (value: string): number =>
+                Math.max(
+                  ...value.split(',').map((duration) => {
+                    const normalized = duration.trim();
+                    if (normalized.endsWith('ms')) return Number.parseFloat(normalized) / 1000;
+                    return Number.parseFloat(normalized) || 0;
+                  }),
+                );
+              return (
+                durationInSeconds(style.animationDuration) > 0.001 ||
+                durationInSeconds(style.transitionDuration) > 0.001
+              );
+            })
+            .map((element) =>
+              (element.getAttribute('aria-label') ?? element.className ?? element.tagName)
+                .toString()
+                .slice(0, 90),
+            ),
+        );
+        expect
+          .soft(movingElements, `${state.groupId} respects reduced motion at ${width}px`)
+          .toEqual([]);
+      }
+    });
+
+    test(`assistive representatives: WCAG text spacing at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openPreview(page);
+      await page.addStyleTag({
+        content: `
+          #preview-state-plane :is(a, button, dd, dt, figcaption, h1, h2, h3, h4, input, label, legend, li, p, select, summary, textarea) {
+            letter-spacing: 0.12em !important;
+            line-height: 1.5 !important;
+            word-spacing: 0.16em !important;
+          }
+          #preview-state-plane p {
+            margin-block-end: 2em !important;
+          }
+        `,
+      });
+
+      for (const state of assistiveRepresentativeStates) {
+        await selectResponsiveState(page, state.label, state.stateId);
+        await expectProductPlaneWidth(page, width);
+        await expectNoHorizontalOverflow(
+          page,
+          width,
+          `${state.groupId} with WCAG text spacing at ${width}px`,
+        );
+        await expectNoClippedText(page, `${state.groupId} with WCAG text spacing at ${width}px`);
+      }
+    });
+
+    test(`assistive representatives: forced colors at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ forcedColors: 'active' });
+      await openPreview(page);
+      expect(await page.evaluate(() => matchMedia('(forced-colors: active)').matches)).toBe(true);
+
+      for (const state of assistiveRepresentativeStates) {
+        await selectResponsiveState(page, state.label, state.stateId);
+        await expectProductPlaneWidth(page, width);
+        await expectRenderedContent(page, `${state.groupId} in forced colors at ${width}px`);
+        await expectNoHorizontalOverflow(
+          page,
+          width,
+          `${state.groupId} in forced colors at ${width}px`,
+        );
+      }
+    });
+
+    test(`assistive representatives: greyscale at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openPreview(page);
+      await page.addStyleTag({
+        content: '#preview-state-plane > div { filter: grayscale(1) !important; }',
+      });
+
+      for (const state of assistiveRepresentativeStates) {
+        await selectResponsiveState(page, state.label, state.stateId);
+        await expectProductPlaneWidth(page, width);
+        await expectRenderedContent(page, `${state.groupId} in greyscale at ${width}px`);
+        await expect(productRenderStage(page)).toHaveCSS('filter', 'grayscale(1)');
+      }
+    });
+
+    test(`assistive representatives: images disabled at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openPreview(page);
+      await page.addStyleTag({
+        content: '#preview-state-plane :is(img, picture, svg, image) { display: none !important; }',
+      });
+
+      for (const state of assistiveRepresentativeStates) {
+        await selectResponsiveState(page, state.label, state.stateId);
+        await expectProductPlaneWidth(page, width);
+        await expectRenderedContent(page, `${state.groupId} without images at ${width}px`);
+        await expectNoHorizontalOverflow(
+          page,
+          width,
+          `${state.groupId} without images at ${width}px`,
+        );
+      }
+    });
+
+    test(`assistive representatives: print at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await openPreview(page);
+
+      for (const state of assistiveRepresentativeStates) {
+        await page.emulateMedia({ media: 'screen' });
+        await selectResponsiveState(page, state.label, state.stateId);
+        await page.emulateMedia({ media: 'print' });
+        expect(await page.evaluate(() => matchMedia('print').matches)).toBe(true);
+        await expectRenderedContent(page, `${state.groupId} in print at ${width}px`);
+        await expectNoHorizontalOverflow(page, width, `${state.groupId} in print at ${width}px`);
+      }
+    });
+  }
+
+  test.describe('representative touch actionability', () => {
+    test.use({ hasTouch: true });
+
+    for (const width of assistiveWidths) {
+      test(`keeps all contract groups safely touch-actionable at ${width}px`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await openPreview(page);
+
+        for (const state of assistiveRepresentativeStates) {
+          await selectResponsiveState(page, state.label, state.stateId);
+          const controls = await getVisibleControls(productRenderStage(page));
+          expect
+            .soft(controls.length, `${state.groupId} exposes a touch target`)
+            .toBeGreaterThan(0);
+          const control = controls[0];
+          if (!control) continue;
+
+          await expect
+            .soft(control, `${state.groupId} representative touch target has a name`)
+            .toHaveAccessibleName(/\S/u);
+          const box = await control.boundingBox();
+          expect.soft(box?.height ?? 0, `${state.groupId} touch height`).toBeGreaterThanOrEqual(44);
+          expect.soft(box?.width ?? 0, `${state.groupId} touch width`).toBeGreaterThanOrEqual(44);
+          await control.tap({ trial: true });
+          await expect(page.getByRole('region', { name: previewRegionName })).toHaveAttribute(
+            'data-lb-preview-state',
+            state.stateId,
+          );
+        }
+      });
+    }
+  });
+
   for (const theme of themes) {
     for (const state of previewStates) {
       test(`axe: ${state.id} in ${theme}`, async ({ page }) => {
@@ -969,6 +1585,119 @@ test.describe('Reader LearningBored deterministic matrix', () => {
         expect(results.violations).toEqual([]);
       });
     }
+  }
+
+  for (const pageScale of [1, 2] as const) {
+    for (const chunk of controlInventoryStateChunks) {
+      test(`T-10 control inventory: ${chunk.groupId} chunk ${chunk.chunkIndex} at ${pageScale * 100}% page scale`, async ({
+        page,
+      }) => {
+        await page.setViewportSize({ width: 375, height: 900 });
+        await openPreview(page);
+        const cdp = await page.context().newCDPSession(page);
+        let inventoryCount = 0;
+
+        try {
+          await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: pageScale });
+          await expect
+            .poll(() => page.evaluate(() => window.visualViewport?.scale ?? 1))
+            .toBe(pageScale);
+
+          for (const state of chunk.states) {
+            await selectResponsiveInventoryState(page, state.label, state.id);
+            await expectProductPlaneWidth(page, 375);
+            inventoryCount += await expectControlInventory(
+              page,
+              productRenderStage(page),
+              `${state.id} at ${pageScale * 100}% page scale`,
+            );
+          }
+        } finally {
+          if (!page.isClosed()) {
+            await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
+            await cdp.detach();
+          }
+        }
+
+        expect(inventoryCount, `${chunk.groupId} reachable control inventory`).toBeGreaterThan(0);
+      });
+    }
+
+    test(`T-10 transient clear controls at ${pageScale * 100}% page scale`, async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 900 });
+      await openPreview(page);
+      const cdp = await page.context().newCDPSession(page);
+      const actionStates = [
+        {
+          state: { label: 'Selection ready', stateId: 'capture-ready' },
+          trigger: 'Passage actions',
+          menuItem: 'Clear captured passage',
+          confirmation: 'Clear this captured passage?',
+        },
+        {
+          state: { label: 'Complete Board', stateId: 'board-complete' },
+          trigger: 'Board actions',
+          menuItem: 'Remove this Board from the reader',
+          confirmation: 'Remove this Board?',
+        },
+      ] as const;
+
+      try {
+        await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: pageScale });
+        await expect
+          .poll(() => page.evaluate(() => window.visualViewport?.scale ?? 1))
+          .toBe(pageScale);
+
+        for (const actionState of actionStates) {
+          await selectResponsiveInventoryState(
+            page,
+            actionState.state.label,
+            actionState.state.stateId,
+          );
+          const trigger = page.getByRole('button', {
+            name: actionState.trigger,
+            exact: true,
+          });
+          await trigger.focus();
+          await trigger.press('Enter');
+          const menu = page.getByRole('menu', { name: actionState.trigger, exact: true });
+          expect(
+            await expectControlInventory(
+              page,
+              menu,
+              `${actionState.state.stateId} menu at ${pageScale * 100}% page scale`,
+            ),
+          ).toBe(1);
+
+          const menuItem = menu.getByRole('menuitem', {
+            name: actionState.menuItem,
+            exact: true,
+          });
+          await menuItem.focus();
+          await menuItem.press('Enter');
+          const confirmation = page.getByRole('region', {
+            name: actionState.confirmation,
+            exact: true,
+          });
+          expect(
+            await expectControlInventory(
+              page,
+              confirmation,
+              `${actionState.state.stateId} confirmation at ${pageScale * 100}% page scale`,
+            ),
+          ).toBe(2);
+          const cancel = confirmation.getByRole('button', { name: 'Cancel' });
+          await cancel.focus();
+          await cancel.press('Enter');
+          await expect(trigger).toBeFocused();
+        }
+      } finally {
+        if (!page.isClosed()) {
+          await cdp.send('Emulation.setPageScaleFactor', { pageScaleFactor: 1 });
+          await cdp.detach();
+        }
+      }
+    });
   }
 
   test('keeps the preview on its deterministic local fixture boundary', async ({ page }) => {
@@ -1079,6 +1808,55 @@ test.describe('Reader LearningBored deterministic matrix', () => {
         expect.soft(target.height).toBeGreaterThanOrEqual(44);
         expect.soft(target.width).toBeGreaterThanOrEqual(44);
       }
+    });
+
+    test('requires a deliberate touch confirmation before clearing a passage', async ({ page }) => {
+      await openPreview(page);
+      await page.getByRole('button', { name: 'Show Selection ready', exact: true }).tap();
+      await setResponsiveProductPlane(page, true);
+      const trigger = page.getByRole('button', { name: 'Passage actions', exact: true });
+
+      await trigger.tap();
+      await page.getByRole('menuitem', { name: 'Clear captured passage' }).tap();
+      await expect(page.locator('[data-testid="learningbored-work-surface"]')).toHaveCount(1);
+      await expect(
+        page.getByText('Cleared the deterministic captured passage', { exact: false }),
+      ).toHaveCount(0);
+
+      await page.getByRole('button', { name: 'Clear passage' }).tap();
+      await expect(page.locator('[data-testid="learningbored-work-surface"]')).toHaveCount(0);
+      await expect(
+        page.getByText('Cleared the deterministic captured passage from this Reader preview.'),
+      ).toBeAttached();
+    });
+
+    test('supports Board touch cancellation before a separate confirmed removal', async ({
+      page,
+    }) => {
+      await openPreview(page);
+      await page.getByRole('button', { name: 'Show Complete Board', exact: true }).tap();
+      await setResponsiveProductPlane(page, true);
+      const workSurface = page.locator('[data-testid="learningbored-work-surface"]');
+      const trigger = page.getByRole('button', { name: 'Board actions', exact: true });
+
+      await trigger.tap();
+      await page.getByRole('menuitem', { name: 'Remove this Board from the reader' }).tap();
+      const confirmation = page.getByRole('region', { name: 'Remove this Board?' });
+      await expect(confirmation.getByRole('button', { name: 'Cancel' })).toBeFocused();
+      await confirmation.getByRole('button', { name: 'Cancel' }).tap();
+      await expect(workSurface).toHaveCount(1);
+      await expect(trigger).toBeFocused();
+      await expect(page.getByText('Removed the deterministic Board', { exact: false })).toHaveCount(
+        0,
+      );
+
+      await trigger.tap();
+      await page.getByRole('menuitem', { name: 'Remove this Board from the reader' }).tap();
+      await page.getByRole('button', { name: 'Remove Board' }).tap();
+      await expect(workSurface).toHaveCount(0);
+      await expect(
+        page.getByText('Removed the deterministic Board from this Reader preview.'),
+      ).toBeAttached();
     });
   });
 

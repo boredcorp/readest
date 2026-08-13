@@ -16,7 +16,11 @@ import {
   LearningBoredClient,
   LearningBoredGenerationSnapshot,
 } from '@/integrations/learningbored/client';
-import { LearningBoredPresentationThemeProvider } from '@/integrations/learningbored/presentation/context';
+import {
+  LearningBoredPresentationThemeProvider,
+  LearningBoredTranslationProvider,
+  type LearningBoredTranslationFunc,
+} from '@/integrations/learningbored/presentation/context';
 import type { LearningBoredReaderSession } from '@/integrations/learningbored/session';
 
 const passage = {
@@ -226,15 +230,16 @@ function createClient(overrides: Partial<LearningBoredClient> = {}): LearningBor
 
 function renderPanel(input?: {
   session?: LearningBoredReaderSession;
-  client?: LearningBoredClient;
+  client?: LearningBoredClient | null;
   onSessionPatch?: LearningBoredCapturePanelProps['onSessionPatch'];
   onStartReview?: NonNullable<LearningBoredCapturePanelProps['onStartReview']>;
   onSourceSpanEnter?: NonNullable<LearningBoredCapturePanelProps['onSourceSpanEnter']>;
   onSourceSpanLeave?: NonNullable<LearningBoredCapturePanelProps['onSourceSpanLeave']>;
   theme?: 'light' | 'dark' | 'eink';
+  translate?: LearningBoredTranslationFunc;
 }) {
   const session = input?.session ?? createSession();
-  const client = input?.client ?? createClient();
+  const client = input && 'client' in input ? (input.client ?? null) : createClient();
   const onSessionPatch =
     input?.onSessionPatch ?? vi.fn<LearningBoredCapturePanelProps['onSessionPatch']>();
   const onSourceSpanEnter =
@@ -255,10 +260,19 @@ function renderPanel(input?: {
     onSourceSpanEnter,
     onSourceSpanLeave,
   };
-  const rendered = render(
+  const panel = (
     <LearningBoredPresentationThemeProvider value={input?.theme ?? 'light'}>
       <LearningBoredCapturePanel {...props} />
-    </LearningBoredPresentationThemeProvider>,
+    </LearningBoredPresentationThemeProvider>
+  );
+  const rendered = render(
+    input?.translate ? (
+      <LearningBoredTranslationProvider value={input.translate}>
+        {panel}
+      </LearningBoredTranslationProvider>
+    ) : (
+      panel
+    ),
   );
   return {
     ...rendered,
@@ -299,6 +313,123 @@ describe('LearningBored reader result panel', () => {
     cleanup();
     vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('moves passage clearing into a secondary menu and returns focus after cancellation', () => {
+    const rendered = renderPanel({
+      session: createSession({ generationId: null, boardId: null }),
+      client: null,
+    });
+    const trigger = screen.getByRole('button', { name: 'Passage actions' });
+
+    expect(trigger.getAttribute('aria-haspopup')).toBe('menu');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(rendered.props.onClear).not.toHaveBeenCalled();
+
+    fireEvent.click(trigger);
+
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    const clearItem = screen.getByRole('menuitem', { name: 'Clear captured passage' });
+    expect(clearItem).toBe(document.activeElement);
+    expect(rendered.props.onClear).not.toHaveBeenCalled();
+
+    fireEvent.click(clearItem);
+
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(screen.getByRole('region', { name: 'Clear this captured passage?' })).toBeTruthy();
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel).toBe(document.activeElement);
+    expect(rendered.props.onClear).not.toHaveBeenCalled();
+
+    fireEvent.click(cancel);
+
+    expect(screen.queryByRole('region', { name: 'Clear this captured passage?' })).toBeNull();
+    expect(trigger).toBe(document.activeElement);
+    expect(rendered.props.onClear).not.toHaveBeenCalled();
+  });
+
+  it('requires explicit confirmation before removing a completed Board', async () => {
+    vi.useFakeTimers();
+    const board = createBoard();
+    const rendered = renderPanel({
+      client: createClient({
+        getGeneration: vi.fn(async () => ({
+          id: 'generation-1',
+          status: 'completed' as const,
+          boardId: board.id,
+          board,
+        })),
+      }),
+    });
+    await advancePoll();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Board actions' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Remove this Board from the reader' }));
+
+    expect(rendered.props.onClear).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Board' }));
+
+    expect(rendered.props.onClear).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('region', { name: 'Remove this Board?' })).toBeNull();
+  });
+
+  it('opens and dismisses the passage action menu with standard keyboard semantics', () => {
+    renderPanel({
+      session: createSession({ generationId: null, boardId: null }),
+      client: null,
+    });
+    const trigger = screen.getByRole('button', { name: 'Passage actions' });
+    trigger.focus();
+
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+
+    const clearItem = screen.getByRole('menuitem', { name: 'Clear captured passage' });
+    expect(clearItem).toBe(document.activeElement);
+    fireEvent.keyDown(clearItem, { key: 'Escape' });
+
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(trigger).toBe(document.activeElement);
+  });
+
+  it('preserves long translated action and confirmation labels without truncating copy', () => {
+    const translations: Record<string, string> = {
+      'Passage actions':
+        'Aktionen für den vollständig erfassten und ausführlich beschriebenen Textabschnitt',
+      'Clear captured passage':
+        'Den vollständig erfassten und ausführlich beschriebenen Textabschnitt dauerhaft leeren',
+      'Clear this captured passage?':
+        'Diesen vollständig erfassten und ausführlich beschriebenen Textabschnitt wirklich leeren?',
+      'This removes the captured passage before a Board is created.':
+        'Dadurch wird der vollständig erfasste Textabschnitt entfernt, bevor eine Lerntafel erstellt wird.',
+      Cancel: 'Vorgang abbrechen und zum sicheren Ausgangspunkt zurückkehren',
+      'Clear passage': 'Erfassten Textabschnitt leeren',
+    };
+    renderPanel({
+      session: createSession({ generationId: null, boardId: null }),
+      client: null,
+      translate: (message) => translations[message] ?? message,
+    });
+
+    const trigger = screen.getByRole('button', { name: translations['Passage actions'] });
+    expect(trigger.textContent).toContain(translations['Passage actions']);
+    fireEvent.click(trigger);
+    const clearItem = screen.getByRole('menuitem', {
+      name: translations['Clear captured passage'],
+    });
+    expect(clearItem.textContent).toContain(translations['Clear captured passage']);
+    fireEvent.click(clearItem);
+
+    expect(
+      screen.getByRole('region', { name: translations['Clear this captured passage?'] }),
+    ).toBeTruthy();
+    expect(screen.getByRole('button', { name: translations['Cancel'] }).textContent).toBe(
+      translations['Cancel'],
+    );
+    expect(screen.getByRole('button', { name: translations['Clear passage'] }).textContent).toBe(
+      translations['Clear passage'],
+    );
   });
 
   it('starts a new generation through the injected client and shows real stages', async () => {

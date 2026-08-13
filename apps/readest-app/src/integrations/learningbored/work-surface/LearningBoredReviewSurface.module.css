@@ -363,8 +363,8 @@
 }
 
 .questionScroll:focus-visible {
-  outline: var(--lb-focus-ring-width) solid var(--lb-color-action);
-  outline-offset: calc(-1 * var(--lb-focus-ring-width));
+  outline: calc(var(--lb-seam) * 3) solid var(--lb-color-action);
+  outline-offset: calc(var(--lb-seam) * -3);
 }
 
 .questionMeta {
