@@ -17,6 +17,11 @@ const exportOutput = appPlatform !== 'web' && !isDev;
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   allowedDevOrigins: isDev && readerDevOriginHost ? [readerDevOriginHost] : undefined,
+  experimental: {
+    // Next.js 16.3 defaults to its CLI type-checker, while this workspace deliberately
+    // keeps the TypeScript 6 API bridge alongside the TypeScript 7 native CLI.
+    useTypeScriptCli: false,
+  },
   // Ensure Next.js uses SSG instead of SSR
   // https://nextjs.org/docs/pages/building-your-application/deploying/static-exports
   output: exportOutput ? 'export' : undefined,

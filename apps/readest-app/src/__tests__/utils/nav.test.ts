@@ -52,6 +52,7 @@ const WebviewWindowCtor = WebviewWindow as unknown as { getByLabel: ReturnType<t
 // ── Helpers ──────────────────────────────────────────────────────────
 function mockRouter() {
   return {
+    bfcacheId: 'test',
     push: vi.fn(),
     replace: vi.fn(),
     back: vi.fn(),

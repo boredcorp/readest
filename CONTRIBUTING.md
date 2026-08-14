@@ -12,17 +12,20 @@ When contributing to `Readest`, whether on GitHub or in other community spaces:
 
 In order to not waste your time implementing a change that has already been declined, or is generally not needed, start by [opening an issue](https://github.com/readest/readest/issues/new/choose) describing the problem you would like to solve.
 
-For the best experience to build Readest for yourself, use a recent version of Node.js and Rust. Refer to the [Tauri documentation](https://v2.tauri.app/start/prerequisites/) for details on setting up the development environment prerequisites on different platforms.
+For the best experience building Readest, use fnm to load the exact Node.js version from
+`.node-version`. Refer to the [Tauri documentation](https://v2.tauri.app/start/prerequisites/) for
+the current Rust and platform prerequisites.
 
 Basically you need to install or update the following development tools:
 
-- **Node.js** and **pnpm** for Next.js development
+- **Node.js 24.19.0** and **pnpm 11.21.0** through Corepack for Next.js development
 - **Rust** and **Cargo** for Tauri development
 
 ```bash
-nvm install v22
-nvm use v22
-npm install -g pnpm
+fnm install
+fnm use
+corepack enable
+corepack install --global pnpm@11.21.0
 rustup update
 ```
 

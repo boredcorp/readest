@@ -15,6 +15,11 @@ jobs:
         env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          RETRY_RUN_ID: ${{ inputs.run_id }}
         run: |
-          gh run watch ${{ inputs.run_id }} > /dev/null 2>&1
-          gh run rerun ${{ inputs.run_id }} --failed
+          if [[ ! "$RETRY_RUN_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::run_id must contain digits only"
+            exit 1
+          fi
+          gh run watch "$RETRY_RUN_ID" > /dev/null 2>&1
+          gh run rerun "$RETRY_RUN_ID" --failed

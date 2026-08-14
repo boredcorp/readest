@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nodejs-nixpkgs.url = "github:NixOS/nixpkgs/0e251e24a4f24e036a084b6b4b2d2491af4167f4";
     flake-utils.url = "github:numtide/flake-utils";
     devshell.url = "github:numtide/devshell";
     android = {
@@ -14,7 +15,7 @@
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, android, devshell, fenix }:
+  outputs = { self, nixpkgs, nodejs-nixpkgs, flake-utils, android, devshell, fenix }:
     {
       overlay = final: prev: {
         inherit (self.packages.${final.system}) android-sdk android-studio;
@@ -36,11 +37,12 @@
             self.overlay
           ];
         };
+        nodePkgs = import nodejs-nixpkgs { inherit system; };
+        nodeRuntime = assert nodePkgs.nodejs_24.version == "24.19.0"; nodePkgs.nodejs_24;
         # android-studio is not available in aarch64-darwin
         androidConditionalPackages = if pkgs.system != "aarch64-darwin" then [ pkgs.android-studio ] else [ ];
         commonPackages = with pkgs; [
-          pnpm
-          nodejs_22
+          nodeRuntime
           clang
           pkg-config
           (pkgs.fenix.complete.withComponents [

@@ -116,15 +116,19 @@ Stay tuned for continuous improvements and updates! Contributions and suggestion
 
 ## Requirements
 
-- **Node.js** and **pnpm** for Next.js development
+- **Node.js 24.19.0**, pinned in `.node-version`, and **pnpm 11.21.0** through Corepack for Next.js
+  development
 - **Rust** and **Cargo** for Tauri development
 
-For the best experience to build Readest for yourself, use a recent version of Node.js and Rust. Refer to the [Tauri documentation](https://v2.tauri.app/start/prerequisites/) for details on setting up the development environment prerequisites on different platforms.
+For the best experience building Readest, use fnm to load the repository's exact Node.js version
+and follow the [Tauri documentation](https://v2.tauri.app/start/prerequisites/) for the current Rust
+and platform prerequisites.
 
 ```bash
-nvm install v24
-nvm use v24
-npm install -g pnpm
+fnm install
+fnm use
+corepack enable
+corepack install --global pnpm@11.21.0
 rustup update
 ```
 
@@ -219,6 +223,10 @@ nix develop ./ops  # enter a dev shell for the web app
 nix develop ./ops#ios # enter a dev shell for the ios app
 nix develop ./ops#android # enter a dev shell for the android app
 ```
+
+The Nix shell pins Node but deliberately leaves pnpm to Corepack so it cannot drift from the
+repository's `packageManager` field. Run pnpm commands as `corepack pnpm ...` inside the shell;
+do not install a global pnpm into the immutable Nix-store Node prefix.
 
 ### 7. More information
 

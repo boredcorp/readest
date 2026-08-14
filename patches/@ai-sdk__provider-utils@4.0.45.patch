@@ -1,8 +1,8 @@
 diff --git a/dist/index.js b/dist/index.js
-index 1f739438595d6f4c5d42539bfa195b8fa436426b..84f83049a2101147c8434ece7209a9fcc42965f7 100644
+index 567d4ce0d06036b322d1b741324aaf72040cdb38..1584720f34a4f9c0b3a0e392274b9cd6e65cf8c1 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -1638,8 +1638,9 @@ function stringifyRegExpWithFlags(regex, refs) {
+@@ -1751,8 +1751,9 @@ function stringifyRegExpWithFlags(regex, refs) {
      }
      if (flags.m) {
        if (source[i] === "^") {
@@ -15,10 +15,10 @@ index 1f739438595d6f4c5d42539bfa195b8fa436426b..84f83049a2101147c8434ece7209a9fc
        } else if (source[i] === "$") {
          pattern += `($|(?=[\r
 diff --git a/dist/index.mjs b/dist/index.mjs
-index 23b7060646047f724eaeb1a66dcbac6dd824b1f1..d27260e74cd2196c3a45d857c650243be0fc730b 100644
+index c78ef08f105cea75a53437a296582222058c6b0f..b5c974e2139dc4d37ab6e7a4514abd8171bf9be2 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
-@@ -1543,8 +1543,9 @@ function stringifyRegExpWithFlags(regex, refs) {
+@@ -1656,8 +1656,9 @@ function stringifyRegExpWithFlags(regex, refs) {
      }
      if (flags.m) {
        if (source[i] === "^") {

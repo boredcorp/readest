@@ -23,32 +23,50 @@ jobs:
     strategy:
       fail-fast: false
     env:
+      RELEASE_TAG: ${{ inputs.tag }}
       RELEASE_R2_BUCKET: readest-releases
       RELEASE_R2_ACCOUNT_ID: ${{ secrets.RELEASE_R2_ACCOUNT_ID }}
       RELEASE_R2_ACCESS_KEY_ID: ${{ secrets.RELEASE_R2_ACCESS_KEY_ID }}
       RELEASE_R2_SECRET_ACCESS_KEY: ${{ secrets.RELEASE_R2_SECRET_ACCESS_KEY }}
 
     steps:
+      - name: Validate release tag
+        run: |
+          if [[ ! "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z]+([.-][0-9A-Za-z]+)*)?$ ]]; then
+            echo "::error::Release tag is not a supported semantic version."
+            exit 1
+          fi
+
       - name: Download release assets
         run: |
-          gh release download "${{ inputs.tag }}" --repo readest/readest --dir ./release-assets
+          gh release download "$RELEASE_TAG" --repo readest/readest --dir ./release-assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install rclone
-        run: curl https://rclone.org/install.sh | sudo bash
+        env:
+          RCLONE_VERSION: 1.75.0
+          RCLONE_SHA256: aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+        run: |
+          archive="rclone-v${RCLONE_VERSION}-linux-amd64.zip"
+          curl --fail --location --silent --show-error \
+            "https://github.com/rclone/rclone/releases/download/v${RCLONE_VERSION}/${archive}" \
+            --output "/tmp/${archive}"
+          echo "${RCLONE_SHA256}  /tmp/${archive}" | sha256sum --check --strict
+          unzip -q "/tmp/${archive}" -d /tmp/rclone
+          sudo install -m 0755 "/tmp/rclone/rclone-v${RCLONE_VERSION}-linux-amd64/rclone" /usr/local/bin/rclone
+          rclone version
 
       - name: Configure rclone
         run: |
-          mkdir -p ~/.config/rclone
-          cat > ~/.config/rclone/rclone.conf <<EOF
-          [r2]
-          type = s3
-          provider = Cloudflare
-          access_key_id = $RELEASE_R2_ACCESS_KEY_ID
-          secret_access_key = $RELEASE_R2_SECRET_ACCESS_KEY
-          endpoint = https://${RELEASE_R2_ACCOUNT_ID}.r2.cloudflarestorage.com
-          EOF
+          rclone config create r2 s3 \
+            provider Cloudflare \
+            access_key_id "$RELEASE_R2_ACCESS_KEY_ID" \
+            secret_access_key "$RELEASE_R2_SECRET_ACCESS_KEY" \
+            endpoint "https://${RELEASE_R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --non-interactive \
+            --obscure \
+            --no-output
 
       - name: Modify latest.json download URLs
         run: |
@@ -61,8 +79,8 @@ jobs:
           mkdir releases
           mv ./release-assets/latest.json releases
           mv ./release-assets/release-notes.json releases
-          rclone copy ./release-assets r2:${RELEASE_R2_BUCKET}/releases/${{ inputs.tag }}/
-          rclone copy ./releases r2:${RELEASE_R2_BUCKET}/releases/
+          rclone copy ./release-assets "r2:${RELEASE_R2_BUCKET}/releases/${RELEASE_TAG}/"
+          rclone copy ./releases "r2:${RELEASE_R2_BUCKET}/releases/"
 
       - name: Upload successful
         if: success()
@@ -78,4 +96,5 @@ jobs:
       - env:
           GH_REPO: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: gh workflow run retry-workflow.yml -F run_id=${{ github.run_id }}
+          RETRY_RUN_ID: ${{ github.run_id }}
+        run: gh workflow run retry-workflow.yml -F "run_id=$RETRY_RUN_ID"

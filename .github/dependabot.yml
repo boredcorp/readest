@@ -3,11 +3,59 @@
 # https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file#package-ecosystem
 version: 2
 updates:
+  - package-ecosystem: npm
+    directory: /
+    groups:
+      npm-maintenance:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    schedule:
+      interval: weekly
+
   - package-ecosystem: github-actions
     directory: /
     groups:
       github-actions:
         patterns:
           - '*' # Group all Actions updates into a single larger pull request
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: cargo
+    directory: /
+    groups:
+      cargo-maintenance:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /
+    groups:
+      docker-maintenance:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: docker
+    directory: /docker
+    groups:
+      docker-compose-maintenance:
+        patterns:
+          - '*'
+        update-types:
+          - minor
+          - patch
     schedule:
       interval: weekly
