@@ -30,7 +30,7 @@ services:
     healthcheck:
       test:
         [
-          "CMD-SHELL",
+          'CMD-SHELL',
           'pg_isready -U postgres -h 127.0.0.1 -p "$${POSTGRES_PORT}" -d "$${POSTGRES_DB}"',
         ]
       interval: 2s
@@ -43,11 +43,11 @@ services:
     image: kong:2.8.1@sha256:1b53405d8680a09d6f44494b7990bf7da2ea43f84a258c59717d4539abf09f6d
     restart: unless-stopped
     ports:
-      - "127.0.0.1:${KONG_HTTP_PORT:-7000}:8000/tcp"
+      - '127.0.0.1:${KONG_HTTP_PORT:-7000}:8000/tcp'
     volumes:
       - ./volumes/api/kong.yml:/home/kong/temp.yml:ro,z
     environment:
-      KONG_DATABASE: "off"
+      KONG_DATABASE: 'off'
       KONG_DECLARATIVE_CONFIG: /home/kong/kong.yml
       KONG_DNS_ORDER: LAST,A,CNAME
       KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
@@ -57,7 +57,7 @@ services:
 
   auth:
     container_name: supabase-auth
-    image: supabase/gotrue:v2.189.0@sha256:385184459f57569c54c25209f51f3b2be99ddd7c4ce9e3555b3eea8447b7cf
+    image: supabase/gotrue:v2.189.0@sha256:385184459f57569c54c25209f51f3b2be99ddd7c4ce9e3555b5d3eea8447b7cf
     restart: unless-stopped
     depends_on:
       db:
@@ -98,10 +98,10 @@ services:
       PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS}
       PGRST_DB_ANON_ROLE: anon
       PGRST_JWT_SECRET: ${JWT_SECRET}
-      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_DB_USE_LEGACY_GUCS: 'false'
       PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
       PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
-    command: ["postgrest"]
+    command: ['postgrest']
 
   storage:
     container_name: supabase-storage
@@ -120,18 +120,18 @@ services:
       PGRST_JWT_SECRET: ${JWT_SECRET}
       DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}
       STORAGE_PUBLIC_URL: ${API_EXTERNAL_URL}
-      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      REQUEST_ALLOW_X_FORWARDED_PATH: 'true'
       FILE_SIZE_LIMIT: ${SUPABASE_STORAGE_FILE_SIZE_LIMIT:-52428800}
       STORAGE_BACKEND: file
       FILE_STORAGE_BACKEND_PATH: /var/lib/storage
       GLOBAL_S3_BUCKET: readest-supabase-storage
       TENANT_ID: storybored
       REGION: local
-      ENABLE_IMAGE_TRANSFORMATION: "false"
+      ENABLE_IMAGE_TRANSFORMATION: 'false'
     volumes:
       - supabase-storage-data:/var/lib/storage
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://storage:5000/status"]
+      test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://storage:5000/status']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -142,8 +142,8 @@ services:
     image: minio/minio:RELEASE.2025-09-07T16-13-09Z@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
     restart: unless-stopped
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      - '127.0.0.1:9000:9000'
+      - '127.0.0.1:9001:9001'
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
@@ -151,7 +151,7 @@ services:
     volumes:
       - minio-data:/data:z
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ['CMD', 'mc', 'ready', 'local']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -183,26 +183,28 @@ services:
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
         NEXT_PUBLIC_APP_PLATFORM: web
         NEXT_PUBLIC_API_BASE_URL: http://${HOST_IP}:3000
+        NEXT_PUBLIC_NODE_BASE_URL: https://reader.storybored.localhost
         NEXT_PUBLIC_OBJECT_STORAGE_TYPE: s3
         NEXT_PUBLIC_STORAGE_FIXED_QUOTA: ${STORAGE_FIXED_QUOTA}
         NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA: ${TRANSLATION_FIXED_QUOTA}
-        NEXT_PUBLIC_STORYBORED_ENABLED: "true"
+        NEXT_PUBLIC_STORYBORED_ENABLED: 'true'
         NEXT_PUBLIC_STORYBORED_API_BASE_URL: https://api.storybored.localhost
         NEXT_PUBLIC_MARKETPLACE_URL: https://storybored.localhost/marketplace
         NEXT_PUBLIC_SENTRY_DSN: '${NEXT_PUBLIC_SENTRY_DSN:-}'
         NEXT_PUBLIC_SENTRY_ENVIRONMENT: '${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-}'
         NEXT_PUBLIC_SENTRY_RELEASE: '${NEXT_PUBLIC_SENTRY_RELEASE:-}'
+        NEXT_PUBLIC_SITE_URL: https://storybored.localhost
     restart: unless-stopped
     ports:
-      - "127.0.0.1:3000:3000"
-#    to enable hot reload, mount the source code as a volume, and artifacts as anon volumes
-#    volumes:
-#      - ../:/app/readest
-#      - /app/readest/node_modules
-#      - /app/readest/apps/readest-app/node_modules
-#      - /app/readest/apps/readest-app/public/vendor
-#      - /app/readest/apps/readest-app/.next
-#      - /app/readest/packages/foliate-js/node_modules
+      - '127.0.0.1:3000:3000'
+    #    to enable hot reload, mount the source code as a volume, and artifacts as anon volumes
+    #    volumes:
+    #      - ../:/app/readest
+    #      - /app/readest/node_modules
+    #      - /app/readest/apps/readest-app/node_modules
+    #      - /app/readest/apps/readest-app/public/vendor
+    #      - /app/readest/apps/readest-app/.next
+    #      - /app/readest/packages/foliate-js/node_modules
     environment:
       SUPABASE_URL: http://${HOST_IP:-localhost}:${KONG_HTTP_PORT:-7000}
       SUPABASE_INTERNAL_URL: http://kong:8000
@@ -217,15 +219,17 @@ services:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${ANON_KEY}
       NEXT_PUBLIC_APP_PLATFORM: web
       NEXT_PUBLIC_API_BASE_URL: http://${HOST_IP}:3000
+      NEXT_PUBLIC_NODE_BASE_URL: https://reader.storybored.localhost
       NEXT_PUBLIC_OBJECT_STORAGE_TYPE: s3
       NEXT_PUBLIC_STORAGE_FIXED_QUOTA: ${STORAGE_FIXED_QUOTA}
       NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA: ${TRANSLATION_FIXED_QUOTA}
-      NEXT_PUBLIC_STORYBORED_ENABLED: "true"
+      NEXT_PUBLIC_STORYBORED_ENABLED: 'true'
       NEXT_PUBLIC_STORYBORED_API_BASE_URL: https://api.storybored.localhost
       NEXT_PUBLIC_MARKETPLACE_URL: https://storybored.localhost/marketplace
       NEXT_PUBLIC_SENTRY_DSN: '${NEXT_PUBLIC_SENTRY_DSN:-}'
       NEXT_PUBLIC_SENTRY_ENVIRONMENT: '${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-}'
       NEXT_PUBLIC_SENTRY_RELEASE: '${NEXT_PUBLIC_SENTRY_RELEASE:-}'
+      NEXT_PUBLIC_SITE_URL: https://storybored.localhost
     depends_on:
       - kong
       - minio

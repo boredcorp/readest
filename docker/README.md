@@ -104,10 +104,38 @@ docker compose down -v
 ## Building the Dockerfile from StoryBored
 
 The StoryBored integration branch imports generated SDK and shared-type artifacts from its parent
-checkout. Run the build from the StoryBored repository root so the Dockerfile can build those
-packages from source. The Dockerfile-specific allowlist keeps local secrets and generated artifacts
-out of the build context, including every `.env*` file. Public Next.js configuration is passed
-explicitly as build arguments and inlined at build time.
+checkout. Initialize the checkout with `git submodule update --init --recursive`, then run the build
+from the StoryBored repository root so the Dockerfile can build those packages and the Reader's
+nested vendor submodules from source. The Dockerfile-specific allowlist keeps local secrets and
+generated artifacts out of the build context, including every `.env*` file. Public Next.js
+configuration is passed explicitly as build arguments and inlined at build time.
+
+Production image builds fail closed unless all six product endpoints are credential-free HTTP(S)
+URLs without a query or fragment:
+
+- `NEXT_PUBLIC_API_BASE_URL` uses the externally reachable Reader web origin; in the bundled local
+  Compose profile that is `http://localhost:3000`.
+- `NEXT_PUBLIC_NODE_BASE_URL` uses a credential-free Reader node origin
+  (`https://reader.storybored.ai`).
+- `NEXT_PUBLIC_SITE_URL` and `NEXT_PUBLIC_MARKETPLACE_URL` use the StoryBored origin
+  (`https://storybored.ai`, with `/marketplace` on the latter).
+- `NEXT_PUBLIC_STORYBORED_API_BASE_URL` uses `https://api.storybored.ai`.
+- `NEXT_PUBLIC_SUPABASE_URL` uses `https://supabase.storybored.ai`.
+
+This prevents Reader calls, metadata, marketplace/legal links, StoryBored API requests, and identity
+traffic from falling back to upstream Readest or legacy StoryBored hosts. Sentry and PostHog remain
+optional.
+
+The production target copies only Next.js standalone output, static assets, and public assets into
+its runtime stage. It runs as the image's unprivileged `node` user and probes `/health/live` from
+inside the container. Release builds must also pass the OCI metadata arguments shown below; the
+deterministic defaults are for local builds only. A valid `OCI_READER_SHA` also becomes Next.js's
+build ID, so release assets are reproducibly tied to the exact Reader gitlink. `PUBLIC_CONFIG_SHA256`
+records the release pipeline's hash of the public `NEXT_PUBLIC_*` build configuration.
+
+StoryBored container releases use the root application's semantic version in `OCI_VERSION` and the
+exact fork revision in `OCI_READER_SHA`. Packaging-only changes here do not change Readest's upstream
+application version or upstream release notes.
 
 Privacy-safe Sentry exception delivery is optional. Leave `NEXT_PUBLIC_SENTRY_DSN`,
 `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, and `NEXT_PUBLIC_SENTRY_RELEASE` blank to disable it, or configure
@@ -122,6 +150,7 @@ docker build -f readest/Dockerfile \
   --build-arg NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key> \
   --build-arg NEXT_PUBLIC_APP_PLATFORM=web \
   --build-arg NEXT_PUBLIC_API_BASE_URL=http://localhost:3000 \
+  --build-arg NEXT_PUBLIC_NODE_BASE_URL=https://reader.storybored.localhost \
   --build-arg NEXT_PUBLIC_OBJECT_STORAGE_TYPE=s3 \
   --build-arg NEXT_PUBLIC_STORAGE_FIXED_QUOTA=1073741824 \
   --build-arg NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA=50000 \
@@ -131,6 +160,16 @@ docker build -f readest/Dockerfile \
   --build-arg NEXT_PUBLIC_SENTRY_DSN=<https-public-sentry-dsn> \
   --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=production \
   --build-arg NEXT_PUBLIC_SENTRY_RELEASE=<release-id> \
+  --build-arg NEXT_PUBLIC_SITE_URL=https://storybored.localhost \
+  --build-arg OCI_PRODUCT=storybored \
+  --build-arg OCI_PROJECT=storybored \
+  --build-arg OCI_REPOSITORY=https://github.com/boredcorp/storybored \
+  --build-arg OCI_VERSION=<root-package-version> \
+  --build-arg OCI_ROOT_SHA=<40-character-root-sha> \
+  --build-arg OCI_READER_SHA=<40-character-reader-sha> \
+  --build-arg OCI_BUILD_PROFILE=production \
+  --build-arg OCI_CREATED=<rfc3339-creation-time> \
+  --build-arg PUBLIC_CONFIG_SHA256=<lowercase-sha256-of-public-config> \
   -t readest-client \
   .
 ```

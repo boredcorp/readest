@@ -28,6 +28,7 @@ readest/**/.vercel
 readest/**/.vscode
 readest/**/node_modules
 readest/**/.next
+readest/apps/readest-app/out
 readest/**/target
 readest/**/coverage
 readest/**/playwright-report

@@ -21,7 +21,7 @@ test('Sentry public configuration is available to the Next.js image build', asyn
 
   const buildStage = dockerfile
     .split('FROM reader-base AS build')[1]
-    ?.split('FROM build AS production-stage')[0];
+    ?.split(/^FROM .* AS production-stage$/mu)[0];
   assert.ok(buildStage, 'Reader build stage must exist');
 
   const clientBuild = compose.split(/^  client:\s*$/mu)[1]?.split(/^    restart:/mu)[0];
@@ -34,7 +34,7 @@ test('Sentry public configuration is available to the Next.js image build', asyn
       `${dockerArgument} must be declared before next build`,
     );
     assert.ok(
-      buildStage.indexOf(dockerArgument) < buildStage.indexOf('RUN pnpm exec next build'),
+      buildStage.indexOf(dockerArgument) < buildStage.indexOf('pnpm exec next build'),
       `${dockerArgument} must precede next build`,
     );
 

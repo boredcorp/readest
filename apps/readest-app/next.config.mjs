@@ -1,11 +1,13 @@
 import withSerwistInit from '@serwist/next';
 import withBundleAnalyzer from '@next/bundle-analyzer';
 import path from 'node:path';
+import { resolveReaderBuildId } from './build-identity.mjs';
 
 const isDev = process.env['NODE_ENV'] === 'development';
 const appPlatform = process.env['NEXT_PUBLIC_APP_PLATFORM'];
 const storyBoredRoot = path.resolve(process.cwd(), '../../..');
 const readerDevOriginHost = process.env['STORYBORED_READER_DEV_ORIGIN_HOST'];
+const readerBuildId = resolveReaderBuildId();
 
 if (isDev) {
   const { initOpenNextCloudflareForDev } = await import('@opennextjs/cloudflare');
@@ -24,7 +26,9 @@ const nextConfig = {
   },
   // Ensure Next.js uses SSG instead of SSR
   // https://nextjs.org/docs/pages/building-your-application/deploying/static-exports
-  output: exportOutput ? 'export' : undefined,
+  output: exportOutput ? 'export' : 'standalone',
+  outputFileTracingRoot: exportOutput ? undefined : storyBoredRoot,
+  generateBuildId: readerBuildId ? async () => readerBuildId : undefined,
   pageExtensions: exportOutput ? ['jsx', 'tsx'] : ['js', 'jsx', 'ts', 'tsx'],
   // Note: This feature is required to use the Next.js Image component in SSG mode.
   // See https://nextjs.org/docs/messages/export-image-api for different workarounds.
