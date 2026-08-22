@@ -93,3 +93,15 @@ services:
           allow:
             - admin
             - anon
+
+  # Storage validates user/service JWTs itself. Product ebook objects continue to use S3/R2;
+  # this private endpoint exists for Supabase-owned buckets and deletion reconciliation.
+  - name: storage-v1
+    url: http://storage:5000/
+    routes:
+      - name: storage-v1-all
+        strip_path: true
+        paths:
+          - /storage/v1/
+    plugins:
+      - name: cors

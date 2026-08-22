@@ -24,6 +24,7 @@ import {
   REDACTED_SIGNED_URL,
   REDACTED_TELEMETRY_VALUE,
   resolvePostHogConfig,
+  resolveSentryConfig,
   sanitizePostHogCapture,
   TELEMETRY_OPT_OUT_KEY,
 } from '@/utils/telemetry';
@@ -34,6 +35,9 @@ describe('reader telemetry privacy boundary', () => {
     vi.stubEnv('NEXT_PUBLIC_POSTHOG_KEY', 'phc_test_project');
     vi.stubEnv('NEXT_PUBLIC_DEFAULT_POSTHOG_URL_BASE64', '');
     vi.stubEnv('NEXT_PUBLIC_DEFAULT_POSTHOG_KEY_BASE64', '');
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', '');
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_ENVIRONMENT', '');
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_RELEASE', '');
     window.localStorage.clear();
     vi.clearAllMocks();
   });
@@ -189,6 +193,13 @@ describe('reader telemetry privacy boundary', () => {
   });
 
   test('honors the local telemetry opt-out before sanitizing or capturing', () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', 'https://reader-public-key@errors.example.com/42');
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_ENVIRONMENT', 'production');
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_RELEASE', 'readest@0.10.6+test');
     window.localStorage.setItem(TELEMETRY_OPT_OUT_KEY, 'true');
 
     captureEvent('reader_event', { selectedText: 'PRIVATE_MARKER' });
@@ -196,5 +207,87 @@ describe('reader telemetry privacy boundary', () => {
 
     expect(posthogMocks.capture).not.toHaveBeenCalled();
     expect(posthogMocks.captureException).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('fails closed instead of sending untagged Sentry failures', () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', 'https://reader-public-key@errors.example.com/42');
+
+    expect(resolveSentryConfig()).toBeNull();
+    captureException(new Error('PRIVATE_ERROR_MARKER'));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('sends a release-tagged deny-by-default Sentry envelope with no private input', async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 200 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_DSN', 'https://reader-public-key@errors.example.com/42');
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_ENVIRONMENT', 'production');
+    vi.stubEnv('NEXT_PUBLIC_SENTRY_RELEASE', 'readest@0.10.6+test');
+
+    captureException(new Error('RAW_ERROR_MARKER with PRIVATE_TEXT_MARKER'), {
+      authorization: 'Bearer TOKEN_MARKER',
+      body: 'BODY_MARKER',
+      cookie: 'session=COOKIE_MARKER',
+      errorDigest: 'digest-safe-123',
+      prompt: 'PROMPT_MARKER',
+      selectedText: 'SELECTED_TEXT_MARKER',
+      signedUrl:
+        'https://assets.example.com/private.png?X-Amz-Credential=SIGNED_CREDENTIAL_MARKER&X-Amz-Signature=SIGNED_SIGNATURE_MARKER',
+    });
+
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [requestUrl, requestInit] = fetchMock.mock.calls[0] ?? [];
+    expect(requestUrl).toBe(
+      'https://errors.example.com/api/42/envelope/?sentry_key=reader-public-key&sentry_version=7',
+    );
+    expect(requestInit).toMatchObject({
+      body: expect.any(String),
+      headers: { 'Content-Type': 'application/x-sentry-envelope' },
+      keepalive: true,
+      method: 'POST',
+    });
+
+    const envelopeLines = String(requestInit?.body).split('\n');
+    expect(envelopeLines).toHaveLength(3);
+    const event = JSON.parse(envelopeLines[2] ?? '{}');
+    expect(event).toMatchObject({
+      environment: 'production',
+      exception: {
+        values: [
+          {
+            type: 'Error',
+            value: 'Reader error details redacted at the telemetry boundary.',
+          },
+        ],
+      },
+      extra: { errorDigest: 'digest-safe-123' },
+      level: 'error',
+      platform: 'javascript',
+      release: 'readest@0.10.6+test',
+      tags: { service: 'storybored-reader' },
+    });
+
+    const serializedRequest = JSON.stringify(fetchMock.mock.calls);
+    for (const marker of [
+      'RAW_ERROR_MARKER',
+      'PRIVATE_TEXT_MARKER',
+      'TOKEN_MARKER',
+      'COOKIE_MARKER',
+      'SELECTED_TEXT_MARKER',
+      'PROMPT_MARKER',
+      'BODY_MARKER',
+      'SIGNED_CREDENTIAL_MARKER',
+      'SIGNED_SIGNATURE_MARKER',
+    ]) {
+      expect(serializedRequest).not.toContain(marker);
+    }
   });
 });

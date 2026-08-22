@@ -27,6 +27,16 @@ services:
       - config_file=/etc/postgresql/postgresql.conf
       - -c
       - log_min_messages=fatal
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'pg_isready -U postgres -h 127.0.0.1 -p "$${POSTGRES_PORT}" -d "$${POSTGRES_DB}"',
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
 
   kong:
     container_name: supabase-kong
@@ -49,6 +59,9 @@ services:
     container_name: supabase-auth
     image: supabase/gotrue:v2.189.0@sha256:385184459f57569c54c25209f51f3b2be99ddd7c4ce9e3555b3eea8447b7cf
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: 9999
@@ -77,6 +90,9 @@ services:
     container_name: supabase-rest
     image: postgrest/postgrest:v14.12@sha256:54000f24847d01a2c2302e0041cf0618b875c57fb48507d743cfa9aaa50bf43c
     restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}
       PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS}
@@ -86,6 +102,40 @@ services:
       PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
       PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY}
     command: ["postgrest"]
+
+  storage:
+    container_name: supabase-storage
+    image: supabase/storage-api:v1.60.4@sha256:c8eb9858eafec891a97c27125470aaad54703c3f4eb4d55ca7f1bf6c6411febf
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://rest:3000
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@db:${POSTGRES_PORT}/${POSTGRES_DB}
+      STORAGE_PUBLIC_URL: ${API_EXTERNAL_URL}
+      REQUEST_ALLOW_X_FORWARDED_PATH: "true"
+      FILE_SIZE_LIMIT: ${SUPABASE_STORAGE_FILE_SIZE_LIMIT:-52428800}
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      GLOBAL_S3_BUCKET: readest-supabase-storage
+      TENANT_ID: storybored
+      REGION: local
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+    volumes:
+      - supabase-storage-data:/var/lib/storage
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://storage:5000/status"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   minio:
     container_name: readest-minio
@@ -139,6 +189,9 @@ services:
         NEXT_PUBLIC_STORYBORED_ENABLED: "true"
         NEXT_PUBLIC_STORYBORED_API_BASE_URL: https://api.storybored.localhost
         NEXT_PUBLIC_MARKETPLACE_URL: https://storybored.localhost/marketplace
+        NEXT_PUBLIC_SENTRY_DSN: '${NEXT_PUBLIC_SENTRY_DSN:-}'
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: '${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-}'
+        NEXT_PUBLIC_SENTRY_RELEASE: '${NEXT_PUBLIC_SENTRY_RELEASE:-}'
     restart: unless-stopped
     ports:
       - "127.0.0.1:3000:3000"
@@ -151,7 +204,8 @@ services:
 #      - /app/readest/apps/readest-app/.next
 #      - /app/readest/packages/foliate-js/node_modules
     environment:
-      SUPABASE_URL: http://kong:8000
+      SUPABASE_URL: http://${HOST_IP:-localhost}:${KONG_HTTP_PORT:-7000}
+      SUPABASE_INTERNAL_URL: http://kong:8000
       SUPABASE_ANON_KEY: ${ANON_KEY}
       SUPABASE_ADMIN_KEY: ${SERVICE_ROLE_KEY}
       S3_ENDPOINT: http://minio:9000
@@ -169,11 +223,16 @@ services:
       NEXT_PUBLIC_STORYBORED_ENABLED: "true"
       NEXT_PUBLIC_STORYBORED_API_BASE_URL: https://api.storybored.localhost
       NEXT_PUBLIC_MARKETPLACE_URL: https://storybored.localhost/marketplace
+      NEXT_PUBLIC_SENTRY_DSN: '${NEXT_PUBLIC_SENTRY_DSN:-}'
+      NEXT_PUBLIC_SENTRY_ENVIRONMENT: '${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-}'
+      NEXT_PUBLIC_SENTRY_RELEASE: '${NEXT_PUBLIC_SENTRY_RELEASE:-}'
     depends_on:
       - kong
       - minio
+      - storage
 
 volumes:
   db-config:
   db-data:
   minio-data:
+  supabase-storage-data:

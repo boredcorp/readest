@@ -47,6 +47,9 @@ ARG NEXT_PUBLIC_STORYBORED_API_BASE_URL
 ARG NEXT_PUBLIC_MARKETPLACE_URL
 ARG NEXT_PUBLIC_POSTHOG_HOST
 ARG NEXT_PUBLIC_POSTHOG_KEY
+ARG NEXT_PUBLIC_SENTRY_DSN
+ARG NEXT_PUBLIC_SENTRY_ENVIRONMENT
+ARG NEXT_PUBLIC_SENTRY_RELEASE
 COPY --from=storybored-build /app/node_modules /app/node_modules
 COPY --from=storybored-build /app/packages/types /app/packages/types
 COPY --from=storybored-build /app/packages/storybored-sdk /app/packages/storybored-sdk

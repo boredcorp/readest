@@ -83,28 +83,30 @@ CREATE POLICY delete_book_notes ON public.book_notes FOR DELETE TO authenticated
 CREATE TABLE public.files (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL,
-  book_hash text NULL,
+  book_hash text,
   file_key text NOT NULL,
   file_size bigint NOT NULL,
-  created_at timestamp with time zone NULL DEFAULT now(),
-  updated_at timestamp with time zone NULL DEFAULT now(),
-  deleted_at timestamp with time zone NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  deleted_at timestamp with time zone,
   CONSTRAINT files_pkey PRIMARY KEY (id),
   CONSTRAINT files_file_key_key UNIQUE (file_key),
+  CONSTRAINT files_file_size_positive CHECK (file_size > 0),
   CONSTRAINT files_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users (id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_files_user_id_deleted_at ON public.files (user_id, deleted_at);
-CREATE INDEX idx_files_file_key ON public.files (file_key);
-CREATE INDEX idx_files_file_key_deleted_at ON public.files (file_key, deleted_at);
+CREATE INDEX files_user_deleted_at_idx ON public.files (user_id, deleted_at);
+CREATE INDEX files_user_book_hash_deleted_at_idx ON public.files (user_id, book_hash, deleted_at);
 
 ALTER TABLE public.files ENABLE ROW LEVEL SECURITY;
-CREATE POLICY files_insert ON public.files FOR INSERT WITH CHECK (auth.uid() = user_id);
-CREATE POLICY files_select ON public.files FOR SELECT USING (auth.uid() = user_id AND deleted_at IS NULL);
-CREATE POLICY files_update ON public.files FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (deleted_at IS NULL OR deleted_at > now());
-CREATE POLICY files_delete ON public.files FOR DELETE USING (auth.uid() = user_id);
+CREATE POLICY files_select_own ON public.files FOR SELECT TO authenticated USING ((SELECT auth.uid()) = user_id AND deleted_at IS NULL);
+CREATE POLICY files_insert_own ON public.files FOR INSERT TO authenticated WITH CHECK ((SELECT auth.uid()) = user_id);
+CREATE POLICY files_update_own ON public.files FOR UPDATE TO authenticated USING ((SELECT auth.uid()) = user_id) WITH CHECK ((SELECT auth.uid()) = user_id);
+CREATE POLICY files_delete_own ON public.files FOR DELETE TO authenticated USING ((SELECT auth.uid()) = user_id);
 
 GRANT ALL ON public.books TO authenticated;
 GRANT ALL ON public.book_configs TO authenticated;
 GRANT ALL ON public.book_notes TO authenticated;
-GRANT ALL ON public.files TO authenticated;
+REVOKE ALL PRIVILEGES ON TABLE public.files FROM public, anon, authenticated, service_role;
+GRANT USAGE ON SCHEMA public TO authenticated, service_role;
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.files TO authenticated, service_role;

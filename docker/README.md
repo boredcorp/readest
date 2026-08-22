@@ -9,6 +9,7 @@
 | **kong**        | `kong:2.8.1`                               | api gateway routing requests to supabase services |
 | **auth**        | `supabase/gotrue:v2.189.0`                 | auth service (email, JWT)                         |
 | **rest**        | `postgrest/postgrest:v14.12`               | psql rest api                                     |
+| **storage**     | `supabase/storage-api:v1.60.4`             | private Supabase Storage API and deletion surface |
 | **minio**       | `minio/minio:RELEASE.2025-09-07T16-13-09Z` | local-only s3 storage                             |
 | **minio-setup** | `minio/mc:RELEASE.2025-08-13T08-35-41Z`    | local bucket bootstrap                            |
 
@@ -26,6 +27,12 @@ container line is archived and has no supported security-update path, so this Co
 not be used as a staging or production storage deployment. Hosted StoryBored environments use the
 configured private managed S3-compatible service; replacing this local emulator is tracked as a
 separate migration.
+
+Supabase Storage is routed privately through Kong at `/storage/v1/` and persists its small
+file-backed data plane in the `supabase-storage-data` volume. It is not the product ebook store:
+Reader ebooks and temporary Reader objects continue to use the configured S3-compatible service.
+The Storage service exists so Supabase-owned buckets have a supported API and account deletion can
+enumerate and purge them without treating a missing service as an empty result.
 
 ---
 
@@ -102,6 +109,12 @@ packages from source. The Dockerfile-specific allowlist keeps local secrets and 
 out of the build context, including every `.env*` file. Public Next.js configuration is passed
 explicitly as build arguments and inlined at build time.
 
+Privacy-safe Sentry exception delivery is optional. Leave `NEXT_PUBLIC_SENTRY_DSN`,
+`NEXT_PUBLIC_SENTRY_ENVIRONMENT`, and `NEXT_PUBLIC_SENTRY_RELEASE` blank to disable it, or configure
+all three together with an HTTPS DSN. They must be passed when the image is built because Next.js
+freezes public environment variables into the browser bundle during `next build`; changing only the
+running container environment does not update that bundle.
+
 ```bash
 docker build -f readest/Dockerfile \
   --target production-stage \
@@ -115,6 +128,9 @@ docker build -f readest/Dockerfile \
   --build-arg NEXT_PUBLIC_STORYBORED_ENABLED=true \
   --build-arg NEXT_PUBLIC_STORYBORED_API_BASE_URL=https://api.storybored.localhost \
   --build-arg NEXT_PUBLIC_MARKETPLACE_URL=https://storybored.localhost/marketplace \
+  --build-arg NEXT_PUBLIC_SENTRY_DSN=<https-public-sentry-dsn> \
+  --build-arg NEXT_PUBLIC_SENTRY_ENVIRONMENT=production \
+  --build-arg NEXT_PUBLIC_SENTRY_RELEASE=<release-id> \
   -t readest-client \
   .
 ```
@@ -123,7 +139,8 @@ With the Compose dependencies running, run the built image on the same private n
 
 ```bash
 docker run --network readest_default -p 127.0.0.1:3000:3000 \
-  -e SUPABASE_URL=http://kong:8000 \
+  -e SUPABASE_URL=http://localhost:7000 \
+  -e SUPABASE_INTERNAL_URL=http://kong:8000 \
   -e SUPABASE_ANON_KEY=<anon-key> \
   -e SUPABASE_ADMIN_KEY=<service-role-key> \
   -e S3_ENDPOINT=http://minio:9000 \

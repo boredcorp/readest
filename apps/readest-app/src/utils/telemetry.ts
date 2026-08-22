@@ -16,7 +16,23 @@ export interface PostHogConfig {
   readonly key: string;
 }
 
+export interface SentryEnvironment {
+  readonly dsn?: string;
+  readonly environment?: string;
+  readonly release?: string;
+}
+
+export interface SentryConfig {
+  readonly dsn: string;
+  readonly envelopeUrl: string;
+  readonly environment: string;
+  readonly release: string;
+}
+
 const SAFE_ERROR_MESSAGE = 'Reader error details redacted at the telemetry boundary.';
+const SENTRY_SERVICE_NAME = 'storybored-reader';
+const SENTRY_TAG_PATTERN = /^[a-z0-9][a-z0-9._:@/+~-]{0,199}$/iu;
+const SAFE_ERROR_DIGEST_PATTERN = /^[a-z0-9][a-z0-9._:-]{0,127}$/iu;
 const CIRCULAR_VALUE = '[CIRCULAR]';
 const MAX_DEPTH_VALUE = '[MAX_DEPTH]';
 const TRUNCATED_VALUE = '[TRUNCATED]';
@@ -215,10 +231,59 @@ export function resolvePostHogConfig(
   return host && key ? { host, key } : null;
 }
 
+export function resolveSentryConfig(
+  environment: SentryEnvironment = readSentryEnvironment(),
+): SentryConfig | null {
+  const dsn = configuredTelemetryValue(environment.dsn);
+  const environmentTag = configuredTelemetryValue(environment.environment);
+  const release = configuredTelemetryValue(environment.release);
+  if (
+    !dsn ||
+    !environmentTag ||
+    !release ||
+    !SENTRY_TAG_PATTERN.test(environmentTag) ||
+    !SENTRY_TAG_PATTERN.test(release)
+  ) {
+    return null;
+  }
+
+  try {
+    const url = new URL(dsn);
+    if (url.protocol !== 'https:' || !url.username || url.password || url.search || url.hash) {
+      return null;
+    }
+
+    const pathSegments = url.pathname.split('/').filter(Boolean);
+    const projectId = pathSegments.pop();
+    if (!projectId || !/^[a-z0-9_-]+$/iu.test(projectId)) return null;
+
+    const pathPrefix = pathSegments.length > 0 ? `/${pathSegments.join('/')}` : '';
+    const publicKey = decodeURIComponent(url.username);
+    if (!publicKey || !/^[a-z0-9_-]+$/iu.test(publicKey)) return null;
+
+    return {
+      dsn,
+      envelopeUrl:
+        `${url.origin}${pathPrefix}/api/${encodeURIComponent(projectId)}/envelope/` +
+        `?sentry_key=${encodeURIComponent(publicKey)}&sentry_version=7`,
+      environment: environmentTag,
+      release,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export const isTelemetryConfigured = () => resolvePostHogConfig() !== null;
 
 export const hasOptedOutTelemetry = () => {
-  return typeof window === 'undefined' || localStorage.getItem(TELEMETRY_OPT_OUT_KEY) === 'true';
+  if (typeof window === 'undefined') return true;
+
+  try {
+    return localStorage.getItem(TELEMETRY_OPT_OUT_KEY) === 'true';
+  } catch {
+    return true;
+  }
 };
 
 export const captureEvent = (event: string, properties?: Record<string, unknown>) => {
@@ -228,12 +293,67 @@ export const captureEvent = (event: string, properties?: Record<string, unknown>
 };
 
 export const captureException = (error: unknown, properties?: Record<string, unknown>) => {
-  if (!isTelemetryConfigured() || hasOptedOutTelemetry()) return;
+  if (hasOptedOutTelemetry()) return;
 
-  const safeError = new Error(SAFE_ERROR_MESSAGE);
-  safeError.name = sanitizeErrorName(error);
-  posthog.captureException(safeError, sanitizeTelemetryValue(properties));
+  if (isTelemetryConfigured()) {
+    const safeError = new Error(SAFE_ERROR_MESSAGE);
+    safeError.name = sanitizeErrorName(error);
+    posthog.captureException(safeError, sanitizeTelemetryValue(properties));
+  }
+
+  void captureSentryException(error, properties);
 };
+
+export async function captureSentryException(
+  error: unknown,
+  properties?: Record<string, unknown>,
+  options: {
+    readonly fetchImplementation?: typeof fetch;
+    readonly sentryEnvironment?: SentryEnvironment;
+  } = {},
+): Promise<void> {
+  const config = resolveSentryConfig(options.sentryEnvironment);
+  if (!config) return;
+
+  try {
+    const eventId = createSentryEventId();
+    if (!eventId) return;
+
+    const sentAt = new Date().toISOString();
+    const event = {
+      event_id: eventId,
+      environment: config.environment,
+      exception: {
+        values: [
+          {
+            type: sanitizeErrorName(error),
+            value: SAFE_ERROR_MESSAGE,
+          },
+        ],
+      },
+      extra: safeSentryExtra(properties),
+      level: 'error',
+      platform: 'javascript',
+      release: config.release,
+      tags: { service: SENTRY_SERVICE_NAME },
+      timestamp: sentAt,
+    };
+    const envelope = [
+      JSON.stringify({ event_id: eventId, sent_at: sentAt }),
+      JSON.stringify({ content_type: 'application/json', type: 'event' }),
+      JSON.stringify(event),
+    ].join('\n');
+
+    await (options.fetchImplementation ?? globalThis.fetch)(config.envelopeUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-sentry-envelope' },
+      body: envelope,
+      keepalive: true,
+    });
+  } catch {
+    // Telemetry must never surface or log the original application failure.
+  }
+}
 
 export function sanitizePostHogCapture(capture: CaptureResult | null): CaptureResult | null {
   if (!capture) return null;
@@ -452,6 +572,42 @@ function readPostHogEnvironment(): PostHogEnvironment {
     defaultHostBase64: process.env['NEXT_PUBLIC_DEFAULT_POSTHOG_URL_BASE64'],
     defaultKeyBase64: process.env['NEXT_PUBLIC_DEFAULT_POSTHOG_KEY_BASE64'],
   };
+}
+
+function readSentryEnvironment(): SentryEnvironment {
+  return {
+    dsn: process.env['NEXT_PUBLIC_SENTRY_DSN'],
+    environment: process.env['NEXT_PUBLIC_SENTRY_ENVIRONMENT'],
+    release: process.env['NEXT_PUBLIC_SENTRY_RELEASE'],
+  };
+}
+
+function configuredTelemetryValue(value: string | undefined): string | null {
+  const configured = value?.trim();
+  return configured || null;
+}
+
+function safeSentryExtra(properties: Record<string, unknown> | undefined): Record<string, string> {
+  try {
+    const errorDigest = properties?.['errorDigest'];
+    if (typeof errorDigest !== 'string' || !SAFE_ERROR_DIGEST_PATTERN.test(errorDigest)) return {};
+    return { errorDigest };
+  } catch {
+    return {};
+  }
+}
+
+function createSentryEventId(): string | null {
+  try {
+    const randomUuid = globalThis.crypto?.randomUUID?.();
+    if (randomUuid) return randomUuid.replaceAll('-', '');
+
+    if (!globalThis.crypto?.getRandomValues) return null;
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+  } catch {
+    return null;
+  }
 }
 
 function resolvePostHogValue(
