@@ -1,17 +1,23 @@
 export const LEARNINGBORED_PRODUCTION_SUPABASE_ENV_NAMES = [
+  'SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_URL',
   'NEXT_PUBLIC_SUPABASE_ANON_KEY',
 ];
 export const LEARNINGBORED_PRIVATE_BETA_PROFILE = 'private_beta';
+export const LEARNINGBORED_PUBLIC_SUPABASE_ORIGIN = 'https://supabase.learningbored.com';
+export const LEARNINGBORED_SERVER_SUPABASE_ORIGIN = 'http://learningbored-supabase-gateway:8000';
 
 /**
  * @typedef {object} LearningBoredProductionSupabaseEnvironment
  * @property {string} [deploymentProfile]
  * @property {string} [learningBoredEnabled]
  * @property {string} [nodeEnv]
+ * @property {string} [serverSupabaseUrl]
  * @property {string} [supabaseAnonKey]
  * @property {string} [supabaseUrl]
  */
+
+/** @typedef {'browser' | 'server'} LearningBoredRuntime */
 
 /**
  * @param {LearningBoredProductionSupabaseEnvironment} environment
@@ -49,11 +55,33 @@ export function canonicalizeLearningBoredSupabaseOrigin(value) {
 }
 
 /**
+ * Select the public browser origin or private server gateway without ever placing the private
+ * address in a client-side fallback path.
+ *
+ * @param {LearningBoredProductionSupabaseEnvironment} environment
+ * @param {LearningBoredRuntime} runtime
+ * @returns {string | undefined}
+ */
+export function selectLearningBoredSupabaseUrl(environment, runtime) {
+  if (requiresExactLearningBoredSupabaseEnvironment(environment)) {
+    assertLearningBoredProductionSupabaseEnvironment(environment, runtime);
+    return runtime === 'server'
+      ? LEARNINGBORED_SERVER_SUPABASE_ORIGIN
+      : LEARNINGBORED_PUBLIC_SUPABASE_ORIGIN;
+  }
+
+  return runtime === 'server'
+    ? environment.serverSupabaseUrl?.trim() || environment.supabaseUrl?.trim()
+    : environment.supabaseUrl?.trim();
+}
+
+/**
  * Production LearningBored must never inherit Readest's embedded upstream Supabase project.
  *
  * @param {LearningBoredProductionSupabaseEnvironment} environment
+ * @param {LearningBoredRuntime} [runtime='browser']
  */
-export function assertLearningBoredProductionSupabaseEnvironment(environment) {
+export function assertLearningBoredProductionSupabaseEnvironment(environment, runtime = 'browser') {
   if (!requiresExactLearningBoredSupabaseEnvironment(environment)) {
     return;
   }
@@ -75,9 +103,27 @@ export function assertLearningBoredProductionSupabaseEnvironment(environment) {
     );
   }
 
-  if (!canonicalizeLearningBoredSupabaseOrigin(environment.supabaseUrl)) {
+  if (
+    canonicalizeLearningBoredSupabaseOrigin(environment.supabaseUrl) !==
+    LEARNINGBORED_PUBLIC_SUPABASE_ORIGIN
+  ) {
     throw new Error(
-      'NEXT_PUBLIC_SUPABASE_URL must be an absolute HTTPS origin without credentials, path, query, or fragment.',
+      `NEXT_PUBLIC_SUPABASE_URL must equal ${LEARNINGBORED_PUBLIC_SUPABASE_ORIGIN} in LearningBored production.`,
+    );
+  }
+
+  if (!environment.supabaseAnonKey?.trim().startsWith('sb_publishable_')) {
+    throw new Error(
+      'NEXT_PUBLIC_SUPABASE_ANON_KEY must be the self-hosted sb_publishable_ key in LearningBored production.',
+    );
+  }
+
+  if (
+    runtime === 'server' &&
+    environment.serverSupabaseUrl?.trim() !== LEARNINGBORED_SERVER_SUPABASE_ORIGIN
+  ) {
+    throw new Error(
+      `SUPABASE_URL must equal ${LEARNINGBORED_SERVER_SUPABASE_ORIGIN} in LearningBored production.`,
     );
   }
 }

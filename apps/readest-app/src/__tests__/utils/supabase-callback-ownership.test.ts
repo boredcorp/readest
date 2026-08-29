@@ -70,6 +70,10 @@ function singletonOptions(): SupabaseClientOptionsProbe | undefined {
   return probes.createClient.mock.calls[0]?.[2] as SupabaseClientOptionsProbe | undefined;
 }
 
+function singletonUrl(): string | undefined {
+  return probes.createClient.mock.calls[0]?.[0] as string | undefined;
+}
+
 describe('Supabase callback ownership', () => {
   beforeEach(() => {
     probes.createClient.mockClear();
@@ -97,6 +101,7 @@ describe('Supabase callback ownership', () => {
     await supabase.auth.initialize();
 
     expect(singletonOptions()?.auth?.detectSessionInUrl).toBe(false);
+    expect(singletonUrl()).toBe('https://selected-callback.supabase.test');
     expect(window.location.hash).toBe(recoveryFragment);
     expect(fetchUser).not.toHaveBeenCalled();
 

@@ -4,13 +4,17 @@ import path from 'node:path';
 
 import { assertLearningBoredProductionSupabaseEnvironment } from './src/integrations/learningbored/production-environment.mjs';
 
-assertLearningBoredProductionSupabaseEnvironment({
-  deploymentProfile: process.env['NEXT_PUBLIC_LEARNINGBORED_DEPLOYMENT_PROFILE'],
-  learningBoredEnabled: process.env['NEXT_PUBLIC_LEARNINGBORED_ENABLED'],
-  nodeEnv: process.env['NODE_ENV'],
-  supabaseAnonKey: process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'],
-  supabaseUrl: process.env['NEXT_PUBLIC_SUPABASE_URL'],
-});
+assertLearningBoredProductionSupabaseEnvironment(
+  {
+    deploymentProfile: process.env['NEXT_PUBLIC_LEARNINGBORED_DEPLOYMENT_PROFILE'],
+    learningBoredEnabled: process.env['NEXT_PUBLIC_LEARNINGBORED_ENABLED'],
+    nodeEnv: process.env['NODE_ENV'],
+    serverSupabaseUrl: process.env['SUPABASE_URL'],
+    supabaseAnonKey: process.env['NEXT_PUBLIC_SUPABASE_ANON_KEY'],
+    supabaseUrl: process.env['NEXT_PUBLIC_SUPABASE_URL'],
+  },
+  'server',
+);
 
 const isDev = process.env['NODE_ENV'] === 'development';
 const appPlatform = process.env['NEXT_PUBLIC_APP_PLATFORM'];
@@ -35,13 +39,7 @@ const nextConfig = {
   output: exportOutput ? 'export' : undefined,
   pageExtensions: exportOutput
     ? ['jsx', 'tsx']
-    : [
-        'js',
-        'jsx',
-        'ts',
-        'tsx',
-        ...(learningBoredReaderPreviewEnabled ? ['preview.tsx'] : []),
-      ],
+    : ['js', 'jsx', 'ts', 'tsx', ...(learningBoredReaderPreviewEnabled ? ['preview.tsx'] : [])],
   // Note: This feature is required to use the Next.js Image component in SSG mode.
   // See https://nextjs.org/docs/messages/export-image-api for different workarounds.
   images: {
