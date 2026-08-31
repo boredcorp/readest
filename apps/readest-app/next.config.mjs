@@ -28,6 +28,7 @@ if (isDev) {
 }
 
 const exportOutput = appPlatform !== 'web' && !isDev;
+const standaloneOutput = appPlatform === 'web' && !isDev;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -36,7 +37,8 @@ const nextConfig = {
   allowedDevOrigins: isDev ? ['reader.learningbored.localhost'] : undefined,
   // Ensure Next.js uses SSG instead of SSR
   // https://nextjs.org/docs/pages/building-your-application/deploying/static-exports
-  output: exportOutput ? 'export' : undefined,
+  output: standaloneOutput ? 'standalone' : exportOutput ? 'export' : undefined,
+  outputFileTracingRoot: storyBoredRoot,
   pageExtensions: exportOutput
     ? ['jsx', 'tsx']
     : ['js', 'jsx', 'ts', 'tsx', ...(learningBoredReaderPreviewEnabled ? ['preview.tsx'] : [])],
