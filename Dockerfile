@@ -72,7 +72,7 @@ COPY --from=dependencies /app/readest/packages/foliate-js/node_modules /app/read
 COPY readest/ /app/readest/
 WORKDIR /app/readest/apps/readest-app
 RUN node ./container-build-config.mjs \
-    && pnpm exec next build
+    && NODE_OPTIONS=--max-old-space-size=4096 pnpm exec next build
 
 FROM docker.io/node:24.19.0-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS production-stage
 ARG OCI_PRODUCT=storybored

@@ -54,6 +54,11 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
     );
   }
   assert.match(buildStage, /RUN node \.\/container-build-config\.mjs/u);
+  assert.match(
+    buildStage,
+    /NODE_OPTIONS=--max-old-space-size=4096 pnpm exec next build/u,
+    'Reader production builds must use the hosted-runner-proven heap ceiling',
+  );
   assert.match(buildStage, /OCI_READER_SHA="\$\{OCI_READER_SHA\}"/u);
   assert.ok(
     buildStage.indexOf('ENV OCI_READER_SHA=') < buildStage.indexOf('pnpm exec next build'),
@@ -62,6 +67,7 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
 
   const production = dockerfile.split(`FROM ${PINNED_NODE_IMAGE} AS production-stage`)[1];
   assert.ok(production, 'production stage must start from the pinned clean Node image');
+  assert.doesNotMatch(production, /NODE_OPTIONS|max-old-space-size/u);
   assert.doesNotMatch(production, /pnpm (?:install|exec)|COPY readest\/|COPY packages\//u);
   assert.match(production, /\.next\/standalone\/ \.\//u);
   assert.match(production, /\.next\/static\/ \.\/readest\/apps\/readest-app\/\.next\/static\//u);
