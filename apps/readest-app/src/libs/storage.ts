@@ -2,6 +2,8 @@ import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+import { buildReaderPermanentStorageKey } from '@/integrations/learningbored/permanent-storage-key';
 import {
   tauriUpload,
   tauriDownload,
@@ -19,6 +21,11 @@ const API_ENDPOINTS = {
   list: getAPIBaseUrl() + '/storage/list',
   purge: getAPIBaseUrl() + '/storage/purge',
 };
+
+const buildPermanentFileKey = (userId: string, relativePath: string) =>
+  getLearningBoredPrivateBetaPolicy().active
+    ? buildReaderPermanentStorageKey(userId, relativePath)
+    : `${userId}/${relativePath}`;
 
 export const createProgressHandler = (
   totalFiles: number,
@@ -84,7 +91,7 @@ export const batchGetDownloadUrls = async (files: { lfp: string; cfp: string }[]
       throw new Error('Not authenticated');
     }
     const filePaths = files.map((file) => file.cfp);
-    const fileKeys = filePaths.map((path) => `${userId}/${path}`);
+    const fileKeys = filePaths.map((path) => buildPermanentFileKey(userId, path));
     const response = await fetchWithAuth(`${API_ENDPOINTS.download}`, {
       method: 'POST',
       headers: {
@@ -95,7 +102,7 @@ export const batchGetDownloadUrls = async (files: { lfp: string; cfp: string }[]
 
     const { downloadUrls } = await response.json();
     return files.map((file) => {
-      const fileKey = `${userId}/${file.cfp}`;
+      const fileKey = buildPermanentFileKey(userId, file.cfp);
       return {
         lfp: file.lfp,
         cfp: file.cfp,
@@ -136,7 +143,7 @@ export const downloadFile = async ({
       if (!userId) {
         throw new Error('Not authenticated');
       }
-      const fileKey = `${userId}/${cfp}`;
+      const fileKey = buildPermanentFileKey(userId, cfp);
       const response = await fetchWithAuth(
         `${API_ENDPOINTS.download}?fileKey=${encodeURIComponent(fileKey)}`,
         {
@@ -184,7 +191,7 @@ export const deleteFile = async (filePath: string) => {
       throw new Error('Not authenticated');
     }
 
-    const fileKey = `${userId}/${filePath}`;
+    const fileKey = buildPermanentFileKey(userId, filePath);
     await fetchWithAuth(`${API_ENDPOINTS.delete}?fileKey=${encodeURIComponent(fileKey)}`, {
       method: 'DELETE',
     });
@@ -292,7 +299,7 @@ export const purgeFiles = async (
       if (!userId) {
         throw new Error('Not authenticated');
       }
-      fileKeys = filePathsOrKeys.map((path) => `${userId}/${path}`);
+      fileKeys = filePathsOrKeys.map((path) => buildPermanentFileKey(userId, path));
     }
 
     const response = await fetchWithAuth(API_ENDPOINTS.purge, {

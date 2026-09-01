@@ -1,9 +1,10 @@
 import { jwtDecode } from 'jwt-decode';
-import { supabase } from '@/utils/supabase';
+import { createSupabaseAdminClient, supabase } from '@/utils/supabase';
 import { UserPlan } from '@/types/quota';
 import { DEFAULT_DAILY_TRANSLATION_QUOTA, DEFAULT_STORAGE_QUOTA } from '@/services/constants';
 import { isWebAppPlatform } from '@/services/environment';
 import { getDailyUsage } from '@/services/translators/utils';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
 
 interface Token {
   plan: UserPlan;
@@ -108,5 +109,17 @@ export const validateUserAndToken = async (authHeader: string | null | undefined
   } = await supabase.auth.getUser(token);
 
   if (error || !user) return {};
+
+  if (getLearningBoredPrivateBetaPolicy().active) {
+    // LearningBored Reader API routes use service-role clients after authentication, so their later
+    // queries bypass table RLS. Fail closed on the durable subject fence before returning a principal.
+    const supabaseAdmin = createSupabaseAdminClient();
+    const { data: accessAllowed, error: accessError } = await supabaseAdmin.rpc(
+      'learningbored_assert_reader_access',
+      { p_user_id: user.id },
+    );
+    if (accessError || accessAllowed !== true) return {};
+  }
+
   return { user, token };
 };

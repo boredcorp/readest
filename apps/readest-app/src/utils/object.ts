@@ -2,6 +2,11 @@ import { s3Storage } from './s3';
 import { r2Storage } from './r2';
 import { getStorageType } from './storage';
 
+export const getDefaultStorageBucketName = () =>
+  getStorageType() === 'r2'
+    ? process.env['R2_BUCKET_NAME'] || ''
+    : process.env['S3_BUCKET_NAME'] || '';
+
 export const getDownloadSignedUrl = async (
   fileKey: string,
   expiresIn: number,
@@ -9,7 +14,7 @@ export const getDownloadSignedUrl = async (
 ) => {
   const storageType = getStorageType();
   if (storageType === 'r2') {
-    bucketName = bucketName || process.env['R2_BUCKET_NAME'] || '';
+    bucketName = bucketName || getDefaultStorageBucketName();
     return await r2Storage.getDownloadSignedUrl(bucketName, fileKey, expiresIn);
   } else {
     bucketName = bucketName || process.env['S3_BUCKET_NAME'] || '';
@@ -25,7 +30,7 @@ export const getUploadSignedUrl = async (
 ) => {
   const storageType = getStorageType();
   if (storageType === 'r2') {
-    bucketName = bucketName || process.env['R2_BUCKET_NAME'] || '';
+    bucketName = bucketName || getDefaultStorageBucketName();
     return await r2Storage.getUploadSignedUrl(bucketName, fileKey, contentLength, expiresIn);
   } else {
     bucketName = bucketName || process.env['S3_BUCKET_NAME'] || '';
@@ -36,7 +41,7 @@ export const getUploadSignedUrl = async (
 export const deleteObject = async (fileKey: string, bucketName?: string) => {
   const storageType = getStorageType();
   if (storageType === 'r2') {
-    bucketName = bucketName || process.env['R2_BUCKET_NAME'] || '';
+    bucketName = bucketName || getDefaultStorageBucketName();
     return await r2Storage.deleteObject(bucketName, fileKey);
   } else {
     bucketName = bucketName || process.env['S3_BUCKET_NAME'] || '';

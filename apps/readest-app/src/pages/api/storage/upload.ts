@@ -6,8 +6,20 @@ import {
   validateUserAndToken,
   STORAGE_QUOTA_GRACE_BYTES,
 } from '@/utils/access';
-import { getDownloadSignedUrl, getUploadSignedUrl } from '@/utils/object';
+import {
+  getDefaultStorageBucketName,
+  getDownloadSignedUrl,
+  getUploadSignedUrl,
+} from '@/utils/object';
 import { READEST_PUBLIC_STORAGE_BASE_URL } from '@/services/constants';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+import { buildReaderPermanentStorageKey } from '@/integrations/learningbored/permanent-storage-key';
+import {
+  LEARNINGBORED_READER_BUCKET_NAME,
+  parseReaderUploadCapabilityWindow,
+  READER_PERMANENT_UPLOAD_MAX_TTL_SECONDS,
+} from '@/integrations/learningbored/upload-capability';
+import { getStorageType } from '@/utils/storage';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -23,6 +35,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { fileName, fileSize, bookHash, temp = false } = req.body;
   if (temp) {
+    if (getLearningBoredPrivateBetaPolicy().active) {
+      return res.status(403).json({ error: 'Temporary public storage is unavailable.' });
+    }
+
     try {
       const datetime = new Date();
       const timeStr = datetime.toISOString().replace(/[-:]/g, '').replace('T', '').slice(0, 10);
@@ -45,7 +61,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    if (!fileName || !fileSize) {
+    if (
+      typeof fileName !== 'string' ||
+      fileName.length === 0 ||
+      !Number.isSafeInteger(fileSize) ||
+      fileSize <= 0
+    ) {
       return res.status(400).json({ error: 'Missing file info' });
     }
 
@@ -54,7 +75,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'Insufficient storage quota', usage });
     }
 
-    const fileKey = `${user.id}/${fileName}`;
+    const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
+    let fileKey: string;
+    try {
+      fileKey = privateBetaPolicy.active
+        ? buildReaderPermanentStorageKey(user.id, fileName)
+        : `${user.id}/${fileName}`;
+    } catch {
+      return res.status(400).json({ error: 'Invalid permanent Reader upload path.' });
+    }
     const supabase = createSupabaseAdminClient();
     const { data: existingRecord, error: fetchError } = await supabase
       .from('files')
@@ -67,28 +96,83 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (fetchError && fetchError.code !== 'PGRST116') {
       return res.status(500).json({ error: fetchError.message });
     }
-    let objSize = fileSize;
+    const objSize = existingRecord ? Number(existingRecord.file_size) : fileSize;
     if (existingRecord) {
-      objSize = existingRecord.file_size;
-    } else {
-      const { data: inserted, error: insertError } = await supabase
-        .from('files')
-        .insert([
-          {
-            user_id: user.id,
-            book_hash: bookHash,
-            file_key: fileKey,
-            file_size: fileSize,
-          },
-        ])
-        .select()
-        .single();
-      console.log('Inserted record:', inserted);
-      if (insertError) return res.status(500).json({ error: insertError.message });
+      if (!Number.isSafeInteger(objSize) || objSize <= 0) {
+        return res.status(500).json({ error: 'Stored file authorization is invalid.' });
+      }
+    }
+
+    if (!privateBetaPolicy.active) {
+      if (!existingRecord) {
+        const { error: insertError } = await supabase.from('files').insert({
+          user_id: user.id,
+          book_hash: typeof bookHash === 'string' ? bookHash : null,
+          file_key: fileKey,
+          file_size: fileSize,
+        });
+        if (insertError) {
+          return res.status(500).json({ error: insertError.message });
+        }
+      }
+
+      const uploadUrl = await getUploadSignedUrl(
+        fileKey,
+        objSize,
+        READER_PERMANENT_UPLOAD_MAX_TTL_SECONDS,
+      );
+      return res.status(200).json({
+        uploadUrl,
+        fileKey,
+        usage: usage + fileSize,
+        quota,
+      });
     }
 
     try {
-      const uploadUrl = await getUploadSignedUrl(fileKey, objSize, 1800);
+      // Generate first, but do not return the capability until the database has atomically checked the
+      // subject fence and recorded the exact X-Amz-Date + X-Amz-Expires upper bound.
+      const bucketName = getDefaultStorageBucketName();
+      if (getStorageType() !== 'r2' || bucketName !== LEARNINGBORED_READER_BUCKET_NAME) {
+        return res.status(500).json({ error: 'Invalid private Reader storage configuration.' });
+      }
+      const uploadUrl = await getUploadSignedUrl(
+        fileKey,
+        objSize,
+        READER_PERMANENT_UPLOAD_MAX_TTL_SECONDS,
+        bucketName,
+      );
+      const capability = parseReaderUploadCapabilityWindow(uploadUrl, bucketName, fileKey);
+      const { data: authorizationRows, error: authorizationError } = await supabase.rpc(
+        'learningbored_record_reader_upload_capability',
+        {
+          p_book_hash: typeof bookHash === 'string' ? bookHash : null,
+          p_capability_expires_at: capability.expiresAt,
+          p_capability_issued_at: capability.issuedAt,
+          p_file_key: fileKey,
+          p_file_size: objSize,
+          p_user_id: user.id,
+        },
+      );
+
+      if (authorizationError?.code === 'LB001') {
+        return res.status(403).json({ error: 'Reader access has been revoked.' });
+      }
+      const authorization = Array.isArray(authorizationRows)
+        ? authorizationRows[0]
+        : authorizationRows;
+      const recordedExpiry = new Date(authorization?.capability_expires_at).getTime();
+      const expectedExpiry = new Date(capability.expiresAt).getTime();
+      if (
+        authorizationError ||
+        !authorization ||
+        Number(authorization.authorized_file_size) !== objSize ||
+        !Number.isFinite(recordedExpiry) ||
+        !Number.isFinite(expectedExpiry) ||
+        recordedExpiry !== expectedExpiry
+      ) {
+        return res.status(500).json({ error: 'Could not authorize permanent upload.' });
+      }
 
       res.status(200).json({
         uploadUrl,
@@ -96,12 +180,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         usage: usage + fileSize,
         quota,
       });
-    } catch (error) {
-      console.error('Error creating presigned post:', error);
+    } catch {
+      console.error('Error authorizing permanent Reader upload.');
       res.status(500).json({ error: 'Could not create presigned post' });
     }
-  } catch (error) {
-    console.error(error);
+  } catch {
+    console.error('Unexpected permanent Reader upload failure.');
     return res.status(500).json({ error: 'Something went wrong' });
   }
 }
