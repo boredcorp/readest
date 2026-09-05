@@ -11,6 +11,8 @@ import {
 const readRepositoryFile = (relativePath) =>
   readFile(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
 
+const PINNED_DOCKERFILE_FRONTEND =
+  'docker/dockerfile:1.26.0@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32';
 const PINNED_NODE_BUILD_IMAGE =
   'docker.io/library/node:24.19.0-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03';
 const PINNED_NODE_RUNTIME_IMAGE =
@@ -22,10 +24,10 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
     readRepositoryFile('../../apps/readest-app/next.config.mjs'),
   ]);
 
-  assert.match(
-    dockerfile,
-    /^# syntax=docker\/dockerfile:1\.7@sha256:[a-f0-9]{64}$/mu,
-    'Dockerfile frontend must be pinned by digest',
+  assert.equal(
+    dockerfile.split(/\r?\n/u)[0],
+    `# syntax=${PINNED_DOCKERFILE_FRONTEND}`,
+    'frontend must retain the reviewed pin that emits required BuildKit v1 layer provenance',
   );
   assert.ok(
     dockerfile.includes(`ARG NODE_BUILD_IMAGE=${PINNED_NODE_BUILD_IMAGE}`),
