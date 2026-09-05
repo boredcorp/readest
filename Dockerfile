@@ -1,6 +1,9 @@
 # syntax=docker/dockerfile:1.7@sha256:a57df69d0ea827fb7266491f2813635de6f17269be881f696fbfdf2d83dda33e
 
-FROM docker.io/node:24.19.0-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS base
+ARG NODE_BUILD_IMAGE=docker.io/library/node:24.19.0-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03
+ARG NODE_RUNTIME_IMAGE=gcr.io/distroless/nodejs24-debian13:nonroot@sha256:774b7d020b24214835769e24c3544835526cd0288f0b094eae48e8b2c2429a79
+
+FROM ${NODE_BUILD_IMAGE} AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 ENV NEXT_TELEMETRY_DISABLED=1
@@ -74,7 +77,7 @@ WORKDIR /app/readest/apps/readest-app
 RUN node ./container-build-config.mjs \
     && NODE_OPTIONS=--max-old-space-size=4096 pnpm exec next build
 
-FROM docker.io/node:24.19.0-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03 AS production-stage
+FROM ${NODE_RUNTIME_IMAGE} AS production-stage
 ARG OCI_PRODUCT=storybored
 ARG OCI_PROJECT=storybored
 ARG OCI_REPOSITORY=https://github.com/boredcorp/storybored
@@ -100,16 +103,17 @@ LABEL org.opencontainers.image.title="StoryBored Reader" \
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
-    PORT=3000
+    PORT=3000 \
+    PATH=/nodejs/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 WORKDIR /app
-COPY --from=build --chown=node:node /app/readest/apps/readest-app/.next/standalone/ ./
-COPY --from=build --chown=node:node /app/readest/apps/readest-app/.next/static/ ./readest/apps/readest-app/.next/static/
-COPY --from=build --chown=node:node /app/readest/apps/readest-app/public/ ./readest/apps/readest-app/public/
+COPY --from=build --chown=65532:65532 /app/readest/apps/readest-app/.next/standalone/ ./
+COPY --from=build --chown=65532:65532 /app/readest/apps/readest-app/.next/static/ ./readest/apps/readest-app/.next/static/
+COPY --from=build --chown=65532:65532 /app/readest/apps/readest-app/public/ ./readest/apps/readest-app/public/
 
 WORKDIR /app/readest/apps/readest-app
-USER node
+USER 65532:65532
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-  CMD ["node", "-e", "fetch('http://127.0.0.1:3000/health/live',{signal:AbortSignal.timeout(4000)}).then(response=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))"]
-ENTRYPOINT ["node", "server.js"]
+  CMD ["/nodejs/bin/node", "-e", "fetch('http://127.0.0.1:3000/health/live',{signal:AbortSignal.timeout(4000)}).then(response=>{if(!response.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+ENTRYPOINT ["/nodejs/bin/node", "server.js"]
