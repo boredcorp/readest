@@ -11,8 +11,10 @@ import {
 const readRepositoryFile = (relativePath) =>
   readFile(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
 
-const PINNED_NODE_IMAGE =
-  'docker.io/node:24.19.0-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03';
+const PINNED_NODE_BUILD_IMAGE =
+  'docker.io/library/node:24.19.0-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03';
+const PINNED_NODE_RUNTIME_IMAGE =
+  'gcr.io/distroless/nodejs24-debian13:nonroot@sha256:774b7d020b24214835769e24c3544835526cd0288f0b094eae48e8b2c2429a79';
 
 test('production Reader image is pinned, minimal, non-root, and health checked', async () => {
   const [dockerfile, nextConfig] = await Promise.all([
@@ -26,8 +28,13 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
     'Dockerfile frontend must be pinned by digest',
   );
   assert.ok(
-    dockerfile.includes(`FROM ${PINNED_NODE_IMAGE} AS base`),
+    dockerfile.includes(`ARG NODE_BUILD_IMAGE=${PINNED_NODE_BUILD_IMAGE}`),
     'build base must pin Node 24.19.0 by digest',
+  );
+  assert.match(dockerfile, /FROM \$\{NODE_BUILD_IMAGE\} AS base/u);
+  assert.ok(
+    dockerfile.includes(`ARG NODE_RUNTIME_IMAGE=${PINNED_NODE_RUNTIME_IMAGE}`),
+    'production base must pin the reviewed Distroless Node 24 image by digest',
   );
   assert.match(
     dockerfile,
@@ -43,7 +50,7 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
 
   const buildStage = dockerfile
     .split('FROM reader-base AS build')[1]
-    ?.split(`FROM ${PINNED_NODE_IMAGE} AS production-stage`)[0];
+    ?.split('FROM ${NODE_RUNTIME_IMAGE} AS production-stage')[0];
   assert.ok(buildStage, 'Reader build stage must exist');
   assert.match(buildStage, /^ARG OCI_READER_SHA$/mu);
   for (const variable of REQUIRED_READER_PUBLIC_ENDPOINTS) {
@@ -65,21 +72,23 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
     'Reader SHA must be available when Next.js creates its build ID',
   );
 
-  const production = dockerfile.split(`FROM ${PINNED_NODE_IMAGE} AS production-stage`)[1];
-  assert.ok(production, 'production stage must start from the pinned clean Node image');
+  const production = dockerfile.split('FROM ${NODE_RUNTIME_IMAGE} AS production-stage')[1];
+  assert.ok(production, 'production stage must start from the pinned Distroless image');
   assert.doesNotMatch(production, /NODE_OPTIONS|max-old-space-size/u);
   assert.doesNotMatch(production, /pnpm (?:install|exec)|COPY readest\/|COPY packages\//u);
   assert.match(production, /\.next\/standalone\/ \.\//u);
   assert.match(production, /\.next\/static\/ \.\/readest\/apps\/readest-app\/\.next\/static\//u);
   assert.match(production, /\/public\/ \.\/readest\/apps\/readest-app\/public\//u);
-  assert.match(production, /\nUSER node\n/u);
+  assert.match(production, /\nUSER 65532:65532\n/u);
+  assert.doesNotMatch(production, /USER node|--chown=node:node/u);
+  assert.match(production, /--chown=65532:65532/u);
   assert.match(
     production,
-    /HEALTHCHECK[^\n]*\n\s*CMD \["node", "-e", ".*127\.0\.0\.1:3000\/health\/live/u,
+    /HEALTHCHECK[^\n]*\n\s*CMD \["\/nodejs\/bin\/node", "-e", ".*127\.0\.0\.1:3000\/health\/live/u,
   );
-  assert.match(production, /ENTRYPOINT \["node", "server\.js"\]/u);
+  assert.match(production, /ENTRYPOINT \["\/nodejs\/bin\/node", "server\.js"\]/u);
   assert.ok(
-    production.indexOf('USER node') < production.indexOf('ENTRYPOINT'),
+    production.indexOf('USER 65532:65532') < production.indexOf('ENTRYPOINT'),
     'runtime must drop privileges before startup',
   );
 });
@@ -129,6 +138,36 @@ test('production Reader endpoints fail closed without upstream or credential fal
         NEXT_PUBLIC_MARKETPLACE_URL: 'https://market.storybored.example/marketplace',
       }),
     /StoryBored site and marketplace URLs must share one origin/u,
+  );
+});
+
+test('dependency overrides retain patched transitive releases', async () => {
+  const [workspace, lockfile] = await Promise.all([
+    readRepositoryFile('../../pnpm-workspace.yaml'),
+    readRepositoryFile('../../pnpm-lock.yaml'),
+  ]);
+
+  assert.match(workspace, /^  browserslist: 4\.28\.7$/mu);
+  assert.match(workspace, /^  deepmerge-ts: 8\.0\.0$/mu);
+  assert.match(workspace, /^  fast-uri: 3\.1\.7$/mu);
+  assert.match(workspace, /^  qs: '>=6\.16\.0'$/mu);
+  assert.match(lockfile, /^  browserslist@4\.28\.7:$/mu);
+  assert.match(lockfile, /^  deepmerge-ts@8\.0\.0:$/mu);
+  assert.match(lockfile, /^  fast-uri@3\.1\.7:$/mu);
+  assert.match(lockfile, /^  qs@6\.16\.0:$/mu);
+  for (const dependency of ['@wdio/config', '@wdio/runner', '@wdio/utils', 'webdriver']) {
+    assert.match(
+      lockfile,
+      new RegExp(
+        `^  ['"]?${dependency.replace('/', '\\/')}@[^\\n]+['"]?:\\n(?: {4,}[^\\n]*\\n)*? {6}deepmerge-ts: 8\\.0\\.0$`,
+        'mu',
+      ),
+      `${dependency} must resolve the patched deepmerge-ts override`,
+    );
+  }
+  assert.doesNotMatch(
+    lockfile,
+    /browserslist@4\.28\.6|deepmerge-ts@7\.1\.6|fast-uri@3\.1\.[56]|qs@6\.15\.3/u,
   );
 });
 

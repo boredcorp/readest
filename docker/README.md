@@ -127,11 +127,13 @@ traffic from falling back to upstream Readest or legacy StoryBored hosts. Sentry
 optional.
 
 The production target copies only Next.js standalone output, static assets, and public assets into
-its runtime stage. It runs as the image's unprivileged `node` user and probes `/health/live` from
-inside the container. Release builds must also pass the OCI metadata arguments shown below; the
-deterministic defaults are for local builds only. A valid `OCI_READER_SHA` also becomes Next.js's
-build ID, so release assets are reproducibly tied to the exact Reader gitlink. `PUBLIC_CONFIG_SHA256`
-records the release pipeline's hash of the public `NEXT_PUBLIC_*` build configuration.
+its digest-pinned Distroless Debian 13 Node 24 runtime stage. It runs as numeric UID/GID
+`65532:65532`, invokes `/nodejs/bin/node` directly, and probes `/health/live` from inside the
+container. The final image deliberately contains no shell, npm, Corepack, package manager, or Perl.
+Release builds must also pass the OCI metadata arguments shown below; the deterministic defaults are
+for local builds only. A valid `OCI_READER_SHA` also becomes Next.js's build ID, so release assets
+are reproducibly tied to the exact Reader gitlink. `PUBLIC_CONFIG_SHA256` records the release
+pipeline's hash of the public `NEXT_PUBLIC_*` build configuration.
 
 StoryBored container releases use the root application's semantic version in `OCI_VERSION` and the
 exact fork revision in `OCI_READER_SHA`. Packaging-only changes here do not change Readest's upstream
