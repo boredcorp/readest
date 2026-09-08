@@ -1,5 +1,11 @@
 {
   "releases": {
+    "0.10.7": {
+      "date": "2026-09-08",
+      "notes": [
+        "StoryBored: Display private generated scenes, history previews, and included scenes while preserving Reader cross-origin isolation"
+      ]
+    },
     "0.10.6": {
       "date": "2026-04-13",
       "notes": [

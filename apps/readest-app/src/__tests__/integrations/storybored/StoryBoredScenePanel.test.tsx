@@ -556,6 +556,7 @@ describe('StoryBored scene panel auth epoch', () => {
     expect((await screen.findByAltText('Generated scene')).getAttribute('src')).toBe(
       'https://assets.example.test/refreshed.png',
     );
+    expect(screen.getByAltText('Generated scene').getAttribute('crossorigin')).toBe('anonymous');
   });
 
   it('caps consecutive signed-URL recovery attempts for a scene image', async () => {
@@ -733,11 +734,15 @@ describe('StoryBored scene panel auth epoch', () => {
     await screen.findByRole('button', { name: /A scene with a lazy thumbnail/ });
     const thumbnail = view.container.querySelector<HTMLImageElement>('img[loading="lazy"]');
     expect(thumbnail?.src).toBe('https://assets.example.test/thumbnail.png');
+    expect(thumbnail?.crossOrigin).toBe('anonymous');
     fireEvent.error(thumbnail as HTMLImageElement);
 
     await waitFor(() => expect(getSceneGeneration).toHaveBeenCalledWith('generation-thumbnail'));
     expect(view.container.querySelector<HTMLImageElement>('img[loading="lazy"]')?.src).toBe(
       'https://assets.example.test/refreshed-thumbnail.png',
+    );
+    expect(view.container.querySelector<HTMLImageElement>('img[loading="lazy"]')?.crossOrigin).toBe(
+      'anonymous',
     );
   });
 
@@ -1260,6 +1265,9 @@ describe('StoryBored scene panel auth epoch', () => {
     expect(await screen.findByRole('region', { name: 'Included scenes' })).toBeTruthy();
     expect((await screen.findByRole('img', { name: 'Moonlit bridge' })).getAttribute('src')).toBe(
       'https://assets.storybored.test/moonlit-bridge.webp',
+    );
+    expect(screen.getByRole('img', { name: 'Moonlit bridge' }).getAttribute('crossorigin')).toBe(
+      'anonymous',
     );
     expect(getOwnedLibraryScenePack).toHaveBeenCalledTimes(1);
     expect(getOwnedLibraryScenePack).toHaveBeenCalledWith('library-item-1');

@@ -1429,6 +1429,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
                     <span className='bg-base-200 flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-md'>
                       {historyImageUrl && !historyImageExpired && !historyImageUnavailable ? (
                         <img
+                          crossOrigin='anonymous'
                           src={historyImageUrl}
                           alt=''
                           className='size-full object-cover'
@@ -1534,6 +1535,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
                         {scene.imageUrl && !imageExpired && !imageUnavailable ? (
                           <img
                             key={`${scene.id}:${scene.imageUrl}:${includedSceneImageEpoch}`}
+                            crossOrigin='anonymous'
                             src={scene.imageUrl}
                             alt={sceneTitle}
                             className='aspect-video w-full object-cover'
@@ -1649,6 +1651,7 @@ const StoryBoredScenePanel: React.FC<StoryBoredScenePanelProps> = ({
 
           {imageUrl && !shouldShowVisibleImagePlaceholder && (
             <img
+              crossOrigin='anonymous'
               src={imageUrl}
               alt={_('Generated scene')}
               className='aspect-square w-full rounded-md object-cover'
