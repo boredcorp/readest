@@ -1127,7 +1127,11 @@ test.describe('Reader LearningBored deterministic matrix', () => {
     expect(
       await page.evaluate(() => ({
         localStorage: Object.keys(window.localStorage),
-        sessionStorage: Object.keys(window.sessionStorage),
+        // Next's development server persists its own debug channel after hydration/reload.
+        // Every other session key and every localStorage key still belongs to this assertion.
+        sessionStorage: Object.keys(window.sessionStorage).filter(
+          (key) => !key.startsWith('__next_debug_channel:'),
+        ),
       })),
     ).toEqual({ localStorage: [], sessionStorage: [] });
   });
@@ -1708,6 +1712,8 @@ test.describe('Reader LearningBored deterministic matrix', () => {
     } as const;
     const hostileSessionStorage = {
       'preview.hostile.session': 'leave-existing-session-state-unchanged',
+      __next_debug_channel: 'a-lookalike-is-not-the-framework-namespace',
+      'preview.__next_debug_channel:hostile': 'preserve-namespaced-application-state',
     } as const;
     await page.addInitScript(
       ({ local, session }) => {
@@ -1744,9 +1750,10 @@ test.describe('Reader LearningBored deterministic matrix', () => {
           Object.entries(window.localStorage).sort(([left], [right]) => left.localeCompare(right)),
         ),
         sessionStorage: Object.fromEntries(
-          Object.entries(window.sessionStorage).sort(([left], [right]) =>
-            left.localeCompare(right),
-          ),
+          Object.entries(window.sessionStorage)
+            // Only Next's exact development debug namespace is outside the preview boundary.
+            .filter(([key]) => !key.startsWith('__next_debug_channel:'))
+            .sort(([left], [right]) => left.localeCompare(right)),
         ),
       })),
     ).toEqual({
