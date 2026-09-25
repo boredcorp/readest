@@ -1,5 +1,12 @@
 {
   "releases": {
+    "0.10.11": {
+      "date": "2026-09-25",
+      "notes": [
+        "Cloud library: Explicitly upload eligible local books, discover and download your account's books, and sync library metadata and coarse reading progress without automatically uploading local imports",
+        "Privacy and deletion: Keep local and account copies separate, discard stale account work, and retry complete cloud deletion while preserving separate local copies; annotations and exact reading locations remain local"
+      ]
+    },
     "0.10.10": {
       "date": "2026-09-25",
       "notes": [
