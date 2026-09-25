@@ -1,7 +1,18 @@
 'use client';
 
 import clsx from 'clsx';
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useSyncExternalStore } from 'react';
+import {
+  assertCloudLease,
+  captureCloudLease,
+  cloudSessionEpoch,
+  hasCloudSession,
+  subscribeCloudSession,
+  type CloudLease,
+} from '@/services/cloudOwnerSession';
+import { isOrdinaryCloudBook } from '@/services/cloudLibraryModel';
+import { deleteOrdinaryCloudBook, getCloudBookState } from '@/services/ordinaryCloudLibrary';
+import type { Book } from '@/types/book';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useLibraryStore } from '@/store/libraryStore';
@@ -22,11 +33,19 @@ import { CLOUD_BOOKS_SUBDIR } from '@/services/constants';
 import Spinner from '@/components/Spinner';
 import Alert from '@/components/Alert';
 
+type StorageDeletionPlan = {
+  lease: CloudLease;
+  books: Book[];
+  files: FileRecord[];
+  rawKeys: string[];
+};
+
 const StorageManager = () => {
   const _ = useTranslation();
   const { appService } = useEnv();
   const { libraryLoaded } = useLibrary();
   const { safeAreaInsets } = useThemeStore();
+  const ownerEpoch = useSyncExternalStore(subscribeCloudSession, cloudSessionEpoch, () => 0);
   const [loading, setLoading] = useState(false);
   const [filesLoaded, setFilesLoaded] = useState(false);
   const [files, setFiles] = useState<FileRecord[]>([]);
@@ -39,11 +58,15 @@ const StorageManager = () => {
   const [sortBy, setSortBy] = useState<ListFilesParams['sortBy']>('created_at');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
+  const [deletionPlan, setDeletionPlan] = useState<StorageDeletionPlan | null>(null);
   const [expandedBooks, setExpandedBooks] = useState<Set<string>>(new Set());
 
   const loadFiles = useCallback(async () => {
+    if (!hasCloudSession()) return;
     setLoading(true);
     try {
+      const lease = await captureCloudLease();
+      if (lease.epoch !== ownerEpoch) return;
       const params: ListFilesParams = {
         page: currentPage,
         pageSize: 20,
@@ -55,32 +78,50 @@ const StorageManager = () => {
         params.search = searchQuery.trim();
       }
 
-      const response = await listFiles(params);
+      const response = await listFiles(params, lease);
+      assertCloudLease(lease);
       setFiles(response.files);
       setTotalPages(response.totalPages);
       setFilesLoaded(true);
     } catch (error) {
+      if (ownerEpoch !== cloudSessionEpoch()) return;
       console.error('Failed to load files:', error);
       eventDispatcher.dispatch('toast', {
         type: 'info',
         message: _('Failed to load files'),
       });
     } finally {
-      setLoading(false);
+      if (ownerEpoch === cloudSessionEpoch()) setLoading(false);
     }
-  }, [currentPage, sortBy, sortOrder, searchQuery, _]);
+  }, [currentPage, sortBy, sortOrder, searchQuery, _, ownerEpoch]);
 
   const loadStats = useCallback(async () => {
+    if (!hasCloudSession()) return;
     setLoading(true);
     try {
-      const statsData = await getStorageStats();
+      const lease = await captureCloudLease();
+      if (lease.epoch !== ownerEpoch) return;
+      const statsData = await getStorageStats(lease);
+      assertCloudLease(lease);
       setStats(statsData);
     } catch (error) {
+      if (ownerEpoch !== cloudSessionEpoch()) return;
       console.error('Failed to load stats:', error);
     } finally {
-      setLoading(false);
+      if (ownerEpoch === cloudSessionEpoch()) setLoading(false);
     }
-  }, []);
+  }, [ownerEpoch]);
+
+  useEffect(() => {
+    setFiles([]);
+    setStats(null);
+    setFilesLoaded(false);
+    setSelectedFiles(new Set());
+    setExpandedBooks(new Set());
+    setShowConfirmDelete(false);
+    setDeletionPlan(null);
+    setLoading(false);
+  }, [ownerEpoch]);
 
   useEffect(() => {
     loadFiles();
@@ -175,20 +216,97 @@ const StorageManager = () => {
     return selectedCount > 0 && selectedCount < allBookFiles.length;
   };
 
+  const prepareDeletion = async () => {
+    if (!appService || !libraryLoaded || !selectedFiles.size) return;
+    setLoading(true);
+    try {
+      const lease = await captureCloudLease();
+      if (lease.epoch !== ownerEpoch) return;
+      const records = files.filter((file) => selectedFiles.has(file.file_key));
+      if (records.length !== selectedFiles.size) throw new Error('Selection changed');
+      const books = new Map<string, Book>();
+      for (const file of records) {
+        if (!file.file_key.startsWith(`${lease.subject}/`)) throw new Error('Owner changed');
+        const hash = file.book_hash;
+        if (
+          !hash ||
+          !/^[a-f0-9]{32}$/i.test(hash) ||
+          /^0+$/.test(hash) ||
+          isCoverFile(file) ||
+          !file.file_key.startsWith(`${lease.subject}/${CLOUD_BOOKS_SUBDIR}/${hash}/`)
+        )
+          continue;
+        const visible = useLibraryStore.getState().library.find((book) => book.hash === hash);
+        if (visible && !isOrdinaryCloudBook(visible)) continue;
+        const entry = await getCloudBookState(appService, hash);
+        assertCloudLease(lease);
+        if (!entry || !isOrdinaryCloudBook(entry.book))
+          throw new Error('Cloud book identity unavailable');
+        books.set(hash, {
+          ...entry.book,
+          libraryOrigin: { kind: 'cloud', ownerKey: lease.ownerKey, epoch: lease.epoch },
+        });
+      }
+      assertCloudLease(lease);
+      setDeletionPlan({
+        lease,
+        books: [...books.values()],
+        files: records,
+        rawKeys: records
+          .filter((file) => !file.book_hash || !books.has(file.book_hash))
+          .map((file) => file.file_key),
+      });
+      setShowConfirmDelete(true);
+    } catch {
+      if (ownerEpoch === cloudSessionEpoch())
+        eventDispatcher.dispatch('toast', {
+          type: 'info',
+          message: _(
+            'Refresh the cloud library, then delete this book from its book details. No files were deleted.',
+          ),
+        });
+    } finally {
+      if (ownerEpoch === cloudSessionEpoch()) setLoading(false);
+    }
+  };
+
   const handleDeleteSelected = async () => {
-    if (selectedFiles.size === 0) return;
+    if (!deletionPlan) return;
     if (!libraryLoaded || !appService) return;
 
     setLoading(true);
     try {
-      const fileKeys = Array.from(selectedFiles);
-      const fileRecords = files.filter((f) => selectedFiles.has(f.file_key));
-      const result = await purgeFiles(fileKeys, true);
+      const { lease, books, files: fileRecords, rawKeys } = deletionPlan;
+      assertCloudLease(lease);
+      try {
+        for (const book of books) {
+          assertCloudLease(lease);
+          await deleteOrdinaryCloudBook(appService, book);
+        }
+      } finally {
+        if (books.length) {
+          assertCloudLease(lease);
+          const projected = await appService.loadLibraryBooks();
+          assertCloudLease(lease);
+          useLibraryStore.getState().setLibrary(projected);
+        }
+      }
+      const result = rawKeys.length
+        ? await purgeFiles(rawKeys, true, lease)
+        : { success: [], failed: [], deletedCount: 0, failedCount: 0 };
+      assertCloudLease(lease);
       const deletedFileKeys = new Set(result.success);
 
       const { library, setLibrary } = useLibraryStore.getState();
-      library
+      const changed = library
         .filter((book) => {
+          const origin = book.libraryOrigin;
+          if (
+            origin?.kind !== 'cloud' ||
+            origin.ownerKey !== lease.ownerKey ||
+            origin.epoch !== lease.epoch
+          )
+            return false;
           const bookPath = `${CLOUD_BOOKS_SUBDIR}/${getRemoteBookFilename(book)}`;
           return fileRecords.some(
             (file) =>
@@ -197,21 +315,26 @@ const StorageManager = () => {
               file.file_key.slice(file.file_key.indexOf('/') + 1) === bookPath,
           );
         })
-        .forEach((book) => {
-          book.uploadedAt = null;
-          book.updatedAt = Date.now();
-        });
-      setLibrary(library);
-      appService.saveLibraryBooks(library);
+        .map((book) => ({ ...book, uploadedAt: null, updatedAt: Date.now() }));
+      if (changed.length) {
+        const patches = new Map(changed.map((book) => [book.hash, book]));
+        setLibrary(library.map((book) => patches.get(book.hash) ?? book));
+        await appService.saveLibraryBooks(changed, () => assertCloudLease(lease));
+        assertCloudLease(lease);
+      }
 
-      if (result.deletedCount > 0) {
+      if (result.deletedCount > 0 || books.length) {
         await loadFiles();
+        assertCloudLease(lease);
         await loadStats();
+        assertCloudLease(lease);
         setSelectedFiles(new Set());
 
         eventDispatcher.dispatch('toast', {
           type: 'info',
-          message: _('Deleted {{count}} file(s)', { count: result.deletedCount }),
+          message: books.length
+            ? _('The selected cloud books and files were deleted.')
+            : _('Deleted {{count}} file(s)', { count: result.deletedCount }),
         });
 
         if (result.failedCount > 0) {
@@ -222,14 +345,18 @@ const StorageManager = () => {
         }
       }
     } catch (error) {
+      if (ownerEpoch !== cloudSessionEpoch()) return;
       console.error('Failed to delete files:', error);
       eventDispatcher.dispatch('toast', {
         type: 'info',
         message: _('Failed to delete files'),
       });
     } finally {
-      setLoading(false);
-      setShowConfirmDelete(false);
+      if (ownerEpoch === cloudSessionEpoch()) {
+        setLoading(false);
+        setShowConfirmDelete(false);
+        setDeletionPlan(null);
+      }
     }
   };
 
@@ -364,7 +491,7 @@ const StorageManager = () => {
             {_('{{count}} selected', { count: selectedFiles.size })}
           </span>
           <button
-            onClick={() => setShowConfirmDelete(true)}
+            onClick={() => void prepareDeletion()}
             className='btn btn-error btn-sm'
             disabled={loading || selectedFiles.size === 0}
           >
@@ -558,11 +685,18 @@ const StorageManager = () => {
         >
           <Alert
             title={_('Confirm Deletion')}
-            message={_('Are you sure to delete {{count}} selected file(s)?', {
-              count: selectedFiles.size,
-            })}
+            message={
+              deletionPlan?.books.length
+                ? _(
+                    'Delete the selected cloud books, including their covers, cloud library entries and downloaded cloud copies, plus any other selected files? Separate device-local copies remain.',
+                  )
+                : _('Are you sure to delete {{count}} selected file(s)?', {
+                    count: selectedFiles.size,
+                  })
+            }
             onCancel={() => {
               setShowConfirmDelete(false);
+              setDeletionPlan(null);
             }}
             onConfirm={() => {
               handleDeleteSelected();

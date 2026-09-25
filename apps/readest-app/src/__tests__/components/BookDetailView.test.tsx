@@ -32,6 +32,8 @@ vi.mock('@/components/BookCover', () => ({
   default: () => null,
 }));
 
+vi.mock('@/components/metadata/CloudLibraryActions', () => ({ default: () => null }));
+
 vi.mock('@/hooks/useResponsiveSize', () => ({
   useResponsiveSize: (n: number) => n,
   useDefaultIconSize: () => 20,
@@ -76,6 +78,13 @@ const renderView = (extra?: Partial<React.ComponentProps<typeof BookDetailView>>
   );
 
 describe('BookDetailView delete dropdown layout', () => {
+  it('keeps the generic delete menu away from cloud-origin books', () => {
+    const { container } = renderView({
+      book: makeBook({ libraryOrigin: { kind: 'cloud', ownerKey: 'a'.repeat(64), epoch: 1 } }),
+    });
+    expect(container.querySelector('button[aria-label="Delete Book Options"]')).toBeNull();
+  });
+
   it('places dropdown-center on the parent dropdown so the menu stays in flow', () => {
     const { container } = renderView();
     const toggle = container.querySelector('button[aria-label="Delete Book Options"]');

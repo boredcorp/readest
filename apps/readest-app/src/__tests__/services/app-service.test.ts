@@ -208,7 +208,7 @@ describe('BaseAppService', () => {
 
     test('writeFile delegates to fs', async () => {
       await service.writeFile('test.txt', 'Data', 'hello');
-      expect(mockFs.writeFile).toHaveBeenCalledWith('test.txt', 'Data', 'hello');
+      expect(mockFs.writeFile).toHaveBeenCalledWith('test.txt', 'Data', 'hello', undefined);
     });
 
     test('createDir delegates to fs', async () => {
@@ -223,7 +223,7 @@ describe('BaseAppService', () => {
 
     test('deleteFile delegates to fs.removeFile', async () => {
       await service.deleteFile('old.txt', 'Data');
-      expect(mockFs.removeFile).toHaveBeenCalledWith('old.txt', 'Data');
+      expect(mockFs.removeFile).toHaveBeenCalledWith('old.txt', 'Data', undefined);
     });
 
     test('deleteDir delegates to fs.removeDir', async () => {

@@ -15,10 +15,22 @@ export interface ProgressPayload {
 
 export type ProgressHandler = (progress: ProgressPayload) => void;
 
-export const webUpload = (file: File, uploadUrl: string, onProgress?: ProgressHandler) => {
+export const webUpload = (
+  file: File,
+  uploadUrl: string,
+  onProgress?: ProgressHandler,
+  signal?: AbortSignal,
+) => {
   return new Promise<void>((resolve, reject) => {
     const startTime = Date.now();
     const xhr = new XMLHttpRequest();
+    const cancel = () => xhr.abort();
+    const cleanup = () => signal?.removeEventListener('abort', cancel);
+    if (signal?.aborted) {
+      reject(new DOMException('Transfer cancelled', 'AbortError'));
+      return;
+    }
+    signal?.addEventListener('abort', cancel, { once: true });
     xhr.open('PUT', uploadUrl, true);
 
     xhr.upload.onprogress = (event) => {
@@ -32,6 +44,7 @@ export const webUpload = (file: File, uploadUrl: string, onProgress?: ProgressHa
     };
 
     xhr.onload = () => {
+      cleanup();
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve();
       } else {
@@ -39,7 +52,14 @@ export const webUpload = (file: File, uploadUrl: string, onProgress?: ProgressHa
       }
     };
 
-    xhr.onerror = () => reject(new Error('Upload failed'));
+    xhr.onerror = () => {
+      cleanup();
+      reject(new Error('Upload failed'));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new DOMException('Transfer cancelled', 'AbortError'));
+    };
 
     xhr.send(file);
   });
@@ -49,10 +69,12 @@ export const webDownload = async (
   downloadUrl: string,
   onProgress?: ProgressHandler,
   headers?: Record<string, string>,
+  signal?: AbortSignal,
 ) => {
   const response = await fetch(downloadUrl, {
     method: 'GET',
     headers: headers ? headers : undefined,
+    signal,
   });
   if (!response.ok) {
     if (response.status === 401 || response.status === 403) {

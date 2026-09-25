@@ -400,5 +400,73 @@ describe('bookDataStore', () => {
       expect(saveBookConfig).not.toHaveBeenCalled();
       expect(saveLibraryBooks).not.toHaveBeenCalled();
     });
+
+    test('rejects a deferred save from a retired view after the same hash is reopened', async () => {
+      let release!: (app: AppService) => void;
+      const saveBookConfig = vi.fn();
+      const saveLibraryBooks = vi.fn();
+      const envConfig = {
+        getAppService: () =>
+          new Promise<AppService>((resolve) => {
+            release = resolve;
+          }),
+      };
+      const book = makeLibraryBook();
+      useLibraryStore.getState().setLibrary([book]);
+      const old = {
+        ...makeBookData('h1', { localViewId: 'old-view' }),
+        book,
+        viewId: 'old-view',
+        viewKeys: ['h1-old'],
+      };
+      useBookDataStore.setState({ booksData: { h1: old } });
+      const saving = useBookDataStore
+        .getState()
+        .saveConfig(envConfig, 'h1-old', old.config!, FAKE_SETTINGS);
+      useBookDataStore.setState({
+        booksData: {
+          h1: {
+            ...old,
+            viewId: 'new-view',
+            viewKeys: ['h1-new'],
+            config: { updatedAt: 2, localViewId: 'new-view' },
+          },
+        },
+      });
+      release({ saveBookConfig, saveLibraryBooks } as unknown as AppService);
+      await expect(saving).rejects.toThrow('Book view changed');
+      expect(saveBookConfig).not.toHaveBeenCalled();
+      expect(saveLibraryBooks).not.toHaveBeenCalled();
+      expect(useBookDataStore.getState().getConfig('h1-old')).toBeNull();
+    });
+
+    test('passes a live view guard into the actual config write and saves only that book', async () => {
+      const book = makeLibraryBook();
+      const unrelated = makeLibraryBook({ hash: 'other' });
+      useLibraryStore.getState().setLibrary([book, unrelated]);
+      const data = {
+        ...makeBookData('h1', { localViewId: 'view' }),
+        book,
+        viewId: 'view',
+        viewKeys: ['h1-view'],
+      };
+      useBookDataStore.setState({ booksData: { h1: data } });
+      const saveBookConfig = vi.fn(async (_book, _config, _settings, guard: () => void) => {
+        useBookDataStore.getState().clearBookData('h1');
+        guard();
+      });
+      const saveLibraryBooks = vi.fn();
+      await expect(
+        useBookDataStore
+          .getState()
+          .saveConfig(
+            makeEnvConfig({ saveBookConfig, saveLibraryBooks }),
+            'h1-view',
+            data.config!,
+            FAKE_SETTINGS,
+          ),
+      ).rejects.toThrow();
+      expect(saveLibraryBooks).not.toHaveBeenCalled();
+    });
   });
 });

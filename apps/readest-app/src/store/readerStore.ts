@@ -21,8 +21,41 @@ import { useSettingsStore } from './settingsStore';
 import { BookData, useBookDataStore } from './bookDataStore';
 import { useLibraryStore } from './libraryStore';
 import { uniqueId } from '@/utils/misc';
+import {
+  assertCloudOrigin,
+  isCurrentCloudOrigin,
+  subscribeCloudSession,
+} from '@/services/cloudOwnerSession';
+import { sameLibraryOrigin, type LibraryOrigin } from '@/services/cloudLibraryModel';
+
+const pendingLoads = new Map<string, symbol>();
+
+/** Retire owner views even while initialization has not created BookData yet. */
+export function retireCloudBookViews(hash: string, ownerKey: string, epoch: number): void {
+  const reader = useReaderStore.getState();
+  const data = useBookDataStore.getState().booksData[hash];
+  const belongsToOwner = (origin?: LibraryOrigin) =>
+    origin?.kind === 'cloud' && origin.ownerKey === ownerKey && origin.epoch === epoch;
+  const retired = new Set<string>();
+  for (const key of new Set([...reader.bookKeys, ...Object.keys(reader.viewStates)])) {
+    if (key.split('-')[0] !== hash) continue;
+    const origin = reader.viewStates[key]?.origin ?? data?.book?.libraryOrigin;
+    if (!belongsToOwner(origin)) continue;
+    try {
+      reader.getView(key)?.close();
+      reader.getView(key)?.remove();
+    } catch {
+      /* retire state regardless */
+    }
+    reader.clearViewState(key);
+    retired.add(key);
+  }
+  reader.setBookKeys(reader.bookKeys.filter((key) => !retired.has(key)));
+  if (belongsToOwner(data?.book?.libraryOrigin)) useBookDataStore.getState().clearBookData(hash);
+}
 
 interface ViewState {
+  origin?: LibraryOrigin;
   /* Unique key for each book view */
   key: string;
   view: FoliateView | null;
@@ -108,6 +141,18 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
   },
 
   clearViewState: (key: string) => {
+    pendingLoads.delete(key);
+    const hash = key.split('-')[0]!;
+    useBookDataStore.setState((state) => {
+      const data = state.booksData[hash];
+      if (!data?.viewKeys) return state;
+      return {
+        booksData: {
+          ...state.booksData,
+          [hash]: { ...data, viewKeys: data.viewKeys.filter((viewKey) => viewKey !== key) },
+        },
+      };
+    });
     set((state) => {
       const viewStates = { ...state.viewStates };
       delete viewStates[key];
@@ -123,12 +168,30 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
     reload = false,
   ) => {
     const booksData = useBookDataStore.getState().booksData;
-    const bookData = booksData[id];
+    const sourceBook = useLibraryStore.getState().getBookByHash(id);
+    if (!sourceBook) throw new Error('Book not found');
+    const book = { ...sourceBook };
+    if (book.cloudOperation === 'delete_pending' || book.cloudOperation === 'upload_pending')
+      throw new Error('Finish the pending cloud operation first');
+    const bookData =
+      booksData[id]?.book && sameLibraryOrigin(booksData[id]!.book!, book)
+        ? booksData[id]
+        : undefined;
+    const loadId = Symbol(key);
+    pendingLoads.set(key, loadId);
+    const check = () => {
+      assertCloudOrigin(book.libraryOrigin);
+      const current = useLibraryStore.getState().getBookByHash(id);
+      if (pendingLoads.get(key) !== loadId || !current || !sameLibraryOrigin(current, book))
+        throw new DOMException('Book view changed', 'AbortError');
+    };
+    check();
     set((state) => ({
       viewStates: {
         ...state.viewStates,
         [key]: {
           key: '',
+          origin: book.libraryOrigin,
           view: null,
           viewerKey: '',
           isPrimary: false,
@@ -146,25 +209,30 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
     }));
     try {
       const appService = await envConfig.getAppService();
+      check();
       const { settings } = useSettingsStore.getState();
-      const { getBookByHash } = useLibraryStore.getState();
-      const book = getBookByHash(id);
-      if (!book) {
-        throw new Error('Book not found');
-      }
       let bookDoc = bookData?.bookDoc;
       let file = bookData?.file;
       if (!bookDoc || !file || reload) {
         const content = (await appService.loadBookContent(book)) as BookContent;
+        check();
         file = content.file;
         console.log('Loading book', key);
         const doc = await new DocumentLoader(file).open();
+        check();
         bookDoc = doc.book;
       }
-      const config = await appService.loadBookConfig(book, settings);
+      let config = await appService.loadBookConfig(book, settings);
+      check();
+      const viewId =
+        bookData?.viewId && bookData.viewKeys?.length && !reload
+          ? bookData.viewId
+          : crypto.randomUUID();
+      config.localViewId = viewId;
       // Import annotations from third-party readers on first open
       if (bookDoc.metadata.identifier) {
         const { getAnnotationProviders } = await import('@/services/annotation');
+        check();
         for (const provider of getAnnotationProviders()) {
           if (provider.isAvailable(appService)) {
             const merged = await provider.importAnnotations(
@@ -172,9 +240,11 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
               bookDoc.metadata.identifier,
               config,
             );
+            check();
             if (merged !== config) {
               Object.assign(config, merged);
-              await appService.saveBookConfig(book, config, settings);
+              await appService.saveBookConfig(book, config, settings, check);
+              check();
             }
           }
         }
@@ -184,13 +254,16 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
       // Load cached book navigation (TOC + section fragments) or compute and persist.
       if (book.format === 'EPUB' && bookDoc.rendition?.layout !== 'pre-paginated') {
         const cachedNav = await appService.loadBookNav(book);
+        check();
         if (cachedNav?.version === BOOK_NAV_VERSION && process.env.NODE_ENV === 'production') {
           hydrateBookNav(bookDoc, cachedNav);
         } else {
           const freshNav = await computeBookNav(bookDoc);
+          check();
           hydrateBookNav(bookDoc, freshNav);
           try {
             await appService.saveBookNav(book, freshNav);
+            check();
           } catch (e) {
             console.warn('Failed to persist book nav cache:', e);
           }
@@ -201,10 +274,12 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
         config.viewSettings?.sortedTOC ?? false,
         config.viewSettings?.convertChineseVariant ?? 'none',
       );
+      check();
       if (!bookDoc.metadata.title) {
         bookDoc.metadata.title = getBaseFilename(file.name);
       }
-      book.sourceTitle = formatTitle(bookDoc.metadata.title);
+      if (book.libraryOrigin?.kind !== 'cloud')
+        book.sourceTitle = formatTitle(bookDoc.metadata.title);
       // Correct language codes mistakenly set with language names
       if (typeof bookDoc.metadata?.language === 'string') {
         if (bookDoc.metadata.language in SUPPORTED_LANGNAMES) {
@@ -232,7 +307,26 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
 
       const isFixedLayout =
         bookDoc.rendition?.layout === 'pre-paginated' || FIXED_LAYOUT_FORMATS.has(book.format);
-      const newBookData: BookData = { id, book, file, config, bookDoc, isFixedLayout };
+      check();
+      // Parallel URL keys can finish after another view established the shared
+      // context. Join its current identity/config; never revive retired keys.
+      const latest = useBookDataStore.getState().booksData[id];
+      const current = latest?.book && sameLibraryOrigin(latest.book, book) ? latest : undefined;
+      const activeKeys = current?.viewKeys ?? [];
+      const sharedViewId =
+        !reload && activeKeys.length && current?.viewId ? current.viewId : viewId;
+      if (!reload && activeKeys.length && current?.config) config = current.config;
+      config.localViewId = sharedViewId;
+      const newBookData: BookData = {
+        id,
+        book,
+        file,
+        config,
+        bookDoc,
+        isFixedLayout,
+        viewId: sharedViewId,
+        viewKeys: Array.from(new Set([...activeKeys, key])),
+      };
       useBookDataStore.setState((state) => ({
         booksData: {
           ...state.booksData,
@@ -263,6 +357,7 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
         },
       }));
     } catch (error) {
+      if (pendingLoads.get(key) !== loadId || !isCurrentCloudOrigin(book.libraryOrigin)) return;
       console.error(error);
       set((state) => ({
         viewStates: {
@@ -335,6 +430,16 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
       const bookData = useBookDataStore.getState().booksData[id];
       const viewState = state.viewStates[key];
       if (!viewState || !bookData) return state;
+      if (
+        bookData.book &&
+        (!isCurrentCloudOrigin(bookData.book.libraryOrigin) ||
+          !sameLibraryOrigin(bookData.book, {
+            ...bookData.book,
+            libraryOrigin: viewState.origin,
+          }) ||
+          (bookData.viewKeys && !bookData.viewKeys.includes(key)))
+      )
+        return state;
 
       const pageInfo = bookData.isFixedLayout ? section : pageinfo;
       const progress: [number, number] = [pageInfo.current + 1, pageInfo.total];
@@ -477,3 +582,20 @@ export const useReaderStore = create<ReaderStore>((set, get) => ({
       });
   },
 }));
+
+subscribeCloudSession(() => {
+  const store = useReaderStore.getState();
+  const removed = new Set<string>();
+  for (const [key, state] of Object.entries(store.viewStates)) {
+    if (state.origin?.kind !== 'cloud') continue;
+    removed.add(key);
+    store.clearViewState(key);
+    try {
+      state.view?.close();
+      state.view?.remove();
+    } catch {
+      /* invalidated regardless */
+    }
+  }
+  store.setBookKeys(store.bookKeys.filter((key) => !removed.has(key)));
+});

@@ -4,6 +4,7 @@ let currentSessionToken: string | null | undefined;
 const sessionWaiters = new Set<AuthSessionWaiter>();
 
 export function beginAuthSessionResolution(): void {
+  publishCloudSession(null);
   currentSessionToken = undefined;
 }
 
@@ -24,3 +25,4 @@ export function getCurrentAuthSessionToken(): Promise<string | null> {
     sessionWaiters.add(resolve);
   });
 }
+import { publishCloudSession } from '@/services/cloudOwnerSession';

@@ -35,6 +35,7 @@ import { svg2png } from '@/utils/svg';
 import { normalizeMetadataIsbn } from '@/utils/isbn';
 import { BookFileNotFoundError } from './errors';
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
+import { assertCloudOrigin } from './cloudOwnerSession';
 
 export function buildBookLookupIndex(books: Book[]): BookLookupIndex {
   const byHash = new Map<string, Book>();
@@ -62,7 +63,15 @@ export function getCoverImageUrl(ctx: CoverContext, book: Book): string {
 }
 
 export async function getCoverImageBlobUrl(ctx: CoverContext, book: Book): Promise<string> {
-  return ctx.fs.getBlobURL(`${ctx.localBooksDir}/${getCoverFilename(book)}`, 'None');
+  assertCloudOrigin(book.libraryOrigin);
+  const url = await ctx.fs.getBlobURL(`${ctx.localBooksDir}/${getCoverFilename(book)}`, 'None');
+  try {
+    assertCloudOrigin(book.libraryOrigin);
+    return url;
+  } catch (error) {
+    if (url.startsWith('blob:')) URL.revokeObjectURL(url);
+    throw error;
+  }
 }
 
 export async function getCachedImageUrl(ctx: CoverContext, pathOrUrl: string): Promise<string> {
@@ -122,12 +131,15 @@ export async function updateCoverImage(
   imageUrl?: string,
   imageFile?: string,
 ): Promise<void> {
+  const guard = () => assertCloudOrigin(book.libraryOrigin);
+  guard();
   if (imageUrl === '_blank') {
-    await ctx.fs.removeFile(getCoverFilename(book), 'Books');
+    await ctx.fs.removeFile(getCoverFilename(book), 'Books', guard);
   } else if (imageUrl || imageFile) {
     const arrayBuffer = await imageToArrayBuffer(ctx, imageUrl, imageFile);
-    await ctx.fs.writeFile(getCoverFilename(book), 'Books', arrayBuffer);
+    await ctx.fs.writeFile(getCoverFilename(book), 'Books', arrayBuffer, guard);
   }
+  guard();
 }
 
 // --- Book Merge ---
@@ -196,6 +208,7 @@ export async function mergeBooks(
 
   for (const dup of duplicates) {
     dup.deletedAt = Date.now();
+    dup.updatedAt = dup.deletedAt;
     const dupDir = getDir(dup);
     if (await fs.exists(dupDir, 'Books')) {
       await fs.removeDir(dupDir, 'Books', true);
@@ -496,6 +509,7 @@ export async function getBookFileSize(fs: FileSystem, book: Book): Promise<numbe
 }
 
 export async function loadBookContent(fs: FileSystem, book: Book): Promise<BookContent> {
+  assertCloudOrigin(book.libraryOrigin);
   let file: File;
   const fp = getLocalBookFilename(book);
   if (await fs.exists(fp, 'Books')) {
@@ -519,6 +533,7 @@ export async function loadBookContent(fs: FileSystem, book: Book): Promise<BookC
       throw new BookFileNotFoundError();
     }
   }
+  assertCloudOrigin(book.libraryOrigin);
   return { book, file };
 }
 
@@ -547,7 +562,10 @@ export async function saveBookConfig(
   book: Book,
   config: BookConfig,
   settings?: SystemSettings,
+  guard?: () => void,
 ): Promise<void> {
+  guard?.();
+  assertCloudOrigin(book.libraryOrigin);
   let serializedConfig: string;
   if (settings) {
     const globalViewSettings = {
@@ -556,9 +574,13 @@ export async function saveBookConfig(
     };
     serializedConfig = serializeConfig(config, globalViewSettings, DEFAULT_BOOK_SEARCH_CONFIG);
   } else {
-    serializedConfig = JSON.stringify(config);
+    const { localViewId: _viewId, ...persistent } = config;
+    serializedConfig = JSON.stringify(persistent);
   }
-  await fs.writeFile(getConfigFilename(book), 'Books', serializedConfig);
+  await fs.writeFile(getConfigFilename(book), 'Books', serializedConfig, () => {
+    guard?.();
+    assertCloudOrigin(book.libraryOrigin);
+  });
 }
 
 export async function loadBookNav(fs: FileSystem, book: Book): Promise<BookNav | null> {
@@ -575,7 +597,10 @@ export async function loadBookNav(fs: FileSystem, book: Book): Promise<BookNav |
 }
 
 export async function saveBookNav(fs: FileSystem, book: Book, nav: BookNav): Promise<void> {
-  await fs.writeFile(getBookNavFilename(book), 'Books', JSON.stringify(nav));
+  assertCloudOrigin(book.libraryOrigin);
+  await fs.writeFile(getBookNavFilename(book), 'Books', JSON.stringify(nav), () =>
+    assertCloudOrigin(book.libraryOrigin),
+  );
 }
 
 export async function fetchBookDetails(

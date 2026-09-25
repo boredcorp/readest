@@ -6,6 +6,7 @@ export const serializeConfig = (
   defaultSearchConfig: BookSearchConfig,
 ): string => {
   config = JSON.parse(JSON.stringify(config));
+  delete config.localViewId;
   const viewSettings = config.viewSettings as Partial<ViewSettings>;
   const searchConfig = config.searchConfig as Partial<BookSearchConfig>;
   config.viewSettings = Object.entries(viewSettings).reduce(
@@ -36,6 +37,7 @@ export const deserializeConfig = (
   defaultSearchConfig: BookSearchConfig,
 ): BookConfig => {
   const config = JSON.parse(str) as BookConfig;
+  delete config.localViewId;
   const { viewSettings, searchConfig } = config;
   config.viewSettings = { ...globalViewSettings, ...viewSettings };
   config.searchConfig = { ...defaultSearchConfig, ...searchConfig };

@@ -30,6 +30,9 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useTheme } from '@/hooks/useTheme';
 import { useUICSS } from '@/hooks/useUICSS';
 import { useDemoBooks } from './hooks/useDemoBooks';
+import { useCloudLibrary } from './hooks/useCloudLibrary';
+import { cloudSessionEpoch } from '@/services/cloudOwnerSession';
+import { downloadOrdinaryCloudBook, removeCloudDownload } from '@/services/ordinaryCloudLibrary';
 import { useBookDataStore } from '@/store/bookDataStore';
 import { useScreenWakeLock } from '@/hooks/useScreenWakeLock';
 import { useOpenWithBooks } from '@/hooks/useOpenWithBooks';
@@ -112,6 +115,14 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   const { isSettingsDialogOpen, setSettingsDialogOpen } = useSettingsStore();
   const [loading, setLoading] = useState(false);
   const [libraryLoaded, setLibraryLoaded] = useState(false);
+  const {
+    enabled: cloudEnabled,
+    ownerEpoch,
+    isWorking: cloudWorking,
+    error: cloudError,
+    refresh: refreshCloud,
+    runAction: runCloudAction,
+  } = useCloudLibrary({ refreshOnSignIn: libraryLoaded });
   const [isSelectMode, setIsSelectMode] = useState(false);
   const [isSelectAll, setIsSelectAll] = useState(false);
   const [isSelectNone, setIsSelectNone] = useState(false);
@@ -126,6 +137,10 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   const currentAuthTokenRef = useRef(token);
   const marketplaceCacheControllersRef = useRef(new Set<AbortController>());
   currentAuthTokenRef.current = token;
+
+  useEffect(() => {
+    setShowDetailsBook(null);
+  }, [ownerEpoch, user?.id]);
 
   useEffect(() => {
     const controllers = marketplaceCacheControllersRef.current;
@@ -169,15 +184,18 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
 
   const { isDragging } = useDragDropImport();
   const refreshLibraryFromDisk = useCallback(async () => {
+    const epoch = cloudSessionEpoch();
     const appService = await envConfig.getAppService();
     const library = await appService.loadLibraryBooks();
+    if (epoch !== cloudSessionEpoch()) return;
     setLibrary(library);
   }, [envConfig, setLibrary]);
 
   usePullToRefresh(
     scrollRef,
     async () => {
-      await refreshLibraryFromDisk();
+      if (cloudEnabled) await refreshCloud();
+      else await refreshLibraryFromDisk();
     },
     async () => {
       await refreshLibraryFromDisk();
@@ -659,6 +677,12 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     async (book: Book, downloadOptions: { redownload?: boolean; queued?: boolean } = {}) => {
       const { redownload = false, queued = false } = downloadOptions;
       if (redownload || !queued) {
+        if (book.libraryOrigin?.kind === 'cloud') {
+          return runCloudAction(
+            (app) => downloadOrdinaryCloudBook(app, book),
+            _('Could not download the cloud book. Refresh the cloud library and try again.'),
+          );
+        }
         let marketplaceCacheController: AbortController | undefined;
         try {
           if (book.marketplace?.libraryItemId) {
@@ -714,11 +738,25 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       return false;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [appService, envConfig, token],
+    [appService, envConfig, token, runCloudAction],
   );
 
   const handleBookDelete = (deleteAction: VisibleDeleteAction) => {
     return async (book: Book, _syncBooks = true) => {
+      // Generic and bulk deletion remove only this owner's downloaded cache.
+      // Remote deletion is a separate confirmed action in the book's details.
+      if (book.libraryOrigin?.kind === 'cloud') {
+        const removed = await runCloudAction(
+          (app) => removeCloudDownload(app, book),
+          _('Could not remove the downloaded cloud copy. Try again.'),
+        );
+        if (removed)
+          eventDispatcher.dispatch('toast', {
+            type: 'info',
+            message: _('Downloaded copy removed. The book remains in your cloud library.'),
+          });
+        return removed;
+      }
       const deletionMessages = {
         both: _('Book deleted: {{title}}', { title: book.title }),
         local: _('Deleted local copy of the book: {{title}}', { title: book.title }),
@@ -905,6 +943,23 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           onSelectAll={handleSelectAll}
           onDeselectAll={handleDeselectAll}
         />
+        {isWebAppPlatform() && isAuthReady && user && (
+          <div className='bg-base-200 flex flex-wrap items-center justify-end gap-2 px-4 py-2'>
+            <button
+              type='button'
+              className='btn btn-sm btn-ghost'
+              disabled={!cloudEnabled || cloudWorking}
+              onClick={() => void refreshCloud()}
+            >
+              {cloudWorking ? _('Updating cloud library…') : _('Refresh cloud library')}
+            </button>
+            {cloudError && (
+              <p role='alert' className='text-error w-full text-sm'>
+                {cloudError}
+              </p>
+            )}
+          </div>
+        )}
       </div>
       {loading && (
         <div className='fixed inset-0 z-50 flex items-center justify-center'>

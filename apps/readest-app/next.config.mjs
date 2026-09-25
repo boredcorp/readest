@@ -61,6 +61,9 @@ const nextConfig = {
     },
   },
   transpilePackages: [
+    // The Pages Router also consumes this ESM client dependency; bundle its
+    // extensionless Next imports instead of loading them through native Node ESM.
+    'next-view-transitions',
     'ai',
     'ai-sdk-ollama',
     '@ai-sdk/react',

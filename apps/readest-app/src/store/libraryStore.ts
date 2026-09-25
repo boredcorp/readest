@@ -3,6 +3,12 @@ import { Book, BookGroupType, BooksGroup, ReadingStatus } from '@/types/book';
 import { EnvConfigType, isTauriAppPlatform } from '@/services/environment';
 import { BOOK_UNGROUPED_NAME } from '@/services/constants';
 import { md5Fingerprint } from '@/utils/md5';
+import {
+  isCurrentCloudOrigin,
+  assertCloudOrigin,
+  subscribeCloudSession,
+} from '@/services/cloudOwnerSession';
+import { sameLibraryOrigin } from '@/services/cloudLibraryModel';
 
 interface LibraryState {
   library: Book[]; // might contain deleted books
@@ -89,6 +95,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   setCheckOpenWithBooks: (check) => set({ checkOpenWithBooks: check }),
   setCheckLastOpenBooks: (check) => set({ checkLastOpenBooks: check }),
   setLibrary: (books) => {
+    if (books.some((book) => !isCurrentCloudOrigin(book.libraryOrigin))) return;
     set({
       library: books,
       libraryLoaded: true,
@@ -126,9 +133,15 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
   },
 
   updateBook: async (envConfig: EnvConfigType, book: Book) => {
+    assertCloudOrigin(book.libraryOrigin);
     const appService = await envConfig.getAppService();
+    assertCloudOrigin(book.libraryOrigin);
     const { library, hashIndex } = get();
     const idx = hashIndex.get(book.hash);
+    if (idx !== undefined && !sameLibraryOrigin(library[idx]!, book)) {
+      await appService.saveLibraryBooks([book]);
+      return;
+    }
     // Build the new library immutably — never mutate the previous-state array.
     const newLibrary =
       idx !== undefined
@@ -139,7 +152,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
       hashIndex: buildHashIndex(newLibrary),
       visibleLibrary: newLibrary.filter((b) => !b.deletedAt),
     });
-    await appService.saveLibraryBooks(newLibrary);
+    await appService.saveLibraryBooks([book]);
   },
   updateBooks: async (
     envConfig: EnvConfigType,
@@ -147,6 +160,7 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     options?: { skipSave?: boolean },
   ) => {
     if (!books?.length) return;
+    for (const book of books) assertCloudOrigin(book.libraryOrigin);
 
     const { library, refreshGroups } = get();
 
@@ -160,7 +174,8 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
 
     if (!options?.skipSave) {
       const appService = await envConfig.getAppService();
-      await appService.saveLibraryBooks(newLibrary);
+      for (const book of books) assertCloudOrigin(book.libraryOrigin);
+      await appService.saveLibraryBooks(books);
     }
   },
 
@@ -257,3 +272,13 @@ export const useLibraryStore = create<LibraryState>((set, get) => ({
     return result;
   },
 }));
+
+subscribeCloudSession(() => {
+  const store = useLibraryStore.getState();
+  for (const book of store.library) {
+    if (book.libraryOrigin?.kind === 'cloud' && book.coverImageUrl?.startsWith('blob:'))
+      URL.revokeObjectURL(book.coverImageUrl);
+  }
+  store.setSelectedBooks([]);
+  store.setLibrary(store.library.filter((book) => book.libraryOrigin?.kind !== 'cloud'));
+});

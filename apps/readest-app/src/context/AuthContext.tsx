@@ -17,6 +17,7 @@ import {
   publishAuthSessionToken,
 } from '@/utils/auth-session-readiness';
 import posthog from 'posthog-js';
+import { publishCloudSession } from '@/services/cloudOwnerSession';
 
 interface AuthContextType {
   isReady: boolean;
@@ -39,6 +40,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const isLoggingOutRef = useRef(false);
 
   const clearLocalSession = useCallback(() => {
+    publishCloudSession(null);
     publishAuthSessionToken(null);
     localStorage.removeItem('token');
     localStorage.removeItem('refresh_token');
@@ -54,6 +56,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (session) {
         console.log('Syncing session');
         const { access_token, refresh_token, user } = session;
+        publishCloudSession({ subject: user.id, token: access_token });
         localStorage.setItem('token', access_token);
         localStorage.setItem('refresh_token', refresh_token);
         localStorage.setItem('user', JSON.stringify(user));
@@ -92,6 +95,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // context value — without this, login/logout/refresh would be recreated on
   // every render and the memo would always invalidate.
   const login = useCallback((newToken: string, newUser: User) => {
+    publishCloudSession({ subject: newUser.id, token: newToken });
     console.log('Logging in');
     setToken(newToken);
     setUser(newUser);

@@ -8,6 +8,12 @@ import { code6392to6391, isValidLang, normalizedLangCode } from './lang';
 import { md5 } from './md5';
 
 export const getDir = (book: Book) => {
+  if (book.libraryOrigin?.kind === 'cloud') {
+    const owner = book.libraryOrigin.ownerKey;
+    if (!/^[a-f0-9]{64}$/.test(owner) || !/^[a-f0-9]{32}$/i.test(book.hash))
+      throw new Error('Invalid cloud book path');
+    return `cloud/v1/${owner}/${book.hash}`;
+  }
   return `${book.hash}`;
 };
 export const getLibraryFilename = () => {
@@ -27,16 +33,17 @@ export const getRemoteBookFilename = (book: Book) => {
   }
 };
 export const getLocalBookFilename = (book: Book) => {
-  return `${book.hash}/${makeSafeFilename(book.sourceTitle || book.title)}.${EXTS[book.format]}`;
+  return `${getDir(book)}/${makeSafeFilename(book.sourceTitle || book.title)}.${EXTS[book.format]}`;
 };
+export const getRemoteCoverFilename = (book: Book) => `${book.hash}/cover.png`;
 export const getCoverFilename = (book: Book) => {
-  return `${book.hash}/cover.png`;
+  return `${getDir(book)}/cover.png`;
 };
 export const getConfigFilename = (book: Book) => {
-  return `${book.hash}/config.json`;
+  return `${getDir(book)}/config.json`;
 };
 export const getBookNavFilename = (book: Book) => {
-  return `${book.hash}/nav.json`;
+  return `${getDir(book)}/nav.json`;
 };
 export const isBookFile = (filename: string) => {
   return Object.values(EXTS).includes(filename.split('.').pop()!);
