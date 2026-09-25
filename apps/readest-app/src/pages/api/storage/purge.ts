@@ -3,6 +3,7 @@ import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { validateUserAndToken } from '@/utils/access';
 import { deleteObject } from '@/utils/object';
+import { isValidStorageFileKey } from '@/utils/storageDeletion';
 
 interface BulkDeleteResult {
   success: string[];
@@ -24,7 +25,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'Not authenticated' });
     }
 
-    const { fileKeys } = req.body;
+    const { fileKeys } = req.body ?? {};
 
     if (!fileKeys || !Array.isArray(fileKeys)) {
       return res.status(400).json({ error: 'Missing or invalid fileKeys array' });
@@ -41,6 +42,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (!fileKeys.every((key) => typeof key === 'string')) {
       return res.status(400).json({ error: 'All fileKeys must be strings' });
     }
+    if (!fileKeys.every(isValidStorageFileKey)) {
+      return res.status(400).json({ error: 'Invalid fileKey' });
+    }
+    const uniqueFileKeys = [...new Set<string>(fileKeys)];
+    if (uniqueFileKeys.some((key) => !key.startsWith(`${user.id}/`))) {
+      return res.status(403).json({ error: 'Unauthorized access to one or more files' });
+    }
 
     const supabase = createSupabaseAdminClient();
 
@@ -49,48 +57,42 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .from('files')
       .select('id, user_id, file_key')
       .eq('user_id', user.id)
-      .in('file_key', fileKeys)
+      .in('file_key', uniqueFileKeys)
       .is('deleted_at', null);
 
     if (fileError) {
-      console.error('Error querying files:', fileError);
       return res.status(500).json({ error: 'Failed to retrieve files for deletion' });
     }
 
-    if (!fileRecords || fileRecords.length === 0) {
-      return res.status(404).json({ error: 'No matching files found' });
-    }
-
     // Verify all files belong to the user
-    const unauthorizedFiles = fileRecords.filter((record) => record.user_id !== user.id);
+    const unauthorizedFiles = (fileRecords ?? []).filter((record) => record.user_id !== user.id);
     if (unauthorizedFiles.length > 0) {
       return res.status(403).json({ error: 'Unauthorized access to one or more files' });
     }
 
-    // Process deletions
-    const results = await Promise.allSettled(
-      fileRecords.map(async (fileRecord) => {
+    const recordsByKey = new Map((fileRecords ?? []).map((record) => [record.file_key, record]));
+    // Retry missing owner records too; storage must confirm each deletion.
+    const results = await Promise.all(
+      uniqueFileKeys.map(async (fileKey) => {
         try {
-          // Delete from storage
-          await deleteObject(fileRecord.file_key);
-
-          // Delete from database
-          const { error: deleteError } = await supabase
-            .from('files')
-            .delete()
-            .eq('id', fileRecord.id);
-
-          if (deleteError) {
-            throw new Error(`Database deletion failed: ${deleteError.message}`);
+          await deleteObject(fileKey);
+          const fileRecord = recordsByKey.get(fileKey);
+          if (fileRecord) {
+            const { error: deleteError } = await supabase
+              .from('files')
+              .delete()
+              .eq('id', fileRecord.id);
+            if (deleteError) {
+              return { fileKey, success: false, error: 'Could not update file record' };
+            }
           }
 
-          return { fileKey: fileRecord.file_key, success: true };
-        } catch (error) {
-          console.error(`Error deleting file ${fileRecord.file_key}:`, error);
+          return { fileKey, success: true };
+        } catch {
           return {
-            fileKey: fileRecord.file_key,
+            fileKey,
             success: false,
-            error: error instanceof Error ? error.message : 'Unknown error',
+            error: 'Could not delete file from storage',
           };
         }
       }),
@@ -100,31 +102,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const failed: Array<{ fileKey: string; error: string }> = [];
 
     results.forEach((result) => {
-      if (result.status === 'fulfilled') {
-        if (result.value.success) {
-          success.push(result.value.fileKey);
-        } else {
-          failed.push({
-            fileKey: result.value.fileKey,
-            error: result.value.error || 'Unknown error',
-          });
-        }
+      if (result.success) {
+        success.push(result.fileKey);
       } else {
         failed.push({
-          fileKey: 'unknown',
-          error: result.reason?.message || 'Promise rejected',
+          fileKey: result.fileKey,
+          error: result.error || 'Could not delete file from storage',
         });
       }
-    });
-
-    // Handle files that weren't found in the database
-    const foundFileKeys = new Set(fileRecords.map((record) => record.file_key));
-    const notFoundKeys = fileKeys.filter((key) => !foundFileKeys.has(key));
-    notFoundKeys.forEach((key) => {
-      failed.push({
-        fileKey: key,
-        error: 'File not found or already deleted',
-      });
     });
 
     const response: BulkDeleteResult = {
@@ -139,8 +124,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       failed.length > 0 && success.length > 0 ? 207 : failed.length > 0 ? 500 : 200;
 
     return res.status(statusCode).json(response);
-  } catch (error) {
-    console.error(error);
+  } catch {
     return res.status(500).json({ error: 'Something went wrong' });
   }
 }

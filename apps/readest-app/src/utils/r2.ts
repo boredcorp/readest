@@ -1,4 +1,5 @@
 import { AwsClient } from 'aws4fetch';
+import { isValidStorageFileKey } from './storageDeletion';
 
 export const r2Storage = {
   getR2Client: () => {
@@ -55,8 +56,21 @@ export const r2Storage = {
   },
 
   deleteObject: async (bucketName: string, fileKey: string) => {
-    return await r2Storage.getR2Client().fetch(`${r2Storage.getR2Url()}/${bucketName}/${fileKey}`, {
-      method: 'DELETE',
-    });
+    if (!isValidStorageFileKey(fileKey)) throw new Error('Invalid object key');
+    const encodedKey = fileKey.split('/').map(encodeURIComponent).join('/');
+    let response: Response;
+    try {
+      response = await r2Storage
+        .getR2Client()
+        .fetch(`${r2Storage.getR2Url()}/${encodeURIComponent(bucketName)}/${encodedKey}`, {
+          method: 'DELETE',
+        });
+    } catch {
+      throw new Error('Object deletion request failed');
+    }
+    if (!response.ok) {
+      throw new Error(`Object deletion failed (HTTP ${response.status})`);
+    }
+    return response;
   },
 };
