@@ -10,6 +10,8 @@ vi.stubGlobal('fetch', mockFetch);
 
 import { fetchWithTimeout, fetchWithAuth } from '@/utils/fetch';
 import { getAccessToken } from '@/utils/access';
+import { webcrypto } from 'node:crypto';
+import { publishCloudSession, captureCloudLease } from '@/services/cloudOwnerSession';
 
 describe('fetchWithTimeout', () => {
   beforeEach(() => {
@@ -116,6 +118,45 @@ describe('fetchWithTimeout', () => {
 });
 
 describe('fetchWithAuth', () => {
+  it('uses the captured owner without awaiting a replacement token lookup', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    publishCloudSession({ subject: 'fixture-A', token: 'synthetic-A' });
+    const lease = await captureCloudLease();
+    mockFetch.mockResolvedValueOnce(new Response('OK'));
+    await fetchWithAuth('https://fixture.invalid/storage', { method: 'GET' }, lease);
+    expect(getAccessToken).not.toHaveBeenCalled();
+    expect(mockFetch.mock.calls[0]![1]).toMatchObject({
+      headers: { Authorization: 'Bearer synthetic-A' },
+      signal: lease.signal,
+    });
+    publishCloudSession(null);
+  });
+
+  it('refuses a captured old-owner request before dispatch after account switch', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    publishCloudSession({ subject: 'fixture-A', token: 'synthetic-A' });
+    const lease = await captureCloudLease();
+    publishCloudSession({ subject: 'fixture-B', token: 'synthetic-B' });
+    await expect(
+      fetchWithAuth('https://fixture.invalid/storage', { method: 'DELETE' }, lease),
+    ).rejects.toThrow();
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(getAccessToken).not.toHaveBeenCalled();
+    publishCloudSession(null);
+  });
+
+  it('aborts a captured owner request and rejects its late response after sign-out', async () => {
+    vi.stubGlobal('crypto', webcrypto);
+    publishCloudSession({ subject: 'fixture-A', token: 'synthetic-A' });
+    const lease = await captureCloudLease();
+    const pending = Promise.withResolvers<Response>();
+    mockFetch.mockReturnValueOnce(pending.promise);
+    const fetching = fetchWithAuth('https://fixture.invalid/storage', { method: 'GET' }, lease);
+    publishCloudSession(null);
+    pending.resolve(new Response('OK'));
+    await expect(fetching).rejects.toThrow();
+    expect(lease.signal.aborted).toBe(true);
+  });
   beforeEach(() => {
     mockFetch.mockReset();
     vi.mocked(getAccessToken).mockReset();

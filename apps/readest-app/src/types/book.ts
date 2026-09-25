@@ -63,6 +63,9 @@ export interface ImportBookOptions {
 }
 
 export interface Book {
+  /** Client-only origin. Never sent to sync or inferred from a matching hash. */
+  libraryOrigin?: import('../services/cloudLibraryModel').LibraryOrigin;
+  cloudOperation?: import('../services/cloudLibraryModel').CloudOperation;
   // if Book is a remote book we just lazy load the book content via url
   url?: string;
   // if Book is a transient local book we can load the book content via filePath
@@ -409,6 +412,8 @@ export interface BookSearchResult {
 }
 
 export interface BookConfig {
+  /** Transient open-view identity; stripped from all persisted config files. */
+  localViewId?: string;
   bookHash?: string;
   metaHash?: string;
   progress?: [number, number]; // [current pagenum, total pagenum], 1-based page number

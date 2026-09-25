@@ -80,16 +80,22 @@ async function addBackupEntriesToZip(
   const { Uint8ArrayReader } = await import('@zip.js/zip.js');
 
   // Generate canonical library.json from the current storage backend
-  const books = await appService.loadLibraryBooks();
+  const books = appService.loadLocalLibraryBooks
+    ? await appService.loadLocalLibraryBooks()
+    : await appService.loadLibraryBooks();
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const libraryBooks = books.map(({ coverImageUrl, ...rest }) => rest);
+  const libraryBooks = books
+    .filter((book) => book.libraryOrigin?.kind !== 'cloud')
+    .map(({ coverImageUrl, libraryOrigin: _origin, cloudOperation: _operation, ...rest }) => rest);
   const libraryJson = new TextEncoder().encode(JSON.stringify(libraryBooks, null, 2));
   await writer.add(getLibraryFilename(), new Uint8ArrayReader(libraryJson));
 
   // Add all book files, skipping library metadata files
   const booksDir = await appService.resolveFilePath('', 'Books');
   const files = await appService.readDirectory(booksDir, 'None');
-  const bookFiles = files.filter((f) => f.size > 0 && !isLibraryMetaFile(f.path));
+  const bookFiles = files.filter(
+    (f) => f.size > 0 && !isLibraryMetaFile(f.path) && !f.path.startsWith('cloud/'),
+  );
   const total = bookFiles.length;
 
   for (let i = 0; i < bookFiles.length; i++) {
@@ -189,7 +195,14 @@ export async function restoreFromBackupZip(
   }
 
   // Filter to file entries only (directories don't have getData)
-  const fileEntries = entries.filter((e) => !e.directory);
+  const fileEntries = entries
+    .filter((e) => !e.directory)
+    .filter(
+      (e) =>
+        !e.filename.startsWith('cloud/') &&
+        !e.filename.includes('\\') &&
+        !e.filename.split('/').some((segment) => segment === '..' || segment === '.'),
+    );
 
   // Read backup library.json
   const libraryEntry = fileEntries.find((e) => e.filename === getLibraryFilename());
@@ -198,10 +211,14 @@ export async function restoreFromBackupZip(
     throw new Error('Cannot read library.json from backup');
   }
   const libraryData = await libraryEntry.getData!(new Uint8ArrayWriter());
-  const backupBooks: Book[] = JSON.parse(new TextDecoder().decode(libraryData));
+  const backupBooks = (JSON.parse(new TextDecoder().decode(libraryData)) as Book[]).filter(
+    (book) => book.libraryOrigin?.kind !== 'cloud',
+  );
 
   // Load current library
-  const currentBooks = await appService.loadLibraryBooks();
+  const currentBooks = appService.loadLocalLibraryBooks
+    ? await appService.loadLocalLibraryBooks()
+    : await appService.loadLibraryBooks();
 
   const currentBooksMap = new Map<string, Book>();
   for (const book of currentBooks) {

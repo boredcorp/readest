@@ -28,6 +28,10 @@ import * as FontSvc from './fontService';
 import * as ImageSvc from './imageService';
 import * as LibrarySvc from './libraryService';
 import * as Settings from './settingsService';
+import { isOrdinaryCloudBook, isLegacyUnownedCloudBook } from './cloudLibraryModel';
+import { getLocalBookFilename } from '@/utils/book';
+import { assertCloudOrigin } from './cloudOwnerSession';
+import { selectCloudCopy } from './cloudLibraryRepository';
 
 export abstract class BaseAppService implements AppService {
   osPlatform: OsPlatform = getOSPlatform();
@@ -126,16 +130,28 @@ export abstract class BaseAppService implements AppService {
     return await this.fs.readFile(path, base, mode);
   }
 
-  async writeFile(path: string, base: BaseDir, content: string | ArrayBuffer | File) {
-    return await this.fs.writeFile(path, base, content);
+  async writeFile(
+    path: string,
+    base: BaseDir,
+    content: string | ArrayBuffer | File,
+    guard?: () => void,
+  ) {
+    guard?.();
+    return await this.fs.writeFile(path, base, content, guard);
+  }
+
+  async updateTextFile(path: string, base: BaseDir, update: (text: string | null) => string) {
+    if (!this.fs.updateTextFile) throw new Error('Transactional persistence is unavailable');
+    return this.fs.updateTextFile(path, base, update);
   }
 
   async createDir(path: string, base: BaseDir, recursive: boolean = true): Promise<void> {
     return await this.fs.createDir(path, base, recursive);
   }
 
-  async deleteFile(path: string, base: BaseDir): Promise<void> {
-    return await this.fs.removeFile(path, base);
+  async deleteFile(path: string, base: BaseDir, guard?: () => void): Promise<void> {
+    guard?.();
+    return await this.fs.removeFile(path, base, guard);
   }
 
   async deleteDir(path: string, base: BaseDir, recursive: boolean = true): Promise<void> {
@@ -224,14 +240,63 @@ export abstract class BaseAppService implements AppService {
     books: Book[],
     options: ImportBookOptions = {},
   ): Promise<Book | null> {
-    return BookSvc.importBook(this.fs, file, books, {
+    const backing = await LibrarySvc.loadLocalLibraryBooks(this.fs);
+    const localBooks = Array.from(
+      new Map(
+        [...backing, ...books.filter((book) => book.libraryOrigin?.kind !== 'cloud')]
+          .filter((book) => isOrdinaryCloudBook(book) && !isLegacyUnownedCloudBook(book))
+          .map((book) => [book.hash, { ...book }]),
+      ).values(),
+    );
+    const before = new Map(localBooks.map((book) => [book.hash, { ...book }]));
+    const imported = await BookSvc.importBook(this.fs, file, localBooks, {
       saveBookConfig: this.saveBookConfig.bind(this),
       generateCoverImageUrl: this.generateCoverImageUrl.bind(this),
       ...options,
+      lookupIndex: BookSvc.buildBookLookupIndex(localBooks),
     });
+    if (imported) {
+      // A metadata-equivalent import can rename a hash. Patch persistence needs
+      // an explicit tombstone for that old identity, not merely its omission.
+      const currentHashes = new Set(localBooks.map((book) => book.hash));
+      for (const [hash, old] of before) {
+        if (!currentHashes.has(hash))
+          localBooks.push({ ...old, deletedAt: Date.now(), updatedAt: Date.now() });
+      }
+      imported.libraryOrigin = { kind: 'local' };
+      selectCloudCopy(imported.hash, false);
+      const changedLocal = localBooks.filter(
+        (book) =>
+          book.hash === imported.hash ||
+          JSON.stringify(book) !== JSON.stringify(before.get(book.hash)),
+      );
+      // Persist rename/duplicate tombstones even if a cloud row currently hides
+      // that local identity. The projected list cannot represent both origins.
+      await LibrarySvc.saveLibraryBooks(this.fs, changedLocal);
+      if (
+        books.some((book) => book.hash === imported.hash && book.libraryOrigin?.kind === 'cloud')
+      ) {
+        const { closeCloudBookViews } = await import('./ordinaryCloudLibrary');
+        closeCloudBookViews(imported.hash);
+      }
+      const merged = new Map(books.map((book) => [book.hash, book]));
+      for (const book of changedLocal) {
+        if (book.hash === imported.hash || merged.get(book.hash)?.libraryOrigin?.kind !== 'cloud') {
+          merged.set(book.hash, book);
+        }
+      }
+      books.splice(0, books.length, ...merged.values());
+    }
+    return imported;
   }
 
   async deleteBook(book: Book, deleteAction: DeleteAction): Promise<void> {
+    if (book.libraryOrigin?.kind === 'cloud') {
+      const cloud = await import('./ordinaryCloudLibrary');
+      return deleteAction === 'local'
+        ? cloud.removeCloudDownload(this, book)
+        : cloud.deleteOrdinaryCloudBook(this, book);
+    }
     return CloudSvc.deleteBook(this.fs, book, deleteAction);
   }
 
@@ -256,6 +321,7 @@ export abstract class BaseAppService implements AppService {
   }
 
   async uploadBook(book: Book, onProgress?: ProgressHandler): Promise<void> {
+    if (this.appPlatform === 'web') throw new Error('Use the explicit cloud library upload action');
     return CloudSvc.uploadBook(this.fs, this.resolveFilePath.bind(this), book, onProgress);
   }
 
@@ -273,6 +339,10 @@ export abstract class BaseAppService implements AppService {
     redownload = false,
     onProgress?: ProgressHandler,
   ): Promise<void> {
+    if (book.libraryOrigin?.kind === 'cloud') {
+      const { downloadOrdinaryCloudBook } = await import('./ordinaryCloudLibrary');
+      return downloadOrdinaryCloudBook(this, book);
+    }
     return CloudSvc.downloadBook(
       this,
       this.fs,
@@ -307,6 +377,14 @@ export abstract class BaseAppService implements AppService {
   }
 
   async loadBookContent(book: Book): Promise<BookContent> {
+    assertCloudOrigin(book.libraryOrigin);
+    if (
+      book.libraryOrigin?.kind === 'cloud' &&
+      !(await this.fs.exists(getLocalBookFilename(book), 'Books'))
+    ) {
+      assertCloudOrigin(book.libraryOrigin);
+      await this.downloadBook(book);
+    }
     return BookSvc.loadBookContent(this.fs, book);
   }
 
@@ -318,8 +396,13 @@ export abstract class BaseAppService implements AppService {
     return BookSvc.fetchBookDetails(this.fs, book, this.downloadBook.bind(this));
   }
 
-  async saveBookConfig(book: Book, config: BookConfig, settings?: SystemSettings) {
-    return BookSvc.saveBookConfig(this.fs, book, config, settings);
+  async saveBookConfig(
+    book: Book,
+    config: BookConfig,
+    settings?: SystemSettings,
+    guard?: () => void,
+  ) {
+    return BookSvc.saveBookConfig(this.fs, book, config, settings, guard);
   }
 
   async loadBookNav(book: Book) {
@@ -334,7 +417,11 @@ export abstract class BaseAppService implements AppService {
     return LibrarySvc.loadLibraryBooks(this.fs, this.generateCoverImageUrl.bind(this));
   }
 
-  async saveLibraryBooks(books: Book[]): Promise<void> {
-    return LibrarySvc.saveLibraryBooks(this.fs, books);
+  async loadLocalLibraryBooks(): Promise<Book[]> {
+    return LibrarySvc.loadLocalLibraryBooks(this.fs);
+  }
+
+  async saveLibraryBooks(books: Book[], guard?: () => void): Promise<void> {
+    return LibrarySvc.saveLibraryBooks(this.fs, books, guard);
   }
 }

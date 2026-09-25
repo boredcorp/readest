@@ -2,6 +2,7 @@ import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
 import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
+import { assertCloudLease, type CloudLease } from '@/services/cloudOwnerSession';
 import {
   tauriUpload,
   tauriDownload,
@@ -206,13 +207,19 @@ export interface StorageStats {
   }>;
 }
 
-export const getStorageStats = async (): Promise<StorageStats> => {
+export const getStorageStats = async (lease?: CloudLease): Promise<StorageStats> => {
   try {
-    const response = await fetchWithAuth(API_ENDPOINTS.stats, {
-      method: 'GET',
-    });
+    const response = await fetchWithAuth(
+      API_ENDPOINTS.stats,
+      {
+        method: 'GET',
+      },
+      lease,
+    );
 
-    return await response.json();
+    const result = await response.json();
+    if (lease) assertCloudLease(lease);
+    return result;
   } catch (error) {
     console.error('Get storage stats failed:', error);
     throw new Error('Get storage stats failed');
@@ -244,7 +251,10 @@ interface ListFilesResponse {
   totalPages: number;
 }
 
-export const listFiles = async (params?: ListFilesParams): Promise<ListFilesResponse> => {
+export const listFiles = async (
+  params?: ListFilesParams,
+  lease?: CloudLease,
+): Promise<ListFilesResponse> => {
   try {
     const queryParams = new URLSearchParams();
 
@@ -259,11 +269,17 @@ export const listFiles = async (params?: ListFilesParams): Promise<ListFilesResp
       ? `${API_ENDPOINTS.list}?${queryParams.toString()}`
       : API_ENDPOINTS.list;
 
-    const response = await fetchWithAuth(url, {
-      method: 'GET',
-    });
+    const response = await fetchWithAuth(
+      url,
+      {
+        method: 'GET',
+      },
+      lease,
+    );
 
-    return await response.json();
+    const result = await response.json();
+    if (lease) assertCloudLease(lease);
+    return result;
   } catch (error) {
     console.error('List files failed:', error);
     throw new Error('List files failed');
@@ -280,6 +296,7 @@ interface PurgeFilesResult {
 export const purgeFiles = async (
   filePathsOrKeys: string[],
   isFileKeys = false,
+  lease?: CloudLease,
 ): Promise<PurgeFilesResult> => {
   try {
     let fileKeys: string[];
@@ -287,22 +304,32 @@ export const purgeFiles = async (
     if (isFileKeys) {
       fileKeys = filePathsOrKeys;
     } else {
-      const userId = await getUserID();
+      const userId = lease ? lease.subject : await getUserID();
       if (!userId) {
         throw new Error('Not authenticated');
       }
       fileKeys = filePathsOrKeys.map((path) => `${userId}/${path}`);
     }
+    if (lease) {
+      assertCloudLease(lease);
+      if (fileKeys.some((key) => !key.startsWith(`${lease.subject}/`)))
+        throw new Error('Invalid owner file');
+    }
 
-    const response = await fetchWithAuth(API_ENDPOINTS.purge, {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
+    const response = await fetchWithAuth(
+      API_ENDPOINTS.purge,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ fileKeys }),
       },
-      body: JSON.stringify({ fileKeys }),
-    });
+      lease,
+    );
 
     const result: PurgeFilesResult = await response.json();
+    if (lease) assertCloudLease(lease);
     const requestedKeys = new Set(fileKeys);
     // A 207 response is HTTP-successful but must not clear cloud state for
     // files that failed. Retain that state until the complete retry succeeds.

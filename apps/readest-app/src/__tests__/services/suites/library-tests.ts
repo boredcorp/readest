@@ -90,7 +90,7 @@ export function libraryTests(getService: () => AppService) {
       expect(loaded).toEqual([]);
     });
 
-    it('should overwrite previous library on save', async () => {
+    it('should retain omitted backing records when saving a projection', async () => {
       const service = getService();
       await service.saveLibraryBooks([makeBook({ hash: 'old' })]);
 
@@ -98,9 +98,9 @@ export function libraryTests(getService: () => AppService) {
       await service.saveLibraryBooks(newBooks);
 
       const loaded = await service.loadLibraryBooks();
-      expect(loaded).toHaveLength(2);
+      expect(loaded).toHaveLength(3);
       const hashes = loaded.map((b) => b.hash).sort();
-      expect(hashes).toEqual(['new1', 'new2']);
+      expect(hashes).toEqual(['new1', 'new2', 'old']);
     });
 
     it('should preserve all book fields through round-trip', async () => {
@@ -143,13 +143,15 @@ export function libraryTests(getService: () => AppService) {
       expect(loaded[0]!.updatedAt).toBe(5000);
     });
 
-    it('should save empty array', async () => {
+    it('should require explicit tombstones instead of clearing on an empty projection', async () => {
       const service = getService();
       await service.saveLibraryBooks([makeBook()]);
       await service.saveLibraryBooks([]);
 
       const loaded = await service.loadLibraryBooks();
-      expect(loaded).toEqual([]);
+      expect(loaded).toHaveLength(1);
+      await service.saveLibraryBooks([{ ...loaded[0]!, deletedAt: 3000, updatedAt: 3000 }]);
+      expect((await service.loadLibraryBooks()).filter((book) => !book.deletedAt)).toEqual([]);
     });
   });
 }

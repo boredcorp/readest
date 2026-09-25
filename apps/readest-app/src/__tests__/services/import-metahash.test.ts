@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { Book } from '@/types/book';
+import { Book, ImportBookOptions } from '@/types/book';
 import { getMetadataHash } from '@/utils/book';
 
 const mockOpen = vi.hoisted(() => vi.fn());
@@ -32,7 +32,7 @@ vi.mock('@/libs/storage', () => ({
 }));
 
 import { BaseAppService } from '@/services/appService';
-import { buildBookLookupIndex } from '@/services/bookService';
+import { buildBookLookupIndex, importBook as importLocalBook } from '@/services/bookService';
 
 // Concrete test subclass of BaseAppService with mocked fs
 class TestAppService extends BaseAppService {
@@ -84,6 +84,17 @@ class TestAppService extends BaseAppService {
 
   getFs() {
     return this.fs;
+  }
+
+  // This suite isolates the local metadata merge algorithm. The app-level
+  // owner projection and disk persistence are exercised with real EPUB files
+  // in node-app-service.test.ts.
+  async importLocalBook(file: string | File, books: Book[], options: ImportBookOptions = {}) {
+    return importLocalBook(this.fs, file, books, {
+      saveBookConfig: this.saveBookConfig.bind(this),
+      generateCoverImageUrl: this.generateCoverImageUrl.bind(this),
+      ...options,
+    });
   }
 }
 
@@ -141,7 +152,7 @@ describe('importBook metaHash deduplication', () => {
     setupMockBookDoc();
 
     const mockFile = new File(['new content'], 'test.epub', { type: 'application/epub+zip' });
-    const result = await service.importBook(mockFile, books);
+    const result = await service.importLocalBook(mockFile, books);
 
     // Should return the existing book, not a new one
     expect(result).toBe(existingBook);
@@ -169,7 +180,7 @@ describe('importBook metaHash deduplication', () => {
     setupMockBookDoc();
 
     const mockFile = new File(['new content'], 'test.epub', { type: 'application/epub+zip' });
-    const result = await service.importBook(mockFile, books);
+    const result = await service.importLocalBook(mockFile, books);
 
     // Should create a new book since the existing one is deleted
     expect(result).not.toBe(deletedBook);
@@ -193,7 +204,7 @@ describe('importBook metaHash deduplication', () => {
     fs.readFile.mockResolvedValue('{"readProgress":0.5}');
 
     const mockFile = new File(['new content'], 'test.epub', { type: 'application/epub+zip' });
-    await service.importBook(mockFile, books);
+    await service.importLocalBook(mockFile, books);
 
     // Should have read config from old directory
     expect(fs.readFile).toHaveBeenCalledWith('old-hash-123/config.json', 'Books', 'text');
@@ -220,7 +231,7 @@ describe('importBook metaHash deduplication', () => {
     setupMockBookDoc();
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    const result = await service.importBook(mockFile, books);
+    const result = await service.importLocalBook(mockFile, books);
 
     // Should return the exact hash match, not the metaHash match
     expect(result).toBe(exactMatchBook);
@@ -241,7 +252,7 @@ describe('importBook metaHash deduplication', () => {
     fs.openFile.mockResolvedValue(new File(['content'], 'test.epub'));
 
     // Transient import requires string file path
-    const result = await service.importBook('/path/to/test.epub', books, { transient: true });
+    const result = await service.importLocalBook('/path/to/test.epub', books, { transient: true });
 
     // Should create a new entry, not override existing
     expect(result).not.toBe(existingBook);
@@ -258,7 +269,7 @@ describe('importBook metaHash deduplication', () => {
     });
 
     const mockFile = new File(['new content'], 'test.epub', { type: 'application/epub+zip' });
-    const result = await service.importBook(mockFile, books);
+    const result = await service.importLocalBook(mockFile, books);
     expect(result).not.toBeNull();
     if (!result) {
       throw new Error('Expected importBook to return an imported book');
@@ -295,7 +306,7 @@ describe('importBook metaHash aggregation', () => {
     setupMockBookDoc();
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    await service.importBook(mockFile, books);
+    await service.importLocalBook(mockFile, books);
 
     // Duplicates should be soft-deleted, survivor updated, unrelated untouched
     const active = books.filter((b) => b.metaHash === metaHash && !b.deletedAt);
@@ -334,7 +345,7 @@ describe('importBook metaHash aggregation', () => {
     });
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    await service.importBook(mockFile, books);
+    await service.importLocalBook(mockFile, books);
 
     const writeCalls = fs.writeFile.mock.calls;
     const configWrite = writeCalls.find(
@@ -407,7 +418,7 @@ describe('importBook metaHash aggregation', () => {
     });
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    await service.importBook(mockFile, books);
+    await service.importLocalBook(mockFile, books);
 
     const writeCalls = fs.writeFile.mock.calls;
     const configWrite = writeCalls.find(
@@ -452,7 +463,7 @@ describe('importBook metaHash aggregation', () => {
     });
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    await service.importBook(mockFile, books);
+    await service.importLocalBook(mockFile, books);
 
     const writeCalls = fs.writeFile.mock.calls;
     const configWrite = writeCalls.find(
@@ -480,7 +491,7 @@ describe('importBook metaHash aggregation', () => {
     setupMockBookDoc(); // Opens as EPUB
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    await service.importBook(mockFile, books);
+    await service.importLocalBook(mockFile, books);
 
     // PDF book should not be soft-deleted (different format)
     expect(pdfBook.deletedAt).toBeNull();
@@ -505,7 +516,7 @@ describe('importBook metaHash aggregation', () => {
     });
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    await service.importBook(mockFile, books);
+    await service.importLocalBook(mockFile, books);
 
     // Duplicates should be soft-deleted and their directories cleaned up
     expect(book2.deletedAt).toBeTruthy();
@@ -532,7 +543,7 @@ describe('importBook metaHash aggregation', () => {
     });
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    const result = await service.importBook(mockFile, books);
+    const result = await service.importLocalBook(mockFile, books);
 
     expect(result).toBe(exactMatch);
     expect(exactMatch.deletedAt).toBeNull();
@@ -578,7 +589,7 @@ describe('importBook metaHash aggregation', () => {
     });
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    await service.importBook(mockFile, books);
+    await service.importLocalBook(mockFile, books);
 
     const writeCalls = fs.writeFile.mock.calls;
     const configWrite = writeCalls.find(
@@ -617,7 +628,7 @@ describe('importBook with BookLookupIndex', () => {
     setupMockBookDoc();
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    const result = await service.importBook(mockFile, books, { lookupIndex });
+    const result = await service.importLocalBook(mockFile, books, { lookupIndex });
 
     expect(result).not.toBeNull();
     expect(result?.hash).toBe('imported-hash');
@@ -643,7 +654,7 @@ describe('importBook with BookLookupIndex', () => {
     setupMockBookDoc();
 
     const mockFile = new File(['content'], 'test.epub', { type: 'application/epub+zip' });
-    const result = await service.importBook(mockFile, books, { lookupIndex });
+    const result = await service.importLocalBook(mockFile, books, { lookupIndex });
 
     // Should reuse the existing book object via lookup index
     expect(result).toBe(existingBook);

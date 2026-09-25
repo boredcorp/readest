@@ -55,8 +55,19 @@ export interface FileSystem {
   openFile(path: string, base: BaseDir, filename?: string): Promise<File>;
   copyFile(srcPath: string, dstPath: string, base: BaseDir): Promise<void>;
   readFile(path: string, base: BaseDir, mode: 'text' | 'binary'): Promise<string | ArrayBuffer>;
-  writeFile(path: string, base: BaseDir, content: string | ArrayBuffer | File): Promise<void>;
-  removeFile(path: string, base: BaseDir): Promise<void>;
+  writeFile(
+    path: string,
+    base: BaseDir,
+    content: string | ArrayBuffer | File,
+    guard?: () => void,
+  ): Promise<void>;
+  /** Atomic text read/modify/write; callback runs inside the write transaction. */
+  updateTextFile?(
+    path: string,
+    base: BaseDir,
+    update: (text: string | null) => string,
+  ): Promise<void>;
+  removeFile(path: string, base: BaseDir, guard?: () => void): Promise<void>;
   readDir(path: string, base: BaseDir): Promise<FileItem[]>;
   createDir(path: string, base: BaseDir, recursive?: boolean): Promise<void>;
   removeDir(path: string, base: BaseDir, recursive?: boolean): Promise<void>;
@@ -101,9 +112,19 @@ export interface AppService {
   openFile(path: string, base: BaseDir): Promise<File>;
   copyFile(srcPath: string, dstPath: string, base: BaseDir): Promise<void>;
   readFile(path: string, base: BaseDir, mode: 'text' | 'binary'): Promise<string | ArrayBuffer>;
-  writeFile(path: string, base: BaseDir, content: string | ArrayBuffer | File): Promise<void>;
+  writeFile(
+    path: string,
+    base: BaseDir,
+    content: string | ArrayBuffer | File,
+    guard?: () => void,
+  ): Promise<void>;
+  updateTextFile?(
+    path: string,
+    base: BaseDir,
+    update: (text: string | null) => string,
+  ): Promise<void>;
   createDir(path: string, base: BaseDir, recursive?: boolean): Promise<void>;
-  deleteFile(path: string, base: BaseDir): Promise<void>;
+  deleteFile(path: string, base: BaseDir, guard?: () => void): Promise<void>;
   deleteDir(path: string, base: BaseDir, recursive?: boolean): Promise<void>;
   exists(path: string, base: BaseDir): Promise<boolean>;
   getImageURL(path: string): Promise<string>;
@@ -151,12 +172,18 @@ export interface AppService {
   getBookFileSize(book: Book): Promise<number | null>;
   loadBookConfig(book: Book, settings: SystemSettings): Promise<BookConfig>;
   fetchBookDetails(book: Book): Promise<BookMetadata>;
-  saveBookConfig(book: Book, config: BookConfig, settings?: SystemSettings): Promise<void>;
+  saveBookConfig(
+    book: Book,
+    config: BookConfig,
+    settings?: SystemSettings,
+    guard?: () => void,
+  ): Promise<void>;
   loadBookNav(book: Book): Promise<BookNav | null>;
   saveBookNav(book: Book, nav: BookNav): Promise<void>;
   loadBookContent(book: Book): Promise<BookContent>;
   loadLibraryBooks(): Promise<Book[]>;
-  saveLibraryBooks(books: Book[]): Promise<void>;
+  loadLocalLibraryBooks?(): Promise<Book[]>;
+  saveLibraryBooks(books: Book[], guard?: () => void): Promise<void>;
   getCoverImageUrl(book: Book): string;
   getCoverImageBlobUrl(book: Book): Promise<string>;
   generateCoverImageUrl(book: Book): Promise<string>;

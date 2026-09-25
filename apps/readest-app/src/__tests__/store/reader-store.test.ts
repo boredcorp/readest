@@ -2,6 +2,10 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 import type { FoliateView } from '@/types/view';
 import type { Insets } from '@/types/misc';
 import type { ViewSettings } from '@/types/book';
+import type { Book, BookConfig } from '@/types/book';
+import type { EnvConfigType } from '@/services/environment';
+import { useLibraryStore } from '@/store/libraryStore';
+import type { BookDoc } from '@/libs/document';
 
 vi.mock('@/store/bookDataStore', async () => {
   const { create } = await import('zustand');
@@ -56,8 +60,9 @@ vi.mock('@/libs/document', () => ({
   DocumentLoader: vi.fn(),
 }));
 
-import { useReaderStore } from '@/store/readerStore';
+import { useReaderStore, retireCloudBookViews } from '@/store/readerStore';
 import { useBookDataStore } from '@/store/bookDataStore';
+import { publishCloudSession, captureCloudLease } from '@/services/cloudOwnerSession';
 
 /**
  * Helper to seed a minimal ViewState in the store for a given key.
@@ -87,6 +92,84 @@ function seedViewState(key: string, overrides: Record<string, unknown> = {}) {
 }
 
 describe('readerStore', () => {
+  test('cloud deletion retires an initializing owner view before BookData exists', async () => {
+    publishCloudSession({ subject: 'fixture-A', token: 'synthetic' });
+    const lease = await captureCloudLease();
+    const book: Book = {
+      hash: 'fixture',
+      title: 'Synthetic',
+      author: 'Fixture',
+      format: 'TXT',
+      createdAt: 1,
+      updatedAt: 2,
+      libraryOrigin: { kind: 'cloud', ownerKey: lease.ownerKey, epoch: lease.epoch },
+    };
+    vi.mocked(useLibraryStore.getState().getBookByHash).mockReturnValue(book);
+    const service = { loadBookContent: vi.fn() };
+    const deferred = Promise.withResolvers<typeof service>();
+    const env = { getAppService: () => deferred.promise } as unknown as EnvConfigType;
+    useReaderStore.getState().setBookKeys(['fixture-pending']);
+    const loading = useReaderStore.getState().initViewState(env, 'fixture', 'fixture-pending');
+    expect(useReaderStore.getState().getViewState('fixture-pending')?.loading).toBe(true);
+    expect(useBookDataStore.getState().booksData['fixture']).toBeUndefined();
+    retireCloudBookViews('fixture', lease.ownerKey, lease.epoch);
+    deferred.resolve(service);
+    await loading;
+    expect(service.loadBookContent).not.toHaveBeenCalled();
+    expect(useReaderStore.getState().getViewState('fixture-pending')).toBeNull();
+    expect(useReaderStore.getState().bookKeys).toEqual([]);
+    expect(useBookDataStore.getState().booksData['fixture']).toBeUndefined();
+    publishCloudSession(null);
+  });
+  test('concurrent views join one current book context without losing either key', async () => {
+    const book: Book = {
+      hash: 'fixture',
+      title: 'Synthetic',
+      author: 'Fixture',
+      format: 'TXT',
+      createdAt: 1,
+      updatedAt: 2,
+      libraryOrigin: { kind: 'local' },
+    };
+    vi.mocked(useLibraryStore.getState().getBookByHash).mockReturnValue(book);
+    const file = new File(['Synthetic'], 'fixture.txt');
+    const doc = { metadata: { title: 'Synthetic', language: 'en' } } as unknown as BookDoc;
+    useBookDataStore.setState({
+      booksData: {
+        fixture: {
+          id: 'fixture',
+          book,
+          file,
+          bookDoc: doc,
+          config: null,
+          isFixedLayout: false,
+          viewKeys: [],
+        },
+      },
+    });
+    const env = {
+      getAppService: async () => ({
+        loadBookConfig: async () => ({ viewSettings: {}, booknotes: [] }) as unknown as BookConfig,
+      }),
+    } as unknown as EnvConfigType;
+    const context = (key: string) =>
+      useReaderStore
+        .getState()
+        .initViewState(env, 'fixture', key)
+        .then(() => useBookDataStore.getState().booksData['fixture']?.viewId);
+    const identities = await Promise.all([context('fixture-one'), context('fixture-two')]);
+    const stored = useBookDataStore.getState().booksData['fixture']!;
+    expect(stored.viewKeys?.sort()).toEqual(['fixture-one', 'fixture-two']);
+    expect(identities[0]).toBe(identities[1]);
+    expect(stored.config?.localViewId).toBe(stored.viewId);
+  });
+  test('closing a view retires its shared book-data key', () => {
+    useBookDataStore.setState({
+      booksData: { hash: { viewKeys: ['hash-old', 'hash-other'] } },
+    } as unknown as Parameters<typeof useBookDataStore.setState>[0]);
+    useReaderStore.getState().clearViewState('hash-old');
+    expect(useBookDataStore.getState().booksData['hash']?.viewKeys).toEqual(['hash-other']);
+  });
   beforeEach(() => {
     useReaderStore.setState({
       viewStates: {},

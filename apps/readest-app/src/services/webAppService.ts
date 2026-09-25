@@ -140,7 +140,12 @@ const indexedDBFileSystem: FileSystem = {
       request.onerror = () => reject(request.error);
     });
   },
-  async writeFile(path: string, base: BaseDir, content: string | ArrayBuffer | File) {
+  async writeFile(
+    path: string,
+    base: BaseDir,
+    content: string | ArrayBuffer | File,
+    guard?: () => void,
+  ) {
     const { fp } = this.resolvePath(path, base);
     const db = await openIndexedDB();
 
@@ -148,16 +153,63 @@ const indexedDBFileSystem: FileSystem = {
       content = await content.arrayBuffer();
     }
     return new Promise<void>((resolve, reject) => {
+      guard?.();
       const transaction = db.transaction('files', 'readwrite');
       const store = transaction.objectStore('files');
-
-      store.put({ path: fp, content });
-
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
+      // A transaction may wait behind another tab. Recheck the captured owner
+      // and reader context only once this transaction is active, before put.
+      const request = store.get(fp);
+      let failure: unknown;
+      request.onsuccess = () => {
+        try {
+          guard?.();
+          store.put({ path: fp, content });
+        } catch (error) {
+          failure = error;
+          transaction.abort();
+        }
+      };
+      transaction.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      transaction.onerror = transaction.onabort = () => {
+        db.close();
+        reject(failure ?? transaction.error);
+      };
     });
   },
-  async removeFile(path: string, base: BaseDir) {
+  async updateTextFile(path, base, update) {
+    const { fp } = this.resolvePath(path, base);
+    const db = await openIndexedDB();
+    return new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction('files', 'readwrite');
+      const store = transaction.objectStore('files');
+      const request = store.get(fp);
+      let failure: unknown;
+      request.onsuccess = () => {
+        try {
+          const content: unknown = request.result?.content ?? null;
+          if (content !== null && typeof content !== 'string') throw new Error('Invalid text file');
+          const next = update(content);
+          store.put({ path: `${fp}.bak`, content: next });
+          store.put({ path: fp, content: next });
+        } catch (error) {
+          failure = error;
+          transaction.abort();
+        }
+      };
+      transaction.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      transaction.onerror = transaction.onabort = () => {
+        db.close();
+        reject(failure ?? transaction.error);
+      };
+    });
+  },
+  async removeFile(path: string, base: BaseDir, guard?: () => void) {
     const { fp } = this.resolvePath(path, base);
     const db = await openIndexedDB();
 
@@ -165,10 +217,25 @@ const indexedDBFileSystem: FileSystem = {
       const transaction = db.transaction('files', 'readwrite');
       const store = transaction.objectStore('files');
 
-      store.delete(fp);
-
-      transaction.oncomplete = () => resolve();
-      transaction.onerror = () => reject(transaction.error);
+      const request = store.get(fp);
+      let failure: unknown;
+      request.onsuccess = () => {
+        try {
+          guard?.();
+          store.delete(fp);
+        } catch (error) {
+          failure = error;
+          transaction.abort();
+        }
+      };
+      transaction.oncomplete = () => {
+        db.close();
+        resolve();
+      };
+      transaction.onerror = transaction.onabort = () => {
+        db.close();
+        reject(failure ?? transaction.error);
+      };
     });
   },
   async createDir(path: string, base: BaseDir) {

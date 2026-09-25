@@ -25,6 +25,7 @@ import { saveSysSettings } from '@/helpers/settings';
 import BookCover from '@/components/BookCover';
 import Dropdown from '../Dropdown';
 import MenuItem from '../MenuItem';
+import CloudLibraryActions from './CloudLibraryActions';
 
 interface BookDetailViewProps {
   book: Book;
@@ -91,7 +92,7 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
                 <MdOutlineEdit className='hover:fill-blue-500' />
               </button>
             )}
-            {onDelete && (
+            {onDelete && book.libraryOrigin?.kind !== 'cloud' && (
               <Dropdown
                 label={_('Delete Book Options')}
                 className='dropdown-bottom dropdown-center flex justify-center'
@@ -123,6 +124,8 @@ const BookDetailView: React.FC<BookDetailViewProps> = ({
           </div>
         </div>
       </div>
+
+      <CloudLibraryActions key={book.hash} book={book} />
 
       <div className='text-base-content my-4'>
         <div className='metadata-others'>
