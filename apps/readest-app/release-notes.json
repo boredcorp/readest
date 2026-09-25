@@ -1,5 +1,11 @@
 {
   "releases": {
+    "0.10.10": {
+      "date": "2026-09-25",
+      "notes": [
+        "Storage: Reserve cloud upload space atomically, keep retries within the same reservation, and report storage usage from the server catalog"
+      ]
+    },
     "0.10.9": {
       "date": "2026-09-25",
       "notes": [

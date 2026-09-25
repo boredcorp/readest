@@ -2,12 +2,10 @@ import { createHmac, randomUUID } from 'node:crypto';
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
-import {
-  getStoragePlanData,
-  validateUserAndToken,
-  STORAGE_QUOTA_GRACE_BYTES,
-} from '@/utils/access';
+import { validateUserAndToken } from '@/utils/access';
 import { getDownloadSignedUrl, getUploadSignedUrl } from '@/utils/object';
+import { isValidStorageFileKey } from '@/utils/storageDeletion';
+import { getStorageReservationQuota } from '@/utils/storageQuota';
 
 const TEMP_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 const TEMP_UPLOAD_TTL_SECONDS = 5 * 60;
@@ -45,7 +43,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(403).json({ error: 'Not authenticated' });
   }
 
-  const { fileName, fileSize, bookHash, temp = false } = req.body;
+  const { fileName, fileSize, bookHash, temp = false } = req.body ?? {};
   if (temp) {
     if (!Number.isSafeInteger(fileSize) || fileSize <= 0 || fileSize > TEMP_IMAGE_MAX_BYTES) {
       return res.status(400).json({ error: 'Invalid temporary image size' });
@@ -83,55 +81,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    if (!fileName || !fileSize) {
-      return res.status(400).json({ error: 'Missing file info' });
+    if (
+      !isValidStorageFileKey(fileName) ||
+      !Number.isSafeInteger(fileSize) ||
+      fileSize <= 0 ||
+      typeof bookHash !== 'string' ||
+      !/^[a-f0-9]{32}$/.test(bookHash)
+    ) {
+      return res.status(400).json({ error: 'Invalid file info' });
     }
 
-    const { usage, quota } = getStoragePlanData(token);
-    if (usage + fileSize > quota + STORAGE_QUOTA_GRACE_BYTES) {
-      return res.status(403).json({ error: 'Insufficient storage quota', usage });
-    }
-
+    const { quota, reservationLimit } = getStorageReservationQuota(token);
     const fileKey = `${user.id}/${fileName}`;
     const supabase = createSupabaseAdminClient();
-    const { data: existingRecord, error: fetchError } = await supabase
-      .from('files')
-      .select('*')
-      .eq('user_id', user.id)
-      .eq('file_key', fileKey)
-      .limit(1)
-      .single();
-
-    if (fetchError && fetchError.code !== 'PGRST116') {
-      return res.status(500).json({ error: fetchError.message });
+    const { data, error } = await supabase.rpc('reserve_readest_file', {
+      p_user_id: user.id,
+      p_file_key: fileKey,
+      p_book_hash: bookHash,
+      p_file_size: fileSize,
+      p_quota_bytes: reservationLimit,
+    });
+    if (error) {
+      const errors: Record<string, [number, string]> = {
+        P0001: [403, 'Insufficient storage quota'],
+        '23505': [409, 'File reservation does not match'],
+        '22023': [400, 'Invalid file info'],
+      };
+      const [status, message] = errors[error.code] ?? [500, 'Could not reserve storage'];
+      return res.status(status).json({ error: message });
     }
-    let objSize = fileSize;
-    if (existingRecord) {
-      objSize = existingRecord.file_size;
-    } else {
-      const { data: inserted, error: insertError } = await supabase
-        .from('files')
-        .insert([
-          {
-            user_id: user.id,
-            book_hash: bookHash,
-            file_key: fileKey,
-            file_size: fileSize,
-          },
-        ])
-        .select()
-        .single();
-      console.log('Inserted record:', inserted);
-      if (insertError) return res.status(500).json({ error: insertError.message });
+    const reservation = Array.isArray(data) && data.length === 1 ? data[0] : undefined;
+    if (
+      !reservation ||
+      reservation.file_key !== fileKey ||
+      reservation.file_size !== fileSize ||
+      reservation.quota !== reservationLimit ||
+      !Number.isSafeInteger(reservation.usage) ||
+      reservation.usage < fileSize
+    ) {
+      return res.status(500).json({ error: 'Could not reserve storage' });
     }
 
     try {
-      const uploadUrl = await getUploadSignedUrl(fileKey, objSize, 1800);
+      // Reservations survive signing/PUT failures: a retry must use the same
+      // owner, key, hash and size. Issuing a URL is not proof of stored bytes.
+      const uploadUrl = await getUploadSignedUrl(fileKey, fileSize, 1800);
 
       res.status(200).json({
         uploadUrl,
         fileKey,
-        usage: usage + fileSize,
+        usage: reservation.usage,
         quota,
       });
     } catch (error) {
