@@ -1,5 +1,11 @@
 {
   "releases": {
+    "0.10.8": {
+      "date": "2026-09-25",
+      "notes": [
+        "Security: Update the Reader web runtime to patched Next.js 16.3.3 and sharp 0.35.4 dependencies"
+      ]
+    },
     "0.10.7": {
       "date": "2026-09-08",
       "notes": [
