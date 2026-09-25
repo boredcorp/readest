@@ -22,6 +22,14 @@ export async function deleteBook(
   book: Book,
   deleteAction: DeleteAction,
 ): Promise<void> {
+  if ((deleteAction === 'cloud' || deleteAction === 'both') && book.uploadedAt) {
+    const fps = [getRemoteBookFilename(book), getCoverFilename(book)];
+    for (const fp of fps) {
+      // The API confirms absence for an owner's missing optional cover or retry.
+      await deleteCloudFile(`${CLOUD_BOOKS_SUBDIR}/${fp}`);
+    }
+    book.uploadedAt = null;
+  }
   if (deleteAction === 'local' || deleteAction === 'both') {
     const localDeleteFps =
       deleteAction === 'local'
@@ -39,18 +47,6 @@ export async function deleteBook(
       book.downloadedAt = null;
       book.coverDownloadedAt = null;
     }
-  }
-  if ((deleteAction === 'cloud' || deleteAction === 'both') && book.uploadedAt) {
-    const fps = [getRemoteBookFilename(book), getCoverFilename(book)];
-    for (const fp of fps) {
-      const cfp = `${CLOUD_BOOKS_SUBDIR}/${fp}`;
-      try {
-        deleteCloudFile(cfp);
-      } catch (error) {
-        console.log('Failed to delete uploaded file:', error);
-      }
-    }
-    book.uploadedAt = null;
   }
 }
 

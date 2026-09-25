@@ -3,6 +3,7 @@ import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { validateUserAndToken } from '@/utils/access';
 import { deleteObject } from '@/utils/object';
+import { isValidStorageFileKey } from '@/utils/storageDeletion';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -19,8 +20,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { fileKey } = req.query;
 
-    if (!fileKey || typeof fileKey !== 'string') {
+    if (!isValidStorageFileKey(fileKey)) {
       return res.status(400).json({ error: 'Missing or invalid fileKey' });
+    }
+    if (!fileKey.startsWith(`${user.id}/`)) {
+      return res.status(403).json({ error: 'Unauthorized access to the file' });
     }
 
     const supabase = createSupabaseAdminClient();
@@ -30,32 +34,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .eq('user_id', user.id)
       .eq('file_key', fileKey)
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (fileError || !fileRecord) {
-      return res.status(404).json({ error: 'File not found' });
+    if (fileError) {
+      return res.status(500).json({ error: 'Could not retrieve file record' });
     }
 
-    if (fileRecord.user_id !== user.id) {
+    if (fileRecord && fileRecord.user_id !== user.id) {
       return res.status(403).json({ error: 'Unauthorized access to the file' });
     }
 
     try {
+      // A missing owner-scoped record can be an optional cover or a retry.
+      // Still require storage to acknowledge DELETE before reporting success.
       await deleteObject(fileKey);
-      const { error: deleteError } = await supabase.from('files').delete().eq('id', fileRecord.id);
-
-      if (deleteError) {
-        console.error('Error updating file record:', deleteError);
-        return res.status(500).json({ error: 'Could not update file record' });
+      if (fileRecord) {
+        const { error: deleteError } = await supabase
+          .from('files')
+          .delete()
+          .eq('id', fileRecord.id);
+        if (deleteError) {
+          return res.status(500).json({ error: 'Could not update file record' });
+        }
       }
 
       res.status(200).json({ message: 'File deleted successfully' });
-    } catch (error) {
-      console.error('Error deleting file from S3:', error);
+    } catch {
       res.status(500).json({ error: 'Could not delete file from storage' });
     }
-  } catch (error) {
-    console.error(error);
+  } catch {
     return res.status(500).json({ error: 'Something went wrong' });
   }
 }

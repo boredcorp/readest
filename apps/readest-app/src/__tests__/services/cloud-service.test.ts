@@ -1,5 +1,6 @@
 import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
 import { deleteBook } from '@/services/cloudService';
+import { deleteFile } from '@/libs/storage';
 import { Book, BookFormat } from '@/types/book';
 import { FileSystem } from '@/types/system';
 
@@ -78,6 +79,7 @@ describe('cloudService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(deleteFile).mockReset().mockResolvedValue(undefined);
     mockFs = createMockFs();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
@@ -191,16 +193,71 @@ describe('cloudService', () => {
         expect(deleteCloudFile).toHaveBeenCalledTimes(2);
       });
 
-      test('does not throw when cloud delete fails', async () => {
+      test('propagates cloud failure and retains uploadedAt', async () => {
         const { deleteFile: deleteCloudFile } = await import('@/libs/storage');
-        vi.mocked(deleteCloudFile).mockImplementation(() => {
-          throw new Error('network error');
-        });
+        vi.mocked(deleteCloudFile).mockRejectedValueOnce(new Error('network error'));
         const book = createMockBook({ uploadedAt: 1000 });
 
-        // Should not throw
+        await expect(deleteBook(mockFs, book, 'cloud')).rejects.toThrow('network error');
+        expect(book.uploadedAt).toBe(1000);
+      });
+
+      test('awaits both book and cover before clearing uploadedAt', async () => {
+        const { deleteFile: deleteCloudFile } = await import('@/libs/storage');
+        const bookRequest = Promise.withResolvers<void>();
+        const coverRequest = Promise.withResolvers<void>();
+        vi.mocked(deleteCloudFile)
+          .mockReturnValueOnce(bookRequest.promise)
+          .mockReturnValueOnce(coverRequest.promise);
+        const book = createMockBook({ uploadedAt: 1000 });
+        let complete = false;
+        const deletion = deleteBook(mockFs, book, 'cloud').then(() => {
+          complete = true;
+        });
+        await vi.waitFor(() => expect(deleteCloudFile).toHaveBeenCalledTimes(1));
+        expect(book.uploadedAt).toBe(1000);
+        expect(complete).toBe(false);
+        bookRequest.resolve();
+        await vi.waitFor(() => expect(deleteCloudFile).toHaveBeenCalledTimes(2));
+        expect(deleteCloudFile).toHaveBeenNthCalledWith(1, 'Readest/Books/abc123/abc123.epub');
+        expect(deleteCloudFile).toHaveBeenNthCalledWith(2, 'Readest/Books/abc123/cover.png');
+        expect(book.uploadedAt).toBe(1000);
+        expect(complete).toBe(false);
+        coverRequest.resolve();
+        await deletion;
+        expect(book.uploadedAt).toBeNull();
+      });
+
+      test('keeps the book retryable when only the cover deletion fails', async () => {
+        const { deleteFile: deleteCloudFile } = await import('@/libs/storage');
+        vi.mocked(deleteCloudFile)
+          .mockResolvedValueOnce(undefined)
+          .mockRejectedValueOnce(new Error('cover unavailable'));
+        const book = createMockBook({ uploadedAt: 1000 });
+        await expect(deleteBook(mockFs, book, 'cloud')).rejects.toThrow('cover unavailable');
+        expect(book.uploadedAt).toBe(1000);
+        vi.mocked(deleteCloudFile).mockResolvedValue(undefined);
         await deleteBook(mockFs, book, 'cloud');
         expect(book.uploadedAt).toBeNull();
+        expect(deleteCloudFile).toHaveBeenCalledTimes(4);
+      });
+
+      test('retains local files and flags when cloud deletion fails during both', async () => {
+        const { deleteFile: deleteCloudFile } = await import('@/libs/storage');
+        vi.mocked(deleteCloudFile).mockRejectedValueOnce(new Error('network error'));
+        const book = createMockBook({
+          uploadedAt: 1000,
+          downloadedAt: 2000,
+          coverDownloadedAt: 3000,
+        });
+        await expect(deleteBook(mockFs, book, 'both')).rejects.toThrow('network error');
+        expect(mockFs.removeFile).not.toHaveBeenCalled();
+        expect(book).toMatchObject({
+          uploadedAt: 1000,
+          downloadedAt: 2000,
+          coverDownloadedAt: 3000,
+          deletedAt: null,
+        });
       });
     });
   });

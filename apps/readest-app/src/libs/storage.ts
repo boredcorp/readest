@@ -188,8 +188,7 @@ export const deleteFile = async (filePath: string) => {
     await fetchWithAuth(`${API_ENDPOINTS.delete}?fileKey=${encodeURIComponent(fileKey)}`, {
       method: 'DELETE',
     });
-  } catch (error) {
-    console.error('File deletion failed:', error);
+  } catch {
     throw new Error('File deletion failed');
   }
 };
@@ -303,9 +302,25 @@ export const purgeFiles = async (
       body: JSON.stringify({ fileKeys }),
     });
 
-    return await response.json();
-  } catch (error) {
-    console.error('Purge files failed:', error);
+    const result: PurgeFilesResult = await response.json();
+    const requestedKeys = new Set(fileKeys);
+    // A 207 response is HTTP-successful but must not clear cloud state for
+    // files that failed. Retain that state until the complete retry succeeds.
+    if (
+      !result ||
+      result.failedCount !== 0 ||
+      !Array.isArray(result.failed) ||
+      result.failed.length !== 0 ||
+      !Array.isArray(result.success) ||
+      result.success.length !== requestedKeys.size ||
+      result.deletedCount !== requestedKeys.size ||
+      new Set(result.success).size !== requestedKeys.size ||
+      result.success.some((key) => !requestedKeys.has(key))
+    ) {
+      throw new Error('Incomplete purge');
+    }
+    return result;
+  } catch {
     throw new Error('Purge files failed');
   }
 };

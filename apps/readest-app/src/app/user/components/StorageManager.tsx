@@ -17,6 +17,8 @@ import {
 } from '@/libs/storage';
 import { eventDispatcher } from '@/utils/event';
 import { debounce } from '@/utils/debounce';
+import { getRemoteBookFilename } from '@/utils/book';
+import { CLOUD_BOOKS_SUBDIR } from '@/services/constants';
 import Spinner from '@/components/Spinner';
 import Alert from '@/components/Alert';
 
@@ -181,15 +183,20 @@ const StorageManager = () => {
     try {
       const fileKeys = Array.from(selectedFiles);
       const fileRecords = files.filter((f) => selectedFiles.has(f.file_key));
-      const selectedBookHashes = new Set(
-        fileRecords.map((f) => f.book_hash).filter((hash): hash is string => !!hash),
-      );
-
       const result = await purgeFiles(fileKeys, true);
+      const deletedFileKeys = new Set(result.success);
 
       const { library, setLibrary } = useLibraryStore.getState();
       library
-        .filter((book) => selectedBookHashes.has(book.hash))
+        .filter((book) => {
+          const bookPath = `${CLOUD_BOOKS_SUBDIR}/${getRemoteBookFilename(book)}`;
+          return fileRecords.some(
+            (file) =>
+              file.book_hash === book.hash &&
+              deletedFileKeys.has(file.file_key) &&
+              file.file_key.slice(file.file_key.indexOf('/') + 1) === bookPath,
+          );
+        })
         .forEach((book) => {
           book.uploadedAt = null;
           book.updatedAt = Date.now();
