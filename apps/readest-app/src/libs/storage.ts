@@ -4,6 +4,7 @@ import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
 import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
 import { buildReaderPermanentStorageKey } from '@/integrations/learningbored/permanent-storage-key';
+import { uploadPrivateReaderFile } from '@/integrations/learningbored/upload-session-client';
 import {
   tauriUpload,
   tauriDownload,
@@ -54,6 +55,11 @@ export const uploadFile = async (
   temp = false,
 ) => {
   try {
+    if (getLearningBoredPrivateBetaPolicy().active) {
+      if (temp) throw new Error('Temporary public storage is unavailable.');
+      await uploadPrivateReaderFile(API_ENDPOINTS.upload, file, onProgress, bookHash);
+      return undefined;
+    }
     const response = await fetchWithAuth(API_ENDPOINTS.upload, {
       method: 'POST',
       headers: {

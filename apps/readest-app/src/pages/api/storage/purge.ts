@@ -3,6 +3,12 @@ import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { validateUserAndToken } from '@/utils/access';
 import { deleteObject } from '@/utils/object';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+import { deletePrivateReaderFile } from '@/integrations/learningbored/file-deletion';
+import {
+  readerStorageObjectKey,
+  readerStorageProjection,
+} from '@/integrations/learningbored/storage-object-key';
 
 interface BulkDeleteResult {
   success: string[];
@@ -42,12 +48,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'All fileKeys must be strings' });
     }
 
+    if (getLearningBoredPrivateBetaPolicy().active) {
+      const success: string[] = [];
+      const pending: string[] = [];
+      const failed: Array<{ fileKey: string; error: string }> = [];
+      for (const fileKey of [...new Set(fileKeys as string[])]) {
+        try {
+          ((await deletePrivateReaderFile(user.id, fileKey)) ? success : pending).push(fileKey);
+        } catch {
+          failed.push({ fileKey, error: 'File deletion could not be admitted.' });
+        }
+      }
+      return res.status(pending.length ? 202 : failed.length ? 207 : 200).json({
+        success,
+        pending,
+        failed,
+        deletedCount: success.length,
+        pendingCount: pending.length,
+        failedCount: failed.length,
+      });
+    }
+
     const supabase = createSupabaseAdminClient();
 
     // Fetch all files that match the provided keys and belong to the user
     const { data: fileRecords, error: fileError } = await supabase
       .from('files')
-      .select('id, user_id, file_key')
+      .select(readerStorageProjection('id, user_id, file_key'))
       .eq('user_id', user.id)
       .in('file_key', fileKeys)
       .is('deleted_at', null);
@@ -72,7 +99,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       fileRecords.map(async (fileRecord) => {
         try {
           // Delete from storage
-          await deleteObject(fileRecord.file_key);
+          await deleteObject(readerStorageObjectKey(fileRecord, user.id));
 
           // Delete from database
           const { error: deleteError } = await supabase

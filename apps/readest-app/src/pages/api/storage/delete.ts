@@ -3,6 +3,13 @@ import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { createSupabaseAdminClient } from '@/utils/supabase';
 import { validateUserAndToken } from '@/utils/access';
 import { deleteObject } from '@/utils/object';
+import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
+import { deletePrivateReaderFile } from '@/integrations/learningbored/file-deletion';
+import { ReaderUploadError } from '@/integrations/learningbored/upload-session-server';
+import {
+  readerStorageObjectKey,
+  readerStorageProjection,
+} from '@/integrations/learningbored/storage-object-key';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -23,10 +30,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Missing or invalid fileKey' });
     }
 
+    if (getLearningBoredPrivateBetaPolicy().active) {
+      const complete = await deletePrivateReaderFile(user.id, fileKey);
+      return res.status(complete ? 200 : 202).json({
+        state: complete ? 'deleted' : 'cleanup_pending',
+        message: complete
+          ? 'File deleted successfully'
+          : 'File hidden; storage cleanup is pending.',
+      });
+    }
+
     const supabase = createSupabaseAdminClient();
     const { data: fileRecord, error: fileError } = await supabase
       .from('files')
-      .select('user_id, id')
+      .select(readerStorageProjection('user_id, id, file_key'))
       .eq('user_id', user.id)
       .eq('file_key', fileKey)
       .limit(1)
@@ -41,7 +58,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-      await deleteObject(fileKey);
+      await deleteObject(readerStorageObjectKey(fileRecord, user.id));
       const { error: deleteError } = await supabase.from('files').delete().eq('id', fileRecord.id);
 
       if (deleteError) {
@@ -55,6 +72,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(500).json({ error: 'Could not delete file from storage' });
     }
   } catch (error) {
+    if (error instanceof ReaderUploadError)
+      return res.status(error.status).json({ error: error.message });
     console.error(error);
     return res.status(500).json({ error: 'Something went wrong' });
   }
