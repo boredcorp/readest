@@ -6,20 +6,11 @@ import {
   validateUserAndToken,
   STORAGE_QUOTA_GRACE_BYTES,
 } from '@/utils/access';
-import {
-  getDefaultStorageBucketName,
-  getDownloadSignedUrl,
-  getUploadSignedUrl,
-} from '@/utils/object';
+import { getDownloadSignedUrl, getUploadSignedUrl } from '@/utils/object';
 import { READEST_PUBLIC_STORAGE_BASE_URL } from '@/services/constants';
 import { getLearningBoredPrivateBetaPolicy } from '@/integrations/learningbored/private-beta-policy';
-import { buildReaderPermanentStorageKey } from '@/integrations/learningbored/permanent-storage-key';
-import {
-  LEARNINGBORED_READER_BUCKET_NAME,
-  parseReaderUploadCapabilityWindow,
-  READER_PERMANENT_UPLOAD_MAX_TTL_SECONDS,
-} from '@/integrations/learningbored/upload-capability';
-import { getStorageType } from '@/utils/storage';
+import { READER_PERMANENT_UPLOAD_MAX_TTL_SECONDS } from '@/integrations/learningbored/upload-capability';
+import { createPrivateReaderUpload } from '@/integrations/learningbored/upload-session-create';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -60,6 +51,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   }
 
+  if (getLearningBoredPrivateBetaPolicy().active) {
+    return createPrivateReaderUpload(req, res, user.id, token);
+  }
+
   try {
     if (
       typeof fileName !== 'string' ||
@@ -75,15 +70,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(403).json({ error: 'Insufficient storage quota', usage });
     }
 
-    const privateBetaPolicy = getLearningBoredPrivateBetaPolicy();
-    let fileKey: string;
-    try {
-      fileKey = privateBetaPolicy.active
-        ? buildReaderPermanentStorageKey(user.id, fileName)
-        : `${user.id}/${fileName}`;
-    } catch {
-      return res.status(400).json({ error: 'Invalid permanent Reader upload path.' });
-    }
+    const fileKey = `${user.id}/${fileName}`;
     const supabase = createSupabaseAdminClient();
     const { data: existingRecord, error: fetchError } = await supabase
       .from('files')
@@ -103,7 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    if (!privateBetaPolicy.active) {
+    {
       if (!existingRecord) {
         const { error: insertError } = await supabase.from('files').insert({
           user_id: user.id,
@@ -127,62 +114,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         usage: usage + fileSize,
         quota,
       });
-    }
-
-    try {
-      // Generate first, but do not return the capability until the database has atomically checked the
-      // subject fence and recorded the exact X-Amz-Date + X-Amz-Expires upper bound.
-      const bucketName = getDefaultStorageBucketName();
-      if (getStorageType() !== 'r2' || bucketName !== LEARNINGBORED_READER_BUCKET_NAME) {
-        return res.status(500).json({ error: 'Invalid private Reader storage configuration.' });
-      }
-      const uploadUrl = await getUploadSignedUrl(
-        fileKey,
-        objSize,
-        READER_PERMANENT_UPLOAD_MAX_TTL_SECONDS,
-        bucketName,
-      );
-      const capability = parseReaderUploadCapabilityWindow(uploadUrl, bucketName, fileKey);
-      const { data: authorizationRows, error: authorizationError } = await supabase.rpc(
-        'learningbored_record_reader_upload_capability',
-        {
-          p_book_hash: typeof bookHash === 'string' ? bookHash : null,
-          p_capability_expires_at: capability.expiresAt,
-          p_capability_issued_at: capability.issuedAt,
-          p_file_key: fileKey,
-          p_file_size: objSize,
-          p_user_id: user.id,
-        },
-      );
-
-      if (authorizationError?.code === 'LB001') {
-        return res.status(403).json({ error: 'Reader access has been revoked.' });
-      }
-      const authorization = Array.isArray(authorizationRows)
-        ? authorizationRows[0]
-        : authorizationRows;
-      const recordedExpiry = new Date(authorization?.capability_expires_at).getTime();
-      const expectedExpiry = new Date(capability.expiresAt).getTime();
-      if (
-        authorizationError ||
-        !authorization ||
-        Number(authorization.authorized_file_size) !== objSize ||
-        !Number.isFinite(recordedExpiry) ||
-        !Number.isFinite(expectedExpiry) ||
-        recordedExpiry !== expectedExpiry
-      ) {
-        return res.status(500).json({ error: 'Could not authorize permanent upload.' });
-      }
-
-      res.status(200).json({
-        uploadUrl,
-        fileKey,
-        usage: usage + fileSize,
-        quota,
-      });
-    } catch {
-      console.error('Error authorizing permanent Reader upload.');
-      res.status(500).json({ error: 'Could not create presigned post' });
     }
   } catch {
     console.error('Unexpected permanent Reader upload failure.');

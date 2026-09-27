@@ -3,6 +3,10 @@ import { createSupabaseAdminClient } from '@/utils/supabase';
 import { corsAllMethods, runMiddleware } from '@/utils/cors';
 import { getDownloadSignedUrl } from '@/utils/object';
 import { validateUserAndToken } from '@/utils/access';
+import {
+  readerStorageObjectKey,
+  readerStorageProjection,
+} from '@/integrations/learningbored/storage-object-key';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   await runMiddleware(req, res, corsAllMethods);
@@ -77,7 +81,7 @@ async function processFileKeys(
 
   const { data: fileRecords, error: fileError } = await supabase
     .from('files')
-    .select('user_id, file_key, book_hash')
+    .select(readerStorageProjection('user_id, file_key, book_hash'))
     .eq('user_id', userId)
     .in('file_key', fileKeys)
     .is('deleted_at', null);
@@ -111,7 +115,7 @@ async function processFileKeys(
 
       const { data: fallbackRecords, error: fallbackError } = await supabase
         .from('files')
-        .select('user_id, file_key, book_hash')
+        .select(readerStorageProjection('user_id, file_key, book_hash'))
         .eq('user_id', userId)
         .in('book_hash', bookHashes)
         .is('deleted_at', null);
@@ -144,7 +148,10 @@ async function processFileKeys(
       }
 
       try {
-        const downloadUrl = await getDownloadSignedUrl(fileRecord.file_key, 1800);
+        const downloadUrl = await getDownloadSignedUrl(
+          readerStorageObjectKey(fileRecord, userId),
+          1800,
+        );
         return { fileKey, downloadUrl };
       } catch (error) {
         console.error('Error creating signed URL for %s:', fileKey, error);
