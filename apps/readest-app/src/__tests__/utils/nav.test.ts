@@ -29,7 +29,7 @@ vi.mock('@/services/constants', () => ({
   BOOK_IDS_SEPARATOR: '+',
 }));
 
-import { redirect } from 'next/navigation';
+import { redirect, type useRouter } from 'next/navigation';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { isPWA, isTauriAppPlatform, isWebAppPlatform } from '@/services/environment';
@@ -52,13 +52,14 @@ const WebviewWindowCtor = WebviewWindow as unknown as { getByLabel: ReturnType<t
 // ── Helpers ──────────────────────────────────────────────────────────
 function mockRouter() {
   return {
+    bfcacheId: 'test-route-segment',
     push: vi.fn(),
     replace: vi.fn(),
     back: vi.fn(),
     forward: vi.fn(),
     refresh: vi.fn(),
     prefetch: vi.fn(),
-  };
+  } satisfies ReturnType<typeof useRouter>;
 }
 
 function makeAppService(isMacOS = false) {
