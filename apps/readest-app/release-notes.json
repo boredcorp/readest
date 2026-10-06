@@ -1,5 +1,11 @@
 {
   "releases": {
+    "0.10.12": {
+      "date": "2026-10-06",
+      "notes": [
+        "Maintenance: Update dependencies and build tooling for security and compatibility"
+      ]
+    },
     "0.10.11": {
       "date": "2026-09-25",
       "notes": [

@@ -1,45 +1,42 @@
 diff --git a/dist/index.js b/dist/index.js
-index 567d4ce0d06036b322d1b741324aaf72040cdb38..1584720f34a4f9c0b3a0e392274b9cd6e65cf8c1 100644
+index 47735f7..4f348b9 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -1751,8 +1751,9 @@ function stringifyRegExpWithFlags(regex, refs) {
+@@ -1807,8 +1807,8 @@ function stringifyRegExpWithFlags(regex, refs) {
      }
      if (flags.m) {
        if (source[i] === "^") {
 -        pattern += `(^|(?<=[\r
 -]))`;
-+        // Avoid lookbehind for older iOS Safari releases (before 16.4).
 +        pattern += `(^|[\r
 +])`;
          continue;
        } else if (source[i] === "$") {
          pattern += `($|(?=[\r
 diff --git a/dist/index.mjs b/dist/index.mjs
-index c78ef08f105cea75a53437a296582222058c6b0f..b5c974e2139dc4d37ab6e7a4514abd8171bf9be2 100644
+index 3700b11..9463b30 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
-@@ -1656,8 +1656,9 @@ function stringifyRegExpWithFlags(regex, refs) {
+@@ -1708,8 +1708,8 @@ function stringifyRegExpWithFlags(regex, refs) {
      }
      if (flags.m) {
        if (source[i] === "^") {
 -        pattern += `(^|(?<=[\r
 -]))`;
-+        // Avoid lookbehind for older iOS Safari releases (before 16.4).
 +        pattern += `(^|[\r
 +])`;
          continue;
        } else if (source[i] === "$") {
          pattern += `($|(?=[\r
 diff --git a/src/to-json-schema/zod3-to-json-schema/parsers/string.ts b/src/to-json-schema/zod3-to-json-schema/parsers/string.ts
-index ef799980b9b6acc81b9fabffd50ed2549e0412f4..524ae10f24b181c3b538efaad1dbc27c1d113ebc 100644
+index a4b98dc..a5fcf12 100644
 --- a/src/to-json-schema/zod3-to-json-schema/parsers/string.ts
 +++ b/src/to-json-schema/zod3-to-json-schema/parsers/string.ts
-@@ -388,7 +388,8 @@ function stringifyRegExpWithFlags(regex: RegExp, refs: Refs): string {
+@@ -388,7 +388,7 @@ function stringifyRegExpWithFlags(regex: RegExp, refs: Refs): string {
  
      if (flags.m) {
        if (source[i] === '^') {
 -        pattern += `(^|(?<=[\r\n]))`;
-+        // Avoid lookbehind for older iOS Safari releases (before 16.4).
 +        pattern += `(^|[\r\n])`;
          continue;
        } else if (source[i] === '$') {

@@ -40,8 +40,8 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
   );
   assert.match(
     dockerfile,
-    /corepack install --global pnpm@11\.21\.0/u,
-    'builder must pin pnpm 11.21.0',
+    /corepack install --global pnpm@11\.28\.4/u,
+    'builder must pin pnpm 11.28.4',
   );
   assert.match(nextConfig, /output: exportOutput \? 'export' : 'standalone'/u);
   assert.match(nextConfig, /outputFileTracingRoot: exportOutput \? undefined : storyBoredRoot/u);
@@ -149,19 +149,19 @@ test('dependency overrides retain patched transitive releases', async () => {
     readRepositoryFile('../../pnpm-lock.yaml'),
   ]);
 
-  assert.match(workspace, /^  browserslist: 4\.28\.7$/mu);
-  assert.match(workspace, /^  deepmerge-ts: 8\.0\.0$/mu);
-  assert.match(workspace, /^  fast-uri: 3\.1\.7$/mu);
-  assert.match(workspace, /^  qs: '>=6\.16\.0'$/mu);
-  assert.match(lockfile, /^  browserslist@4\.28\.7:$/mu);
-  assert.match(lockfile, /^  deepmerge-ts@8\.0\.0:$/mu);
-  assert.match(lockfile, /^  fast-uri@3\.1\.7:$/mu);
+  assert.match(workspace, /^  ["']?browserslist["']?: ["']?4\.29\.3["']?$/mu);
+  assert.match(workspace, /^  ["']?deepmerge-ts["']?: ["']?8\.0\.2["']?$/mu);
+  assert.match(workspace, /^  ["']?fast-uri["']?: ["']?3\.1\.8["']?$/mu);
+  assert.match(workspace, /^  ["']?qs["']?: ["']?6\.16\.0["']?$/mu);
+  assert.match(lockfile, /^  browserslist@4\.29\.3:$/mu);
+  assert.match(lockfile, /^  deepmerge-ts@8\.0\.2:$/mu);
+  assert.match(lockfile, /^  fast-uri@3\.1\.8:$/mu);
   assert.match(lockfile, /^  qs@6\.16\.0:$/mu);
   for (const dependency of ['@wdio/config', '@wdio/runner', '@wdio/utils', 'webdriver']) {
     assert.match(
       lockfile,
       new RegExp(
-        `^  ['"]?${dependency.replace('/', '\\/')}@[^\\n]+['"]?:\\n(?: {4,}[^\\n]*\\n)*? {6}deepmerge-ts: 8\\.0\\.0$`,
+        `^  ['"]?${dependency.replace('/', '\\/')}@[^\\n]+['"]?:\\n(?: {4,}[^\\n]*\\n)*? {6}deepmerge-ts: 8\\.0\\.2$`,
         'mu',
       ),
       `${dependency} must resolve the patched deepmerge-ts override`,
@@ -169,7 +169,7 @@ test('dependency overrides retain patched transitive releases', async () => {
   }
   assert.doesNotMatch(
     lockfile,
-    /browserslist@4\.28\.6|deepmerge-ts@7\.1\.6|fast-uri@3\.1\.[56]|qs@6\.15\.3/u,
+    /browserslist@4\.28\.6|deepmerge-ts@7\.1\.6|fast-uri@3\.1\.[567]|qs@6\.15\.3/u,
   );
 });
 
