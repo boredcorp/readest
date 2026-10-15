@@ -116,7 +116,7 @@ Stay tuned for continuous improvements and updates! Contributions and suggestion
 
 ## Requirements
 
-- **Node.js 24.19.0**, pinned in `.node-version`, and **pnpm 11.21.0** through Corepack for Next.js
+- **Node.js 24.19.0**, pinned in `.node-version`, and **pnpm 11.28.4** through Corepack for Next.js
   development
 - **Rust** and **Cargo** for Tauri development
 
@@ -128,7 +128,7 @@ and platform prerequisites.
 fnm install
 fnm use
 corepack enable
-corepack install --global pnpm@11.21.0
+corepack install --global pnpm@11.28.4
 rustup update
 ```
 

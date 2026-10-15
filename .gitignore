@@ -54,3 +54,6 @@ result*
 .claude/worktrees
 .claude/settings.local.json
 
+
+# Isolated maintenance evidence, stores, and toolchain state
+/artifacts/maintenance-20261006/

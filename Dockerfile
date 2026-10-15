@@ -7,7 +7,7 @@ FROM ${NODE_BUILD_IMAGE} AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 ENV NEXT_TELEMETRY_DISABLED=1
-RUN corepack enable && corepack install --global pnpm@11.21.0
+RUN corepack enable && corepack install --global pnpm@11.28.4
 WORKDIR /app
 
 FROM base AS storybored-build
