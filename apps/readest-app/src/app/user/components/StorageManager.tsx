@@ -371,6 +371,7 @@ const StorageManager = () => {
 
   useEffect(() => {
     handleSearchChange(searchInput);
+    return () => handleSearchChange.cancel();
   }, [searchInput, handleSearchChange]);
 
   const formatFileSize = (bytes: number): string => {
