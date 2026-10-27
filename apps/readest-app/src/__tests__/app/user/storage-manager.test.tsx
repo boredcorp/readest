@@ -163,6 +163,29 @@ describe('StorageManager deletion metadata', () => {
     vi.unstubAllGlobals();
   });
 
+  it('cancels pending search work when unmounted before the debounce expires', () => {
+    publishCloudSession(null);
+    vi.useFakeTimers();
+    let unmount: (() => void) | undefined;
+
+    try {
+      ({ unmount } = render(<StorageManager />));
+      expect(vi.getTimerCount()).toBe(1);
+
+      fireEvent.change(screen.getByPlaceholderText('Search files...'), {
+        target: { value: 'pending search' },
+      });
+      expect(vi.getTimerCount()).toBe(1);
+      expect(mocks.listFiles).not.toHaveBeenCalled();
+
+      unmount();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      unmount?.();
+      vi.useRealTimers();
+    }
+  });
+
   it('retains the cloud book flag when a cover is the only file visible on the page', async () => {
     showFiles([coverKey]);
     await confirmDeleteFile('cover.png');
