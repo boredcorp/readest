@@ -151,11 +151,11 @@ test('dependency overrides retain patched transitive releases', async () => {
 
   assert.match(workspace, /^  ["']?browserslist["']?: ["']?4\.29\.3["']?$/mu);
   assert.match(workspace, /^  ["']?deepmerge-ts["']?: ["']?8\.0\.2["']?$/mu);
-  assert.match(workspace, /^  ["']?fast-uri["']?: ["']?3\.1\.8["']?$/mu);
+  assert.match(workspace, /^  ["']?fast-uri["']?: ["']?3\.1\.9["']?$/mu);
   assert.match(workspace, /^  ["']?qs["']?: ["']?6\.16\.0["']?$/mu);
   assert.match(lockfile, /^  browserslist@4\.29\.3:$/mu);
   assert.match(lockfile, /^  deepmerge-ts@8\.0\.2:$/mu);
-  assert.match(lockfile, /^  fast-uri@3\.1\.8:$/mu);
+  assert.match(lockfile, /^  fast-uri@3\.1\.9:$/mu);
   assert.match(lockfile, /^  qs@6\.16\.0:$/mu);
   for (const dependency of ['@wdio/config', '@wdio/runner', '@wdio/utils', 'webdriver']) {
     assert.match(
@@ -169,7 +169,7 @@ test('dependency overrides retain patched transitive releases', async () => {
   }
   assert.doesNotMatch(
     lockfile,
-    /browserslist@4\.28\.6|deepmerge-ts@7\.1\.6|fast-uri@3\.1\.[567]|qs@6\.15\.3/u,
+    /browserslist@4\.28\.6|deepmerge-ts@7\.1\.6|fast-uri@3\.1\.[5678]|qs@6\.15\.3/u,
   );
 });
 
