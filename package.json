@@ -54,7 +54,8 @@
       "@babel/helpers": ">=7.26.10",
       "mdast-util-gfm-autolink-literal": "2.0.1",
       "@ai-sdk/provider-utils": "4.0.8",
-      "uuid": ">=14.0.0"
+      "uuid": ">=14.0.0",
+      "zod@>=4.0.0 <4.6.7": "4.6.7"
     },
     "patchedDependencies": {
       "mdast-util-gfm-autolink-literal@2.0.1": "patches/mdast-util-gfm-autolink-literal@2.0.1.patch",
