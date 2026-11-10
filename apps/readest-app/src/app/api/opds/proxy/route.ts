@@ -1,8 +1,24 @@
 import { READEST_OPDS_USER_AGENT } from '@/services/constants';
 import { NextRequest, NextResponse } from 'next/server';
 import { deserializeOPDSCustomHeaders } from '@/app/opds/utils/customHeaders';
+import {
+  getLearningBoredPrivateBetaPolicy,
+  LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE,
+} from '@/integrations/learningbored/private-beta-policy';
+
+function privateBetaProxyRefusal() {
+  if (!getLearningBoredPrivateBetaPolicy().active) return null;
+
+  return NextResponse.json(
+    { error: LEARNINGBORED_PRIVATE_BETA_DISABLED_MESSAGE },
+    { status: 403, headers: { 'Cache-Control': 'private, no-store' } },
+  );
+}
 
 async function handleRequest(request: NextRequest, method: 'GET' | 'HEAD') {
+  const refusal = privateBetaProxyRefusal();
+  if (refusal) return refusal;
+
   // Cloudflare Workers incorrectly decodes %26 to & in the url parameter value,
   // causing query parameters within the proxied URL (like &start_index=26) to be
   // treated as separate top-level parameters instead of part of the url value.
@@ -231,6 +247,9 @@ export async function HEAD(request: NextRequest) {
 }
 
 export async function OPTIONS(_: NextRequest) {
+  const refusal = privateBetaProxyRefusal();
+  if (refusal) return refusal;
+
   return new NextResponse(null, {
     status: 200,
     headers: {
