@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { createBrowserAccessFetch } from '@/utils/browserAccessFetch';
 
 export type SupabaseRuntime = 'browser' | 'server';
 
@@ -100,19 +101,29 @@ export const supabase = createConfiguredClient(runtimeConfiguration, runtimeConf
 
 export const createSupabaseClient = (accessToken?: string) => {
   const configuration = resolveSupabaseConfiguration(readSupabaseEnvironment(), 'server');
-  return createConfiguredClient(configuration, configuration.anonKey, { accessToken });
+  return createConfiguredClient(configuration, configuration.anonKey, {
+    accessToken,
+    runtime: 'server',
+  });
 };
 
 export const createSupabaseAdminClient = () => {
   const configuration = resolveSupabaseConfiguration(readSupabaseEnvironment(), 'server');
   const supabaseAdminKey = process.env['SUPABASE_ADMIN_KEY'] || '';
-  return createConfiguredClient(configuration, supabaseAdminKey, { admin: true });
+  return createConfiguredClient(configuration, supabaseAdminKey, {
+    admin: true,
+    runtime: 'server',
+  });
 };
 
 function createConfiguredClient(
   configuration: SupabaseConfiguration,
   key: string,
-  options: { readonly accessToken?: string; readonly admin?: boolean } = {},
+  options: {
+    readonly accessToken?: string;
+    readonly admin?: boolean;
+    readonly runtime?: SupabaseRuntime;
+  } = {},
 ) {
   return createClient(configuration.logicalUrl, key, {
     auth: {
@@ -125,7 +136,10 @@ function createConfiguredClient(
         : {}),
     },
     global: {
-      fetch: createSupabaseTransportFetch(configuration.logicalUrl, configuration.transportUrl),
+      fetch:
+        (options.runtime ?? (typeof window === 'undefined' ? 'server' : 'browser')) === 'browser'
+          ? createBrowserAccessFetch(configuration.logicalUrl)
+          : createSupabaseTransportFetch(configuration.logicalUrl, configuration.transportUrl),
       headers: options.accessToken
         ? {
             Authorization: `Bearer ${options.accessToken}`,

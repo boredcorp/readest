@@ -1,3 +1,4 @@
+import { createBrowserAccessFetch } from '@/utils/browserAccessFetch';
 import { StoryBoredClient } from '../../../../../../packages/storybored-sdk/dist/client.js';
 import type {
   StoryBoredFeedbackRequest,
@@ -45,7 +46,9 @@ export class StoryBoredReaderClient {
     this.#sdk = new StoryBoredClient({
       baseUrl: this.#baseUrl,
       ...(this.#accessToken ? { accessToken: this.#accessToken } : {}),
-      ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+      fetchImpl: this.#baseUrl
+        ? createBrowserAccessFetch(this.#baseUrl, options.fetchImpl)
+        : (options.fetchImpl ?? globalThis.fetch),
     });
   }
 

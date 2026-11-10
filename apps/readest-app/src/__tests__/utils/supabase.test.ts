@@ -49,6 +49,26 @@ describe('Reader Supabase origin separation', () => {
     vi.unstubAllGlobals();
   });
 
+  test('uses the exact public origin Access policy for the browser client', async () => {
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    vi.resetModules();
+    await import('@/utils/supabase');
+    const browserCall = supabaseMocks.createClient.mock.calls.at(-1);
+    expect(browserCall?.[0]).toBe('https://supabase.reader.example');
+    const init: RequestInit = { headers: { Authorization: 'Bearer reader-token' }, method: 'POST' };
+    await browserCall?.[2]?.global?.fetch?.('https://supabase.reader.example/auth/v1/token', init);
+    expect(fetchMock).toHaveBeenLastCalledWith('https://supabase.reader.example/auth/v1/token', {
+      ...init,
+      credentials: 'include',
+      redirect: 'error',
+    });
+    await browserCall?.[2]?.global?.fetch?.('https://signed-storage.example/file', init);
+    expect(fetchMock).toHaveBeenLastCalledWith('https://signed-storage.example/file', init);
+  });
+
   test('keeps browser identity and transport on the public external origin', () => {
     expect(
       resolveSupabaseConfiguration(
@@ -180,6 +200,22 @@ describe('Reader Supabase origin separation', () => {
       2,
       'https://unrelated.example/resource',
       expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  test('does not add browser Access policy when server transport falls back to its public origin', async () => {
+    vi.stubEnv('SUPABASE_INTERNAL_URL', '');
+    const fetchMock = vi.fn(
+      async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(null, { status: 204 }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    createSupabaseClient('server-token');
+    const serverCall = supabaseMocks.createClient.mock.calls.at(-1);
+    const init: RequestInit = { headers: { Authorization: 'Bearer server-token' }, method: 'GET' };
+    await serverCall?.[2]?.global?.fetch?.('https://supabase.reader.example/auth/v1/user', init);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'https://supabase.reader.example/auth/v1/user',
+      init,
     );
   });
 
