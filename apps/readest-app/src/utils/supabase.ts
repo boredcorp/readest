@@ -18,10 +18,13 @@ const supabaseEnvironment = {
 };
 
 const runtime = typeof window === 'undefined' ? 'server' : 'browser';
-const learningBoredSupabaseFetch = createLearningBoredSupabaseFetch({
-  deploymentProfile: supabaseEnvironment.deploymentProfile,
-  runtime,
-});
+const learningBoredSupabaseFetch = createLearningBoredSupabaseFetch(
+  {
+    deploymentProfile: supabaseEnvironment.deploymentProfile,
+    runtime,
+  },
+  (input, init) => globalThis.fetch(input, init),
+);
 
 assertLearningBoredProductionSupabaseEnvironment(supabaseEnvironment, runtime);
 

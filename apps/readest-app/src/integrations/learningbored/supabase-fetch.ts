@@ -11,7 +11,7 @@ interface LearningBoredSupabaseFetchEnvironment {
 /** Carry the owner's Access session only to the private beta's canonical browser endpoint. */
 export function createLearningBoredSupabaseFetch(
   environment: LearningBoredSupabaseFetchEnvironment,
-  fetcher: typeof fetch = (input, init) => fetch(input, init),
+  fetcher: typeof fetch,
 ): typeof fetch | undefined {
   if (
     environment.deploymentProfile !== LEARNINGBORED_PRIVATE_BETA_PROFILE ||
