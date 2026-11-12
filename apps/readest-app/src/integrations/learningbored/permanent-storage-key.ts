@@ -1,4 +1,5 @@
 const READER_CLOUD_BOOK_PREFIX = 'Readest/Books/';
+const READER_BOOK_HASH = /^[0-9a-f]{32}$/u;
 const CANONICAL_SUPABASE_SUBJECT =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
 const CONTROL_CHARACTER = /[\u0000-\u001f\u007f]/u;
@@ -44,8 +45,11 @@ export function encodeReaderPermanentStorageName(relativePath: string): string {
     throw new Error('Invalid permanent Reader upload path.');
   }
 
-  const leaf = relativePath.slice(READER_CLOUD_BOOK_PREFIX.length);
-  if (!leaf || leaf === '.' || leaf === '..' || leaf.includes('/')) {
+  const segments = relativePath.slice(READER_CLOUD_BOOK_PREFIX.length).split('/');
+  const [first, nestedLeaf] = segments;
+  const leaf = nestedLeaf ?? first;
+  const hasBookDirectory = segments.length === 2 && READER_BOOK_HASH.test(first ?? '');
+  if ((segments.length !== 1 && !hasBookDirectory) || !leaf || leaf === '.' || leaf === '..') {
     throw new Error('Invalid permanent Reader upload path.');
   }
   assertSafeLeafEncoding(leaf);

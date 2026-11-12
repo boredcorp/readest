@@ -72,12 +72,17 @@ const input = {
   contentType: 'application/epub+zip',
   sha256: 'a'.repeat(64),
 };
+const bookHash = '0123456789abcdef0123456789abcdef';
 describe('private Reader upload route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.active = true;
   });
-  it('returns a service session without signing or exposing a provider write capability', async () => {
+  it.each([
+    [input.fileName, input.contentType],
+    [`Readest/Books/${bookHash}/Fictional.epub`, input.contentType],
+    [`Readest/Books/${bookHash}/cover.png`, 'image/png'],
+  ])('creates a private upload session for %s', async (fileName, contentType) => {
     mocks.create.mockResolvedValue({
       uploadId: input.uploadId,
       state: 'uploading',
@@ -86,14 +91,22 @@ describe('private Reader upload route', () => {
       byteSize: 64,
     });
     const { res, result } = response();
-    await handler(request(input), res);
+    await handler(request({ ...input, fileName, contentType, bookHash }), res);
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ uploadId: input.uploadId, state: 'uploading' });
     expect(result.body).not.toHaveProperty('uploadUrl');
     expect(mocks.sign).not.toHaveBeenCalled();
+    const ownerId = '11111111-1111-4111-8111-111111111111';
+    const encodedName = Buffer.from(fileName, 'utf8').toString('base64url');
     expect(mocks.create).toHaveBeenCalledWith(
-      '11111111-1111-4111-8111-111111111111',
-      expect.objectContaining({ sha256: input.sha256, quota: 10000 }),
+      ownerId,
+      expect.objectContaining({
+        fileKey: `${ownerId}/${encodedName}`,
+        bookHash,
+        contentType,
+        sha256: input.sha256,
+        quota: 10000,
+      }),
     );
   });
   it('fails closed for legacy private-beta presign requests', async () => {

@@ -6,6 +6,7 @@ import {
 } from '@/integrations/learningbored/permanent-storage-key';
 
 const userId = '11111111-1111-4111-8111-111111111111';
+const bookHash = '0123456789abcdef0123456789abcdef';
 
 describe('LearningBored permanent Reader storage keys', () => {
   it('uses one opaque base64url segment beneath the canonical owner prefix', () => {
@@ -26,6 +27,21 @@ describe('LearningBored permanent Reader storage keys', () => {
     expect(new TextDecoder().decode(decodedBytes)).toBe(relativePath);
   });
 
+  it.each(['Fictional apparatus å.epub', 'cover.png'])(
+    'encodes the normal Reader book directory and file %s as one opaque segment',
+    (filename) => {
+      const relativePath = `Readest/Books/${bookHash}/${filename}`;
+      const encoded = Buffer.from(relativePath, 'utf8').toString('base64url');
+      expect(buildReaderPermanentStorageKey(userId, relativePath)).toBe(`${userId}/${encoded}`);
+    },
+  );
+
+  it('keeps the existing flat logical key byte-for-byte compatible', () => {
+    expect(buildReaderPermanentStorageKey(userId, 'Readest/Books/Fictional.epub')).toBe(
+      `${userId}/UmVhZGVzdC9Cb29rcy9GaWN0aW9uYWwuZXB1Yg`,
+    );
+  });
+
   it.each([
     '../other.epub',
     'Readest/Books/../other.epub',
@@ -38,7 +54,16 @@ describe('LearningBored permanent Reader storage keys', () => {
     'Readest/Books/%5cescape.epub',
     'Readest/Books/%255cescape.epub',
     'Readest/Books/\u0000book.epub',
-  ])('rejects traversal or multi-segment input before signing: %s', (relativePath) => {
+    `Readest/Books/${bookHash}/`,
+    `Readest/Books/${bookHash}/..`,
+    `Readest/Books/${bookHash}/extra/book.epub`,
+    `Readest/Books/${bookHash}//book.epub`,
+    `Readest/Books/${bookHash}/%252e%252e`,
+    `Readest/Books/${bookHash}/%252fescape.epub`,
+    `Readest/Books/${bookHash}/%255cescape.epub`,
+    `Readest/Books/${bookHash}/%00book.epub`,
+    `Readest/Books/${bookHash}/${'a'.repeat(800)}.epub`,
+  ])('rejects unsafe paths before creating a key: %s', (relativePath) => {
     expect(() => buildReaderPermanentStorageKey(userId, relativePath)).toThrow(
       'Invalid permanent Reader upload path.',
     );
