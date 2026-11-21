@@ -3,7 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nodejs-nixpkgs.url = "github:NixOS/nixpkgs/0e251e24a4f24e036a084b6b4b2d2491af4167f4";
+    nodejs-nixpkgs.url = "github:NixOS/nixpkgs/e2911e68a3abc68ae7ab98d691d34e2538b2374e";
     flake-utils.url = "github:numtide/flake-utils";
     devshell.url = "github:numtide/devshell";
     android = {
@@ -38,7 +38,7 @@
           ];
         };
         nodePkgs = import nodejs-nixpkgs { inherit system; };
-        nodeRuntime = assert nodePkgs.nodejs_24.version == "24.19.0"; nodePkgs.nodejs_24;
+        nodeRuntime = assert nodePkgs.nodejs_24.version == "24.22.3"; nodePkgs.nodejs_24;
         # android-studio is not available in aarch64-darwin
         androidConditionalPackages = if pkgs.system != "aarch64-darwin" then [ pkgs.android-studio ] else [ ];
         commonPackages = with pkgs; [
