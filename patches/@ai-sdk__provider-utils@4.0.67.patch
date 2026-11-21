@@ -1,8 +1,8 @@
 diff --git a/dist/index.js b/dist/index.js
-index 47735f7..4f348b9 100644
+index 2de0201..1a6d3c2 100644
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -1807,8 +1807,8 @@ function stringifyRegExpWithFlags(regex, refs) {
+@@ -1921,8 +1921,8 @@ function stringifyRegExpWithFlags(regex, refs) {
      }
      if (flags.m) {
        if (source[i] === "^") {
@@ -14,10 +14,10 @@ index 47735f7..4f348b9 100644
        } else if (source[i] === "$") {
          pattern += `($|(?=[\r
 diff --git a/dist/index.mjs b/dist/index.mjs
-index 3700b11..9463b30 100644
+index 525e18b..d1ce23d 100644
 --- a/dist/index.mjs
 +++ b/dist/index.mjs
-@@ -1708,8 +1708,8 @@ function stringifyRegExpWithFlags(regex, refs) {
+@@ -1818,8 +1818,8 @@ function stringifyRegExpWithFlags(regex, refs) {
      }
      if (flags.m) {
        if (source[i] === "^") {
