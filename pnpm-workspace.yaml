@@ -8,35 +8,35 @@ overrides:
   # Note export renders strings; optional filesystem watching is unused.
   "nunjucks>chokidar": "-"
   "browserslist": "4.29.3"
-  "glob": ">=11.1.0"
-  "google-auth-library": "10.9.0"
+  "glob": ">=14.0.2"
+  "google-auth-library": "10.9.1"
   "jws": ">=4.0.1"
-  "vite": "7.3.6"
+  "vite": "7.3.8"
   "srvx": ">=0.11.13"
-  "rollup": ">=4.59.0"
+  "rollup": "^4.68.7"
   "undici": "7.30.1"
   "flatted": ">=3.4.2"
   "fast-uri": "3.1.9"
   "body-parser": "2.4.0"
   "deepmerge-ts": "8.0.2"
-  "dompurify": "3.4.17"
-  "zod": "4.6.6"
-  "i18next-http-backend": ">=3.0.5"
+  "dompurify": "3.4.18"
+  "zod": "4.6.7"
+  "i18next-http-backend": "4.1.0"
   "picomatch": ">=4.0.4"
   "path-to-regexp": ">=8.4.0"
   "protobufjs": "8.8.0"
-  "postcss": "8.5.29"
-  "serialize-javascript": ">=7.0.5"
+  "postcss": "8.5.33"
+  "serialize-javascript": ">=7.1.3"
   "fast-xml-parser": "5.11.2"
   "lodash": ">=4.18.0"
   "lodash-es": ">=4.18.0"
-  "basic-ftp": "6.2.2"
-  "qs": "6.16.0"
+  "basic-ftp": "6.2.4"
+  "qs": "6.17.1"
   "@babel/runtime": "7.29.7"
   "@babel/helpers": "7.29.7"
   "mdast-util-gfm-autolink-literal": "2.0.1"
-  "uuid": ">=14.0.1"
-  "ip-address": "10.7.3"
+  "uuid": "^14.0.3"
+  "ip-address": "10.7.4"
   "mermaid": "11.17.2"
   "sharp": "0.35.5"
   "@babel/core": "7.29.7"
@@ -62,11 +62,14 @@ overrides:
   "fflate@>=0.7.0 <0.7.5": "0.7.5"
   "fflate@>=0.4.0 <0.4.9": "0.4.9"
   "form-data@>=4.0.0 <4.0.6": "4.0.6"
-  "ws": "8.22.0"
-  "@ai-sdk/provider-utils": "4.0.57"
+  "ws": "8.23.0"
+  "@ai-sdk/provider-utils": "4.0.67"
+  "minimatch@>=7.0.0 <11.0.1": "11.0.1"
+  "vinext>image-size": "2.0.3"
+  "@vercel/og@>=0.8.0 <0.9.0>satori": "0.33.5"
 
 patchedDependencies:
-  '@ai-sdk/provider-utils@4.0.57': patches/@ai-sdk__provider-utils@4.0.57.patch
+  '@ai-sdk/provider-utils@4.0.67': patches/@ai-sdk__provider-utils@4.0.67.patch
   mdast-util-gfm-autolink-literal@2.0.1: patches/mdast-util-gfm-autolink-literal@2.0.1.patch
 
 peerDependencyRules:
@@ -82,7 +85,7 @@ allowBuilds:
   sharp: true
   workerd: true
 
-nodeVersion: 24.19.0
+nodeVersion: 24.22.3
 engineStrict: true
 minimumReleaseAge: 1440
 minimumReleaseAgeStrict: true

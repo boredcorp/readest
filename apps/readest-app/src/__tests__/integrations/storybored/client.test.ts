@@ -8,6 +8,31 @@ describe('StoryBored reader client authentication', () => {
     vi.resetModules();
   });
 
+  it('includes Access cookies without replacing the application Bearer token', async () => {
+    vi.stubEnv('NEXT_PUBLIC_STORYBORED_API_BASE_URL', 'https://api.storybored.test');
+    const { createStoryBoredReaderClient } = await import('@/integrations/storybored/client');
+    const fetchMock = vi.fn(
+      async () =>
+        new Response('{"libraryItems":[]}', {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+    );
+    const client = createStoryBoredReaderClient({
+      accessToken: 'reader-access-token',
+      fetchImpl: fetchMock,
+    });
+    await client.listOwnedLibrary();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.storybored.test/v1/me/library',
+      expect.objectContaining({
+        headers: expect.objectContaining({ Authorization: 'Bearer reader-access-token' }),
+        credentials: 'include',
+        redirect: 'error',
+      }),
+    );
+  });
+
   it('rejects every protected operation before networking when no access token exists', async () => {
     vi.stubEnv('NEXT_PUBLIC_STORYBORED_ENABLED', 'true');
     vi.stubEnv('NEXT_PUBLIC_STORYBORED_API_BASE_URL', 'https://api.storybored.test');

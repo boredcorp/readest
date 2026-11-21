@@ -12,11 +12,11 @@ const readRepositoryFile = (relativePath) =>
   readFile(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
 
 const PINNED_DOCKERFILE_FRONTEND =
-  'docker/dockerfile:1.26.0@sha256:ecfaec9ed6d810b56388c508f4121597bfbba70d41a6dfeee4d8cad5f295fc32';
+  'docker/dockerfile:1.29.0@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183';
 const PINNED_NODE_BUILD_IMAGE =
-  'docker.io/library/node:24.19.0-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03';
+  'docker.io/library/node:24.22.3-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54';
 const PINNED_NODE_RUNTIME_IMAGE =
-  'gcr.io/distroless/nodejs24-debian13:nonroot@sha256:59c479c9b8c123e66047315c968aa2d35e31ae5149c856e4110a79c8b3563f0b';
+  'gcr.io/distroless/nodejs24-debian13:nonroot@sha256:6abfcb367ebc291572c774c1592a986be2ab26a2486f73093401327495a5962a';
 
 test('production Reader image is pinned, minimal, non-root, and health checked', async () => {
   const [dockerfile, nextConfig] = await Promise.all([
@@ -31,7 +31,7 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
   );
   assert.ok(
     dockerfile.includes(`ARG NODE_BUILD_IMAGE=${PINNED_NODE_BUILD_IMAGE}`),
-    'build base must pin Node 24.19.0 by digest',
+    'build base must pin Node 24.22.3 by digest',
   );
   assert.match(dockerfile, /FROM \$\{NODE_BUILD_IMAGE\} AS base/u);
   assert.ok(
@@ -40,8 +40,8 @@ test('production Reader image is pinned, minimal, non-root, and health checked',
   );
   assert.match(
     dockerfile,
-    /corepack install --global pnpm@11\.28\.4/u,
-    'builder must pin pnpm 11.28.4',
+    /corepack install --global pnpm@11\.28\.13/u,
+    'builder must pin pnpm 11.28.13',
   );
   assert.match(nextConfig, /output: exportOutput \? 'export' : 'standalone'/u);
   assert.match(nextConfig, /outputFileTracingRoot: exportOutput \? undefined : storyBoredRoot/u);
@@ -152,11 +152,11 @@ test('dependency overrides retain patched transitive releases', async () => {
   assert.match(workspace, /^  ["']?browserslist["']?: ["']?4\.29\.3["']?$/mu);
   assert.match(workspace, /^  ["']?deepmerge-ts["']?: ["']?8\.0\.2["']?$/mu);
   assert.match(workspace, /^  ["']?fast-uri["']?: ["']?3\.1\.9["']?$/mu);
-  assert.match(workspace, /^  ["']?qs["']?: ["']?6\.16\.0["']?$/mu);
+  assert.match(workspace, /^  ["']?qs["']?: ["']?6\.17\.1["']?$/mu);
   assert.match(lockfile, /^  browserslist@4\.29\.3:$/mu);
   assert.match(lockfile, /^  deepmerge-ts@8\.0\.2:$/mu);
   assert.match(lockfile, /^  fast-uri@3\.1\.9:$/mu);
-  assert.match(lockfile, /^  qs@6\.16\.0:$/mu);
+  assert.match(lockfile, /^  qs@6\.17\.1:$/mu);
   for (const dependency of ['@wdio/config', '@wdio/runner', '@wdio/utils', 'webdriver']) {
     assert.match(
       lockfile,
